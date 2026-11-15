@@ -97,7 +97,8 @@ h3 { margin: 16px 0 6px; font-size: 18px; letter-spacing: -.01em; }
 .diagram path.c { stroke: var(--accent); stroke-dasharray: 6 6; }
 .diagram .mv { fill: var(--accent-2); }
 .diagram .mc { fill: var(--accent); }
-.diagram .l { font-size: 12.5px; text-anchor: middle; font-weight: 500; }
+.diagram .l { font-size: 12.5px; text-anchor: middle; font-weight: 500; paint-order: stroke; stroke: #0d1118; stroke-width: 6px; stroke-linejoin: round; }
+.diagram .l.start { text-anchor: start; }
 .diagram .l.v { fill: var(--accent-2); }
 .diagram .l.c { fill: #b4a6ff; }
 .how figcaption { display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 18px; color: var(--muted); font-size: 13px; flex-wrap: wrap; }
