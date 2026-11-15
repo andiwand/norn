@@ -8,6 +8,7 @@
 	interface Props {
 		camera: string;
 		stream?: string;
+		codec?: string | null;
 		fit?: 'contain' | 'cover';
 		muted?: boolean;
 		mode?: string | null;
@@ -18,6 +19,7 @@
 	let {
 		camera,
 		stream = 'main',
+		codec = null,
 		fit = 'contain',
 		muted = true,
 		mode = $bindable(null),
@@ -29,8 +31,10 @@
 	let error = $state('');
 
 	$effect(() => {
-		const el = element as (HTMLElement & { src: string }) | null;
+		const el = element as (HTMLElement & { src: string; mode: string }) | null;
 		if (!el) return;
+		// MJPEG can't go over WebRTC or MSE; go2rtc sends it as JPEG frames instead.
+		el.mode = codec === 'mjpeg' ? 'mjpeg' : 'webrtc,mse,hls,mjpeg';
 		el.src = urls.stream(camera, stream);
 	});
 

@@ -1,12 +1,51 @@
 // The Norn API. The backend serves this app, so all calls are relative to its origin.
 
 export type Capability =
-	'live' | 'snapshot' | 'ptz' | 'presets' | 'controls' | 'audio' | 'talkback';
+	| 'live'
+	| 'snapshot'
+	| 'ptz'
+	| 'presets'
+	| 'controls'
+	| 'audio'
+	| 'talkback'
+	| 'firmware-upload'
+	| 'firmware-online';
 
 export interface StreamInfo {
 	id: string;
 	label: string;
 	name: string;
+	codec: 'h264' | 'h265' | 'mjpeg' | null;
+}
+
+export interface DeviceInfo {
+	online: boolean;
+	error: string | null;
+	manufacturer: string | null;
+	model: string | null;
+	firmware: string | null;
+	hardware: string | null;
+	serial: string | null;
+	mac: string | null;
+	name: string | null;
+	details: Record<string, string>;
+	notes: string[];
+}
+
+export interface FirmwareStatus {
+	status: 'current' | 'update' | 'end-of-life' | 'unknown';
+	current: string | null;
+	latest: string | null;
+	released: string | null;
+	url: string | null;
+	checked: string | null;
+	notes: string[];
+}
+
+export interface FirmwareUpdate {
+	state: 'running' | 'done' | 'failed';
+	error?: string;
+	source?: 'file' | 'online';
 }
 
 export interface Camera {
@@ -25,6 +64,10 @@ export interface Camera {
 		start?: string;
 		seconds?: number;
 	} | null;
+	auto_update: boolean;
+	device: DeviceInfo | null;
+	firmware: FirmwareStatus | null;
+	update: FirmwareUpdate | null;
 }
 
 export interface ControlOption {
@@ -174,8 +217,34 @@ export const api = {
 		);
 		return request<{ recordings: Recording[]; days: string[] }>('GET', `/recordings?${query}`);
 	},
-	deleteRecording: (id: string) => request<void>('DELETE', `/recordings/${id}`)
+	deleteRecording: (id: string) => request<void>('DELETE', `/recordings/${id}`),
+	refreshDevice: (id: string) => request<Camera>('POST', `/cameras/${enc(id)}/device`),
+	updateFirmware: async (id: string, file?: File): Promise<Camera> => {
+		const response = await fetch(`/api/cameras/${enc(id)}/firmware`, {
+			method: 'POST',
+			headers: file ? { 'Content-Type': 'application/octet-stream' } : {},
+			body: file ?? undefined
+		});
+		if (!response.ok) {
+			const data = await response.json().catch(() => ({}));
+			throw new ApiError(response.status, errorText(data.detail) ?? response.statusText);
+		}
+		return response.json();
+	}
 };
+
+/** The body of a camera for PUT /cameras/{id}: its config, with one field changed. */
+export function cameraBody(camera: Camera, change: Record<string, unknown> = {}) {
+	return {
+		name: camera.name,
+		driver: camera.driver,
+		enabled: camera.enabled,
+		record: camera.record,
+		auto_update: camera.auto_update,
+		...camera.options,
+		...change
+	};
+}
 
 export const urls = {
 	stream: (camera: string, stream = 'main') =>

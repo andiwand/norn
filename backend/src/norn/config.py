@@ -64,6 +64,8 @@ class CameraConfig(BaseModel):
     driver: str = Field(min_length=1)
     enabled: bool = True
     record: Literal["off", "continuous"] = "off"
+    # Install new firmware by itself, where the driver can fetch it from the vendor.
+    auto_update: bool = False
 
     @property
     def options(self) -> dict[str, Any]:

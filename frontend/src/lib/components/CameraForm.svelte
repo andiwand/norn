@@ -58,7 +58,13 @@
 		e.preventDefault();
 		error = '';
 		saving = true;
-		const body: Record<string, unknown> = { name, driver: driverName, enabled, record };
+		const body: Record<string, unknown> = {
+			name,
+			driver: driverName,
+			enabled,
+			record,
+			auto_update: initial?.auto_update ?? false
+		};
 		for (const [key] of fields) {
 			const value = options[key]?.trim();
 			if (value) body[key] = value;

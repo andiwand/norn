@@ -12,8 +12,20 @@ the controls of the camera's own app, and records.</p>
 
 ---
 
-> Norn is an early preview. It works with RTSP cameras today; support for more cameras (ONVIF and
-> vendor APIs) comes one camera at a time. See [PLAN.md](PLAN.md).
+> Norn is an early preview. Support for cameras grows one real camera at a time. See
+> [PLAN.md](PLAN.md).
+
+| Driver      | Cameras                                         | Video        | Control                                                    |
+| ----------- | ----------------------------------------------- | ------------ | ---------------------------------------------------------- |
+| `hikvision` | Hikvision IP cameras (tested: DS-2CD2042WD-I)   | RTSP H.264   | day/night, WDR, flip, colour, motion detection, firmware   |
+| `reolink`   | Reolink (tested: E1 Pro)                        | RTSP H.264   | pan/tilt, presets, day/night, image (ONVIF)                |
+| `onvif`     | any ONVIF camera                                | RTSP         | PTZ, presets, day/night, image                             |
+| `foscam`    | Foscam CGI: supra IPC-1A / IPC-100HD, Wansview… | MJPEG (HTTP) | pan/tilt, presets, resolution, brightness, flip            |
+| `rtsp`      | anything with an RTSP URL                       | RTSP         | –                                                          |
+| `demo`      | a test pattern with pretend controls            | FFmpeg       | everything, pretend                                        |
+
+Each camera page shows what the camera reports about itself (model, firmware, uptime, …) and
+whether newer firmware exists.
 
 - **Live video** in any browser over WebRTC, with MSE and HLS as fallbacks. Installable on phones.
 - **Camera controls**: pan, tilt, zoom, presets, and whatever settings the camera has. Each driver
@@ -78,6 +90,14 @@ cameras:
     substream: rtsp://user:password@192.168.1.20:554/stream2 # optional, for the grid
     record: continuous # off (default) or continuous
     enabled: true # default
+    auto_update: false # install new firmware by itself, where the driver can
+
+  garden:
+    name: Garden
+    driver: hikvision
+    host: 192.168.1.64
+    username: admin
+    password: secret # quote it if it starts with a special character
 ```
 
 The settings of the process come from environment variables:

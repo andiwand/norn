@@ -46,6 +46,35 @@ class NornVideo extends VideoRTC {
 		return result;
 	}
 
+	// MJPEG arrives as single JPEG frames. go2rtc's player sets them as the <video> poster, which
+	// ignores object-fit; an <img> fills the tile like the video does.
+	onmjpeg() {
+		if (!this.image) {
+			this.image = document.createElement('img');
+			this.image.alt = '';
+			Object.assign(this.image.style, {
+				position: 'absolute',
+				inset: '0',
+				width: '100%',
+				height: '100%',
+				objectFit: this.getAttribute('fit') || 'contain'
+			});
+			this.style.position = 'relative';
+			this.appendChild(this.image);
+		}
+		let first = true;
+		this.ondata = (data) => {
+			const url = URL.createObjectURL(new Blob([data], { type: 'image/jpeg' }));
+			this.image.onload = () => URL.revokeObjectURL(url);
+			this.image.src = url;
+			if (first) {
+				first = false;
+				this.emit('norn-state', 'playing');
+			}
+		};
+		this.send({ type: 'mjpeg' }); // ask go2rtc to start the frames
+	}
+
 	onpcvideo(video) {
 		super.onpcvideo(video);
 		if (this.pcState !== WebSocket.CLOSED) this.emit('norn-mode', 'webrtc');

@@ -27,8 +27,16 @@ image or the PyPI package `norn-hub`. The name may change later.
     (widgets: toggle, select, range, button), `presets()` and `ptz()`. The web app renders
     whatever a driver declares, so a new driver needs no UI change. Drivers push state changes
     with `self.emit(...)`, which goes to the event bus.
+  - Drivers also report `info()` (a `DeviceInfo`: model, firmware, details, notes). The hub
+    polls it every 5 minutes, and `firmware.py` compares the firmware with a hand-kept catalogue
+    of the newest versions (with the date each entry was checked). Firmware updates go through
+    `firmware_upload` (a file) or `firmware_online_update`; `auto_update` in a camera's config only
+    acts for drivers with `Capability.FIRMWARE_ONLINE`.
+  - Driver notes: `foscam.py` must never call `get_params.cgi` (old firmware returns all
+    passwords and the Wi-Fi key); `onvif.py` (the client, in `norn/`) signs with the camera's
+    clock; credentials in stream URLs are always percent-encoded.
   - `go2rtc.py` runs go2rtc (`managed`) or talks to one (`external`), writes its config into
-    `<config dir>/.norn/go2rtc.yaml`, and syncs streams through its API. Stream names: the main
+    `<config dir>/.norn/go2rtc.yaml` (block YAML: go2rtc edits that file itself), and syncs streams through its API. Stream names: the main
     stream is the camera id, others `<id>_<stream>`.
   - `recorder.py`: FFmpeg with `-c:v copy` from go2rtc's RTSP. Continuous: the segment muxer,
     into day folders made in advance (it can't make folders). Clips: one FFmpeg per clip, plus a

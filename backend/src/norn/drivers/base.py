@@ -25,6 +25,8 @@ class Capability(StrEnum):
     CONTROLS = "controls"  # settings like IR, spotlight, siren
     AUDIO = "audio"  # the stream has sound
     TALKBACK = "talkback"  # two-way audio
+    FIRMWARE_UPLOAD = "firmware-upload"  # installs a firmware file the user provides
+    FIRMWARE_ONLINE = "firmware-online"  # finds and installs new firmware by itself
 
 
 class Stream(BaseModel):
@@ -33,6 +35,9 @@ class Stream(BaseModel):
     id: str
     label: str
     source: str  # a go2rtc source: rtsp://..., ffmpeg:..., onvif://..., tapo://...
+    # The video codec, if the driver knows it. MJPEG can't go over WebRTC or into a browser's MP4,
+    # so the player asks go2rtc for MJPEG frames and the recorder encodes it to H.264.
+    codec: Literal["h264", "h265", "mjpeg"] | None = None
 
 
 class Option(BaseModel):
@@ -54,6 +59,24 @@ class Control(BaseModel):
     step: float | None = None
     unit: str | None = None
     icon: str | None = None  # a hint for the UI, like "sun", "siren", "moon"
+
+
+class DeviceInfo(BaseModel):
+    """What a camera says about itself. The hub polls it, so it must be cheap."""
+
+    online: bool = True
+    error: str | None = None
+    manufacturer: str | None = None
+    model: str | None = None
+    firmware: str | None = None
+    hardware: str | None = None
+    serial: str | None = None
+    mac: str | None = None
+    name: str | None = None  # the name set on the camera itself
+    # More facts for the UI, in display order: {"Uptime": "3 days", "Wi-Fi": "connected"}
+    details: dict[str, str] = Field(default_factory=dict)
+    # Things the user should know: an endpoint that leaks secrets, a protocol that is off, ...
+    notes: list[str] = Field(default_factory=list)
 
 
 class Preset(BaseModel):
@@ -118,6 +141,10 @@ class Driver(ABC):
     async def stop(self) -> None:
         pass
 
+    async def info(self) -> DeviceInfo:
+        """Model, firmware, state. The default knows nothing; drivers ask the camera."""
+        return DeviceInfo(manufacturer=None, model=self.label)
+
     async def controls(self) -> list[Control]:
         return []
 
@@ -126,6 +153,17 @@ class Driver(ABC):
 
     async def presets(self) -> list[Preset]:
         return []
+
+    async def firmware_upload(self, image: bytes) -> None:
+        """Install a firmware file. Drivers with Capability.FIRMWARE_UPLOAD implement it."""
+        raise NotSupportedError(f"{self.label} can't install firmware through Norn")
+
+    async def firmware_online_check(self) -> str | None:
+        """The version of newer firmware the vendor offers, or None. For FIRMWARE_ONLINE."""
+        return None
+
+    async def firmware_online_update(self) -> None:
+        raise NotSupportedError(f"{self.label} can't update itself online")
 
     async def ptz(self, command: PtzCommand) -> None:
         raise NotSupportedError(f"{self.label} cannot pan, tilt or zoom")

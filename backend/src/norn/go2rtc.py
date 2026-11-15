@@ -14,11 +14,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
+import io
 import logging
 import shutil
 
 import httpx
+from ruamel.yaml import YAML
 
 from .events import EventBus
 from .settings import Settings
@@ -60,8 +61,13 @@ class Go2rtc:
 
     def write_config(self, streams: Streams) -> None:
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
-        # JSON is valid YAML, and go2rtc reads it as such.
-        self.config_path.write_text(json.dumps(self.config(streams), indent=2) + "\n")
+        # Block-style YAML: go2rtc edits this file itself when streams are added through its API,
+        # and its editor fails on flow style (JSON).
+        yaml = YAML(typ="safe", pure=True)
+        yaml.default_flow_style = False
+        buffer = io.StringIO()
+        yaml.dump(self.config(streams), buffer)
+        self.config_path.write_text("# Written by Norn from config.yaml. Don't edit.\n" + buffer.getvalue())
 
     async def start(self, streams: Streams) -> None:
         self._streams = dict(streams)

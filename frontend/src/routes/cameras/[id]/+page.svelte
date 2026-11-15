@@ -9,6 +9,7 @@
 	import RecordingTile from '#lib/components/RecordingTile.svelte';
 	import RecordingDialog from '#lib/components/RecordingDialog.svelte';
 	import RecBadge from '#lib/components/RecBadge.svelte';
+	import DeviceCard from '#lib/components/DeviceCard.svelte';
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 	import Pencil from '@lucide/svelte/icons/pencil';
 	import Volume2 from '@lucide/svelte/icons/volume-2';
@@ -151,7 +152,14 @@
 			>
 				{#if camera.enabled && caps.has('live')}
 					{#key stream}
-						<LiveVideo camera={camera.id} {stream} {muted} bind:mode class="aspect-video w-full" />
+						<LiveVideo
+							camera={camera.id}
+							{stream}
+							codec={camera.streams.find((s) => s.id === stream)?.codec}
+							{muted}
+							bind:mode
+							class="aspect-video w-full"
+						/>
 					{/key}
 				{:else}
 					<div class="grid aspect-video place-items-center text-sm text-white/60">
@@ -292,6 +300,7 @@
 					</div>
 				</section>
 			{/each}
+			<DeviceCard {camera} />
 		</aside>
 	</div>
 

@@ -6,6 +6,7 @@
 	import HardDrive from '@lucide/svelte/icons/hard-drive';
 	import FileCode from '@lucide/svelte/icons/file-code';
 	import Puzzle from '@lucide/svelte/icons/puzzle';
+	import Cctv from '@lucide/svelte/icons/cctv';
 
 	let drivers = $state<Driver[]>([]);
 	$effect(() => {
@@ -26,6 +27,52 @@
 			hand or here; both keep the other's changes.
 		</p>
 	</div>
+
+	<section class="overflow-hidden card">
+		<div class="flex items-center gap-2 p-5 pb-3 text-muted">
+			<Cctv class="size-4" /><span class="eyebrow">Cameras</span>
+		</div>
+		<div class="overflow-x-auto">
+			<table class="w-full text-sm">
+				<thead>
+					<tr class="border-b border-line text-left text-xs text-muted">
+						<th class="px-5 py-2 font-medium">Camera</th>
+						<th class="px-3 py-2 font-medium">Model</th>
+						<th class="px-3 py-2 font-medium">Firmware</th>
+						<th class="px-5 py-2 font-medium">Status</th>
+					</tr>
+				</thead>
+				<tbody class="divide-y divide-line">
+					{#each store.cameras as c (c.id)}
+						<tr>
+							<td class="px-5 py-3"
+								><a class="font-medium hover:text-accent" href="/cameras/{c.id}">{c.name}</a></td
+							>
+							<td class="px-3 py-3 text-muted">
+								{[c.device?.manufacturer, c.device?.model].filter(Boolean).join(' ') || c.driver}
+							</td>
+							<td class="px-3 py-3 font-mono text-xs text-muted">{c.device?.firmware ?? '–'}</td>
+							<td class="px-5 py-3">
+								{#if !c.enabled}
+									<span class="text-muted">Disabled</span>
+								{:else if c.device && !c.device.online}
+									<span class="text-danger">Offline</span>
+								{:else if c.firmware?.status === 'update'}
+									<span class="text-warning">Update available</span>
+								{:else if c.firmware?.status === 'end-of-life'}
+									<span class="text-muted">No more updates</span>
+								{:else if c.device}
+									<span class="text-success">OK</span>
+								{:else}
+									<span class="text-muted">…</span>
+								{/if}
+							</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		</div>
+	</section>
 
 	<section class="grid gap-4 sm:grid-cols-2">
 		<div class="card p-5">

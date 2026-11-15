@@ -25,7 +25,7 @@ from starlette.websockets import WebSocketState
 from . import __version__
 from .config import CAMERA_ID, CameraConfig, ConfigError
 from .drivers import DRIVERS, describe
-from .drivers.base import Capability, NotSupportedError, PtzCommand
+from .drivers.base import Capability, DriverError, NotSupportedError, PtzCommand
 from .go2rtc import Go2rtcUnavailableError
 from .hub import Hub, stream_name
 from .recordings import InvalidPathError
@@ -41,6 +41,7 @@ class CameraBody(BaseModel):
     driver: str
     enabled: bool = True
     record: Literal["off", "continuous"] = "off"
+    auto_update: bool = False
 
 
 class NewCamera(CameraBody):
@@ -154,6 +155,29 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
         except Go2rtcUnavailableError as e:
             raise HTTPException(503, str(e)) from e
         return Response(jpeg, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+    @api.post("/cameras/{camera_id}/device")
+    async def refresh_device(camera_id: str) -> dict[str, Any]:
+        """Read the camera's state and firmware now, instead of waiting for the next poll."""
+        driver_of(camera_id)
+        await hub.refresh_device(camera_id)
+        return hub.camera_json(camera_id)
+
+    @api.post("/cameras/{camera_id}/firmware")
+    async def update_firmware(camera_id: str, request: Request) -> dict[str, Any]:
+        """Install firmware: the request body is the firmware file. Empty: the driver's online update."""
+        driver = driver_of(camera_id)
+        image = await request.body()
+        needed = Capability.FIRMWARE_UPLOAD if image else Capability.FIRMWARE_ONLINE
+        if needed not in driver.capabilities():
+            raise HTTPException(409, f"{driver.label} can't install firmware this way")
+        try:
+            await hub.update_firmware(camera_id, image or None)
+        except RuntimeError as e:
+            raise HTTPException(409, str(e)) from e
+        except Exception as e:
+            raise HTTPException(502, f"the update failed: {e}") from e
+        return hub.camera_json(camera_id)
 
     @api.get("/cameras/{camera_id}/controls")
     async def controls(camera_id: str) -> dict[str, Any]:
@@ -277,6 +301,11 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
                     await ws.close()
 
     app.include_router(api)
+
+    @app.exception_handler(DriverError)
+    async def driver_error(_request: Request, e: DriverError) -> JSONResponse:
+        # The camera refused or didn't answer: a bad gateway, not a bug in Norn.
+        return JSONResponse({"detail": str(e)}, status_code=502)
 
     @app.exception_handler(ConfigError)
     async def config_error(_request: Request, e: ConfigError) -> JSONResponse:

@@ -31,13 +31,32 @@ log = logging.getLogger("norn.recorder")
 
 FRAGMENTED = "movflags=+frag_keyframe+empty_moov+default_base_moof"
 
+# Video arguments: copy the stream; or, for MJPEG (which browsers can't play from an MP4),
+# encode to H.264 as cheaply as possible.
+COPY = ["-c:v", "copy"]
+ENCODE = [
+    "-c:v",
+    "libx264",
+    "-preset",
+    "veryfast",
+    "-tune",
+    "zerolatency",
+    "-crf",
+    "27",
+    "-pix_fmt",
+    "yuv420p",
+]
 
-def segment_command(ffmpeg: str, source: str, folder: Path, seconds: int) -> list[str]:
+
+def segment_command(
+    ffmpeg: str, source: str, folder: Path, seconds: int, transcode: bool = False
+) -> list[str]:
     """FFmpeg arguments for a continuous recording into day folders."""
+    video = [*ENCODE, "-force_key_frames", f"expr:gte(t,n_forced*{seconds})"] if transcode else COPY
     return [
         ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin",
         "-rtsp_transport", "tcp", "-i", source,
-        "-map", "0:v", "-map", "0:a?", "-c:v", "copy", "-c:a", "aac",
+        "-map", "0:v", "-map", "0:a?", *video, "-c:a", "aac",
         "-f", "segment", "-segment_time", str(seconds), "-segment_atclocktime", "1",
         "-reset_timestamps", "1", "-strftime", "1", "-segment_format", "mp4",
         # Fragmented MP4, so the file that is still being written already plays.
@@ -46,11 +65,11 @@ def segment_command(ffmpeg: str, source: str, folder: Path, seconds: int) -> lis
     ]  # fmt: skip
 
 
-def clip_command(ffmpeg: str, source: str, path: Path, seconds: int) -> list[str]:
+def clip_command(ffmpeg: str, source: str, path: Path, seconds: int, transcode: bool = False) -> list[str]:
     return [
         ffmpeg, "-hide_banner", "-loglevel", "error",
         "-rtsp_transport", "tcp", "-i", source, "-t", str(seconds),
-        "-map", "0:v", "-map", "0:a?", "-c:v", "copy", "-c:a", "aac",
+        "-map", "0:v", "-map", "0:a?", *(ENCODE if transcode else COPY), "-c:a", "aac",
         "-movflags", "+faststart", "-y", str(path),
     ]  # fmt: skip
 
@@ -83,16 +102,17 @@ class Recorder:
         self.bus = bus
         self.available = settings.go2rtc_mode != "off" and shutil.which(settings.ffmpeg_bin) is not None
         self._continuous: dict[str, asyncio.Task[None]] = {}
-        self._continuous_args: dict[str, tuple[str, int]] = {}
+        self._continuous_args: dict[str, tuple[str, int, bool]] = {}
+        self.transcode: set[str] = set()
         self.clips: dict[str, Clip] = {}
         self._housekeeping: asyncio.Task[None] | None = None
         self._config = Config()
 
-    async def start(self, config: Config, streams: dict[str, str]) -> None:
+    async def start(self, config: Config, streams: dict[str, str], transcode: set[str] | None = None) -> None:
         if not self.available and self.settings.go2rtc_mode != "off":
             log.error("ffmpeg not found (%s); recording is off", self.settings.ffmpeg_bin)
         self._housekeeping = asyncio.create_task(self._housekeep(), name="recorder-housekeeping")
-        await self.apply(config, streams)
+        await self.apply(config, streams, transcode)
 
     async def stop(self) -> None:
         tasks = [*self._continuous.values(), *(c.task for c in self.clips.values() if c.task)]
@@ -103,12 +123,13 @@ class Recorder:
         await asyncio.gather(*tasks, return_exceptions=True)
         self._continuous.clear()
 
-    async def apply(self, config: Config, streams: dict[str, str]) -> None:
+    async def apply(self, config: Config, streams: dict[str, str], transcode: set[str] | None = None) -> None:
         """Start and stop continuous recordings to match the config."""
         self._config = config
+        self.transcode = transcode or set()
         seconds = config.recording.segment_minutes * 60
         wanted = {
-            cid: (cid, seconds)
+            cid: (cid, seconds, cid in self.transcode)
             for cid, cam in config.cameras.items()
             if cam.enabled and cam.record == "continuous" and cid in streams
         }
@@ -167,7 +188,9 @@ class Recorder:
         }
         try:
             snapshot = asyncio.create_task(self._thumbnail(clip))
-            cmd = clip_command(self.settings.ffmpeg_bin, source, clip.path, clip.seconds)
+            cmd = clip_command(
+                self.settings.ffmpeg_bin, source, clip.path, clip.seconds, clip.camera in self.transcode
+            )
             clip.process = await asyncio.create_subprocess_exec(*cmd, stderr=asyncio.subprocess.PIPE)
             _, stderr = await clip.process.communicate()
             await snapshot
@@ -195,12 +218,14 @@ class Recorder:
             return
         clip.path.with_suffix(".jpg").write_bytes(jpeg)
 
-    async def _run_continuous(self, camera: str, seconds: int) -> None:
+    async def _run_continuous(self, camera: str, seconds: int, transcode: bool) -> None:
         delay = 2.0
         folder = self.library.path(camera)
         while True:
             await self.go2rtc.ready.wait()
-            cmd = segment_command(self.settings.ffmpeg_bin, self.go2rtc.rtsp_url(camera), folder, seconds)
+            cmd = segment_command(
+                self.settings.ffmpeg_bin, self.go2rtc.rtsp_url(camera), folder, seconds, transcode
+            )
             log.info("recording %s continuously", camera)
             self.bus.publish("recording.continuous", {"camera": camera, "active": True})
             process = await asyncio.create_subprocess_exec(*cmd, stderr=asyncio.subprocess.PIPE)

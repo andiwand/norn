@@ -15,7 +15,8 @@ const REFRESH = new Set([
 	'recording.started',
 	'recording.finished',
 	'recording.continuous',
-	'go2rtc.ready'
+	'go2rtc.ready',
+	'camera.device'
 ]);
 
 class Store {

@@ -35,7 +35,7 @@ def test_camera_crud_writes_yaml(client: TestClient, settings: Settings) -> None
     body = {"id": "porch", "name": "Porch", "driver": "rtsp", "url": "rtsp://cam/1"}
     response = client.post("/api/cameras", json=body)
     assert response.status_code == 201, response.text
-    assert response.json()["streams"] == [{"id": "main", "label": "Main", "name": "porch"}]
+    assert response.json()["streams"] == [{"id": "main", "label": "Main", "name": "porch", "codec": None}]
     assert "url: rtsp://cam/1" in settings.config_path.read_text()
 
     assert client.post("/api/cameras", json=body).status_code == 409
@@ -149,3 +149,11 @@ def test_go2rtc_config(settings: Settings) -> None:
     assert config["webrtc"]["listen"] == ":8555"
     assert config["streams"] == {"door": "rtsp://cam/1"}
     assert go2rtc.ws_url("door") == "ws://127.0.0.1:1984/api/ws?src=door"
+
+
+def test_go2rtc_config_is_block_yaml(settings: Settings) -> None:
+    go2rtc = Go2rtc(settings, EventBus())
+    go2rtc.write_config({"door": "rtsp://u:p%23w@cam/1"})
+    text = go2rtc.config_path.read_text()
+    assert "{" not in text  # go2rtc's own editor can't handle flow style
+    assert "door: rtsp://u:p%23w@cam/1" in text

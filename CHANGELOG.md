@@ -12,3 +12,11 @@ The first version.
   folders. A webhook starts clips.
 - Cameras in `config.yaml`, edited by hand or in the app, with comments kept.
 - One Docker image with go2rtc and FFmpeg, for amd64 and arm64; the PyPI package `norn-hub`.
+- Drivers `foscam` (the CGI interface of supra, early INSTAR, Wansview: MJPEG, pan/tilt,
+  presets, image settings), `hikvision` (ISAPI: day/night, WDR, flip, colour, motion detection,
+  firmware upload), `onvif` (any ONVIF camera: PTZ, presets, imaging) and `reolink` (on ONVIF).
+- MJPEG cameras: the player shows MJPEG frames, the recorder encodes them to H.264.
+- Device status: Norn reads each camera every 5 minutes (model, firmware, uptime, ...), shows
+  offline cameras, and compares the firmware with a catalogue of the latest versions.
+- Firmware updates from a file (Hikvision), an `auto_update` setting per camera, and a daily
+  check for drivers that can find firmware online.

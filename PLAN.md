@@ -4,6 +4,13 @@ What comes next, roughly in order. The changelog has what is done.
 
 ## Cameras, one at a time
 
+Done: Hikvision (ISAPI), Reolink (ONVIF), supra/Foscam CGI, generic ONVIF. Next for these:
+
+- Hikvision: motion events from `/ISAPI/Event/notification/alertStream` as recording triggers.
+- Reolink: with the HTTP API on, the online firmware check and update (`CheckFirmware`,
+  `UpgradeOnline`), spotlight and siren. ONVIF events (PullPoint) as triggers.
+- supra/Foscam: the alarm state from `get_status.cgi` as a trigger; the IR LED.
+
 We add support by looking at one real camera after the other: find its protocols (RTSP, ONVIF,
 vendor API), what it can do, and write or extend a driver.
 

@@ -8,7 +8,9 @@
 	let { camera }: { camera: Camera } = $props();
 
 	// The grid uses the small stream where there is one; it costs the browser and the network less.
-	const stream = $derived(camera.streams.find((s) => s.id === 'sub')?.id ?? 'main');
+	const stream = $derived(camera.streams.find((s) => s.id === 'sub') ?? camera.streams[0]);
+	const offline = $derived(camera.device && !camera.device.online);
+	const update = $derived(camera.firmware?.status === 'update');
 </script>
 
 <a
@@ -30,7 +32,13 @@
 			</div>
 		</div>
 	{:else}
-		<LiveVideo camera={camera.id} {stream} fit="cover" class="h-full w-full" />
+		<LiveVideo
+			camera={camera.id}
+			stream={stream.id}
+			codec={stream.codec}
+			fit="cover"
+			class="h-full w-full"
+		/>
 	{/if}
 
 	<div
@@ -38,7 +46,12 @@
 	>
 		<span class="truncate text-sm font-semibold text-white drop-shadow">{camera.name}</span>
 	</div>
-	{#if camera.recording}
-		<div class="absolute top-3 left-3"><RecBadge mode={camera.recording.mode} /></div>
-	{/if}
+	<div class="absolute top-3 left-3 flex gap-2">
+		{#if camera.recording}<RecBadge mode={camera.recording.mode} />{/if}
+		{#if offline}
+			<span class="badge bg-danger/85 text-white" title={camera.device?.error ?? ''}>Offline</span>
+		{:else if update}
+			<span class="badge bg-warning/90 text-black" title="New firmware is available">Update</span>
+		{/if}
+	</div>
 </a>
