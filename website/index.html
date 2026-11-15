@@ -38,10 +38,10 @@
     <div class="mock-bar"><span></span><span></span><span></span><div class="mock-url">norn.local:8000</div></div>
     <div class="mock-body">
       <div class="mock-grid">
-        <div class="tile t1"><em class="rec">REC</em><b>Front door</b></div>
-        <div class="tile t2"><b>Garden</b></div>
-        <div class="tile t3"><b>Driveway</b></div>
-        <div class="tile t4"><b>Living room</b></div>
+        <div class="tile"><em class="rec">REC</em><time>14:32:07</time><b>Front door</b></div>
+        <div class="tile"><time>14:32:07</time><b>Garden</b></div>
+        <div class="tile"><time>14:32:07</time><b>Driveway</b></div>
+        <div class="tile"><time>14:32:07</time><b>Living room</b></div>
       </div>
       <div class="mock-side">
         <div class="mock-card rec-btn">● Record clip</div>
@@ -53,12 +53,12 @@
 </section>
 
 <section id="features" class="wrap">
-  <h2 class="section-title">Past, present and future</h2>
-  <p class="section-lead">In Norse myth, three Norns watch over what was, what is, and what shall be. Norn does the same for your home.</p>
+  <h2 class="section-title">Everything your cameras do, in one app</h2>
+  <p class="section-lead">Watch, control and record every camera in your home from one place, instead of one app per brand.</p>
   <div class="norns">
-    <article><span class="rune">ᚢ</span><h3>Urd · what was</h3><p>Recordings as plain MP4 files in day folders. Continuous or as clips, with thumbnails. Browse and play them in the app, or copy them with any tool.</p></article>
-    <article><span class="rune">ᚹ</span><h3>Verdandi · what is</h3><p>Live video in the browser over WebRTC, with MSE and HLS as fallbacks. Low latency, on phone and desktop, installable as an app.</p></article>
-    <article><span class="rune">ᛊ</span><h3>Skuld · what shall be</h3><p>Triggers start a recording: the record button, a webhook from Home Assistant or a doorbell, and soon the camera's own motion events.</p></article>
+    <article><span class="rune"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 13 5.2 3.5a.5.5 0 0 0 .8-.4V7.9a.5.5 0 0 0-.8-.4L16 11"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg></span><h3>Live</h3><p>Live video in the browser over WebRTC, with MSE and HLS as fallbacks. Low latency, on phone and desktop, installable as an app.</p></article>
+    <article><span class="rune"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="2"/><path d="M7 3v18M17 3v18M2 8h5M2 16h5M17 8h5M17 16h5"/></svg></span><h3>Recordings</h3><p>Plain MP4 files in day folders, continuous or as clips, with thumbnails. Browse and play them in the app, or copy them with any tool.</p></article>
+    <article><span class="rune"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/><path d="M3.3 15.3A1 1 0 0 0 4 17h16a1 1 0 0 0 .7-1.7C19.4 14 18 12.5 18 8a6 6 0 0 0-12 0c0 4.5-1.4 6-2.7 7.3"/></svg></span><h3>Triggers</h3><p>Start a recording with a button, a webhook from Home Assistant or a doorbell, and soon the camera's own motion events.</p></article>
   </div>
 
   <div class="features">
@@ -74,17 +74,44 @@
 <section id="how" class="wrap">
   <h2 class="section-title">How it works</h2>
   <p class="section-lead">Norn stays out of the video path. It controls the cameras and lets <a href="https://github.com/AlexxIT/go2rtc">go2rtc</a> move the video.</p>
-  <div class="flow">
-    <div class="node"><b>Cameras</b><span>RTSP · ONVIF · vendor APIs</span></div>
-    <div class="arrow">→</div>
-    <div class="node accent"><b>go2rtc</b><span>reads each camera once, repackages for every viewer</span></div>
-    <div class="arrow">→</div>
-    <div class="node"><b>Browser</b><span>WebRTC · MSE · HLS</span></div>
-  </div>
-  <div class="flow sub">
-    <div class="node"><b>Norn</b><span>Python · FastAPI · camera drivers, controls, config.yaml</span></div>
-    <div class="node"><b>Recorder</b><span>FFmpeg, copying the stream into MP4 files</span></div>
-    <div class="node"><b>Web app</b><span>Svelte · installable on phones</span></div>
+  <figure class="how">
+    <svg class="diagram wide" viewBox="0 0 880 300" role="img" aria-label="Video goes from the cameras through go2rtc to the browser. Norn controls the cameras and records from go2rtc.">
+<defs><marker id="av" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="mv"/></marker><marker id="ac" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="mc"/></marker></defs>
+<path class="v" d="M190 130 C 270 130, 280 65, 352 65" marker-end="url(#av)"/>
+<path class="v" d="M525 65 C 600 65, 610 130, 687 130" marker-end="url(#av)"/>
+<path class="v" d="M440 110 L 440 187" marker-end="url(#av)"/>
+<path class="c" d="M193 170 C 270 170, 280 235, 355 235" marker-start="url(#ac)"/>
+<path class="c" d="M525 235 C 600 235, 610 170, 687 170" marker-start="url(#ac)" />
+<text class="l v" x="262" y="74">video, read once</text>
+<text class="l v" x="618" y="74">WebRTC · MSE · HLS</text>
+<text class="l v" x="452" y="154" text-anchor="start">recording</text>
+<text class="l c" x="290" y="270">PTZ · settings</text>
+<text class="l c" x="595" y="270">app · API</text>
+<rect class="box " x="20" y="100" width="170" height="100" rx="16"/><text class="t" x="105.0" y="146.0">Cameras</text><text class="s" x="105.0" y="168.0">RTSP · ONVIF · vendor</text>
+<rect class="box accent" x="355" y="20" width="170" height="90" rx="16"/><text class="t" x="440.0" y="61.0">go2rtc</text><text class="s" x="440.0" y="83.0">relays the video</text>
+<rect class="box " x="355" y="190" width="170" height="90" rx="16"/><text class="t" x="440.0" y="231.0">Norn</text><text class="s" x="440.0" y="253.0">controls · records</text>
+<rect class="box " x="690" y="100" width="170" height="100" rx="16"/><text class="t" x="775.0" y="146.0">Browser</text><text class="s" x="775.0" y="168.0">phone · desktop</text>
+</svg>
+    <svg class="diagram narrow" viewBox="0 0 360 600" role="img" aria-label="Video goes from the cameras through go2rtc to the browser. Norn controls the cameras and records from go2rtc.">
+<defs><marker id="av" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="mv"/></marker><marker id="ac" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="mc"/></marker></defs>
+<path class="v" d="M150 90 C 150 160, 85 170, 85 247" marker-end="url(#av)"/>
+<path class="v" d="M85 340 C 85 420, 150 430, 150 507" marker-end="url(#av)"/>
+<path class="v" d="M160 295 L 197 295" marker-end="url(#av)"/>
+<path class="c" d="M210 93 C 210 160, 275 170, 275 250" marker-start="url(#ac)"/>
+<path class="c" d="M275 340 C 275 420, 210 430, 210 507" marker-end="url(#ac)"/>
+<text class="l v" x="60" y="160">video</text>
+<text class="l c" x="300" y="160">control</text>
+<rect class="box " x="95" y="10" width="170" height="80" rx="16"/><text class="t" x="180.0" y="46.0">Cameras</text><text class="s" x="180.0" y="68.0">RTSP · ONVIF</text>
+<rect class="box accent" x="10" y="250" width="150" height="90" rx="16"/><text class="t" x="85.0" y="291.0">go2rtc</text><text class="s" x="85.0" y="313.0">relays video</text>
+<rect class="box " x="200" y="250" width="150" height="90" rx="16"/><text class="t" x="275.0" y="291.0">Norn</text><text class="s" x="275.0" y="313.0">controls · records</text>
+<rect class="box " x="95" y="510" width="170" height="80" rx="16"/><text class="t" x="180.0" y="546.0">Browser</text><text class="s" x="180.0" y="568.0">phone · desktop</text>
+</svg>
+    <figcaption><span class="key v"></span>video, never re-encoded <span class="key c"></span>control</figcaption>
+  </figure>
+  <div class="how-notes">
+    <p><b>go2rtc</b> reads each camera once and hands the same stream to every browser and to the recorder, repackaged, not re-encoded.</p>
+    <p><b>Norn</b> talks to the cameras for everything else: pan, tilt, zoom, presets and settings. It also runs the recorder and serves the app.</p>
+    <p><b>Your browser</b> gets live video straight from go2rtc and everything else from Norn, through one address.</p>
   </div>
 </section>
 
