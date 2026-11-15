@@ -1,0 +1,112 @@
+# Lints and tests the backend and the web app, and checks the Docker image end to end:
+# it builds the image, starts it, and checks that the demo camera's video comes through go2rtc.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --locked
+
+      - name: Lint
+        run: uv run ruff check . && uv run ruff format --check .
+
+      - name: Test
+        run: uv run pytest
+
+  frontend:
+    name: Web app
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Check the format
+        run: npm run lint
+
+      - name: Type check
+        run: npm run check
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  image:
+    name: Docker image (smoke test)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          tags: norn:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Start
+        run: |
+          docker run -d --name norn -p 8000:8000 norn:ci
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8000/api/health && break
+            sleep 1
+          done
+
+      # The demo camera needs go2rtc and FFmpeg, so a frame of it proves the whole video path.
+      - name: Check
+        run: |
+          curl -sf http://localhost:8000/api/info | tee info.json
+          grep -q '"running":true' info.json
+          curl -sf http://localhost:8000/ | grep -q '<title>'
+          for i in $(seq 1 20); do
+            curl -sf -o frame.jpg http://localhost:8000/api/cameras/demo/snapshot && break
+            sleep 1
+          done
+          test "$(head -c 2 frame.jpg | od -An -tx1 | tr -d ' ')" = "ffd8"
+          curl -sf -X POST http://localhost:8000/api/cameras/demo/record \
+            -H 'Content-Type: application/json' -d '{"seconds": 5}'
+          sleep 10
+          curl -sf http://localhost:8000/api/recordings | tee recordings.json
+          grep -q '_manual.mp4' recordings.json
+
+      - name: Logs
+        if: always()
+        run: docker logs norn

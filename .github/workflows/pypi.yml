@@ -1,0 +1,66 @@
+# Publishes the Python package norn-hub to PyPI for each tag vX.Y.Z, with the web app inside.
+#
+# Uses PyPI's trusted publishing: add this repository and the workflow "pypi.yml" with the
+# environment "pypi" as a trusted publisher of norn-hub on pypi.org. No token is needed.
+name: pypi
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: astral-sh/setup-uv@v10
+
+      - name: Check the version
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: backend
+        run: |
+          version="$(uv version --short)"
+          test "v$version" = "${{ github.ref_name }}" || {
+            echo "The tag ${{ github.ref_name }} doesn't match the version $version in pyproject.toml"
+            exit 1
+          }
+
+      - name: Build the web app
+        working-directory: frontend
+        run: npm ci && npm run build && cp -r build ../backend/src/norn/web
+
+      - name: Build the package
+        working-directory: backend
+        run: |
+          uv build
+          unzip -l dist/*.whl | grep -q 'norn/web/index.html'
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: backend/dist/
+
+  publish:
+    name: Publish
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1

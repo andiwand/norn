@@ -1,0 +1,96 @@
+<script lang="ts">
+	// One camera setting, drawn from the driver's description of it.
+	import type { Component } from 'svelte';
+	import type { Control } from '../api';
+	import Moon from '@lucide/svelte/icons/moon';
+	import Sun from '@lucide/svelte/icons/sun';
+	import Lamp from '@lucide/svelte/icons/lamp';
+	import Siren from '@lucide/svelte/icons/siren';
+	import Activity from '@lucide/svelte/icons/activity';
+	import EyeOff from '@lucide/svelte/icons/eye-off';
+	import Bell from '@lucide/svelte/icons/bell';
+	import Volume2 from '@lucide/svelte/icons/volume-2';
+	import Settings2 from '@lucide/svelte/icons/settings-2';
+
+	let { control, onchange }: { control: Control; onchange: (value: unknown) => void } = $props();
+
+	const icons: Record<string, Component> = {
+		moon: Moon,
+		sun: Sun,
+		lamp: Lamp,
+		siren: Siren,
+		activity: Activity,
+		'eye-off': EyeOff,
+		bell: Bell,
+		volume: Volume2
+	};
+	const Icon = $derived(icons[control.icon ?? ''] ?? Settings2);
+
+	// The slider shows its value while dragging and sends it once on release.
+	let draft = $state<number | null>(null);
+	const rangeValue = $derived(draft ?? Number(control.value ?? control.min ?? 0));
+</script>
+
+<div class="flex min-h-12 items-center gap-3">
+	<span class="grid size-9 shrink-0 place-items-center rounded-xl bg-surface-3 text-muted">
+		<Icon class="size-4" />
+	</span>
+
+	{#if control.kind === 'toggle'}
+		<label class="flex flex-1 cursor-pointer items-center justify-between gap-3">
+			<span class="text-sm font-medium">{control.label}</span>
+			<input
+				type="checkbox"
+				role="switch"
+				class="peer sr-only"
+				checked={Boolean(control.value)}
+				onchange={(e) => onchange(e.currentTarget.checked)}
+			/>
+			<span
+				class="relative h-6 w-11 shrink-0 rounded-full bg-surface-3 transition peer-checked:bg-accent peer-focus-visible:ring-2 peer-focus-visible:ring-accent after:absolute after:top-0.5 after:left-0.5 after:size-5 after:rounded-full after:bg-white after:shadow after:transition peer-checked:after:translate-x-5"
+				aria-hidden="true"
+			></span>
+		</label>
+	{:else if control.kind === 'select'}
+		<span class="flex-1 text-sm font-medium">{control.label}</span>
+		<div class="flex rounded-xl bg-surface-3 p-1" role="radiogroup" aria-label={control.label}>
+			{#each control.options ?? [] as option (option.value)}
+				<button
+					role="radio"
+					aria-checked={control.value === option.value}
+					class="rounded-lg px-3 py-1.5 text-xs font-medium transition {control.value ===
+					option.value
+						? 'bg-surface text-text shadow'
+						: 'text-muted hover:text-text'}"
+					onclick={() => onchange(option.value)}
+				>
+					{option.label}
+				</button>
+			{/each}
+		</div>
+	{:else if control.kind === 'range'}
+		<div class="flex-1">
+			<div class="mb-1 flex justify-between text-sm">
+				<span class="font-medium">{control.label}</span>
+				<span class="text-muted tabular-nums">{rangeValue}{control.unit ?? ''}</span>
+			</div>
+			<input
+				type="range"
+				class="w-full accent-[var(--accent)]"
+				min={control.min}
+				max={control.max}
+				step={control.step}
+				value={rangeValue}
+				aria-label={control.label}
+				oninput={(e) => (draft = Number(e.currentTarget.value))}
+				onchange={(e) => {
+					onchange(Number(e.currentTarget.value));
+					draft = null;
+				}}
+			/>
+		</div>
+	{:else}
+		<span class="flex-1 text-sm font-medium">{control.label}</span>
+		<button class="btn-ghost h-9" onclick={() => onchange(null)}>Trigger</button>
+	{/if}
+</div>

@@ -1,0 +1,48 @@
+[project]
+name = "norn-hub"
+version = "0.1.0"
+readme = "README.md"
+description = "A lightweight hub that brings all your home cameras into one modern web app"
+requires-python = ">=3.13"
+authors = [{ name = "Andreas Stefl" }]
+license = "MIT"
+dependencies = [
+    "fastapi>=0.163.1",
+    "httpx>=0.28.1",
+    "pydantic>=2.14.3",
+    "ruamel-yaml>=0.19.1",
+    "uvicorn[standard]>=0.54.0",
+    "websockets>=17.4",
+]
+
+[project.scripts]
+norn = "norn.__main__:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=9",
+    "pytest-asyncio>=1.5.0",
+    "ruff>=0.17.5",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 110
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC", "RUF"]
+# B027: optional hooks of the driver base class are empty on purpose.
+# ASYNC109: explicit timeouts read better here than asyncio.timeout blocks.
+ignore = ["B027", "ASYNC109"]
+
+[tool.uv.build-backend]
+module-name = "norn"

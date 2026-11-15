@@ -1,0 +1,13 @@
+.DS_Store
+
+# Local run data (config.yaml, recordings)
+/data/
+
+# Python
+__pycache__/
+.venv/
+.pytest_cache/
+.ruff_cache/
+backend/dist/
+# The web app, copied in for the PyPI package
+backend/src/norn/web/

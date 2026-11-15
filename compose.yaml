@@ -1,0 +1,24 @@
+# Norn with `docker compose up -d`, then open http://<this machine>:8000
+#
+# Host networking lets WebRTC reach the browser directly and lets Norn find cameras on the
+# network. It works on Linux (a server, NAS or Raspberry Pi). On Docker Desktop (macOS, Windows),
+# remove `network_mode` and use the `ports` below instead.
+
+services:
+  norn:
+    image: ghcr.io/andiwand/norn:latest
+    container_name: norn
+    restart: unless-stopped
+    network_mode: host
+    # ports:
+    #   - "8000:8000"
+    #   - "8555:8555/tcp"
+    #   - "8555:8555/udp"
+    environment:
+      TZ: Etc/UTC # the time zone of the recording file names
+    volumes:
+      - ./config:/config # config.yaml
+      - ./recordings:/recordings
+    # Hardware video encoding (Intel/AMD), only used when a stream must be transcoded:
+    # devices:
+    #   - /dev/dri:/dev/dri

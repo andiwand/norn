@@ -1,0 +1,105 @@
+<script lang="ts">
+	import { api, type Driver } from '#lib/api.js';
+	import { store } from '#lib/state.svelte.js';
+	import Server from '@lucide/svelte/icons/server';
+	import Radio from '@lucide/svelte/icons/radio';
+	import HardDrive from '@lucide/svelte/icons/hard-drive';
+	import FileCode from '@lucide/svelte/icons/file-code';
+	import Puzzle from '@lucide/svelte/icons/puzzle';
+
+	let drivers = $state<Driver[]>([]);
+	$effect(() => {
+		api.drivers().then((d) => (drivers = d));
+	});
+
+	const info = $derived(store.info);
+	const origin = $derived(typeof location === 'undefined' ? '' : location.origin);
+</script>
+
+<svelte:head><title>Settings · Norn</title></svelte:head>
+
+<div class="mx-auto max-w-3xl space-y-6">
+	<div>
+		<h1 class="text-2xl font-semibold tracking-tight">Settings</h1>
+		<p class="mt-1 text-sm text-muted">
+			Norn keeps its settings in <code class="font-mono text-text">config.yaml</code>. Edit it by
+			hand or here; both keep the other's changes.
+		</p>
+	</div>
+
+	<section class="grid gap-4 sm:grid-cols-2">
+		<div class="card p-5">
+			<div class="mb-3 flex items-center gap-2 text-muted">
+				<Server class="size-4" /><span class="eyebrow">Norn</span>
+			</div>
+			<div class="text-2xl font-semibold tabular-nums">{info?.version ?? '–'}</div>
+			<p class="mt-1 text-xs text-muted">
+				{store.connected ? 'Connected to the server' : 'Not connected'}
+			</p>
+		</div>
+		<div class="card p-5">
+			<div class="mb-3 flex items-center gap-2 text-muted">
+				<Radio class="size-4" /><span class="eyebrow">go2rtc</span>
+			</div>
+			<div class="flex items-center gap-2 text-2xl font-semibold">
+				<span class="size-2.5 rounded-full {info?.go2rtc.running ? 'bg-success' : 'bg-danger'}"
+				></span>
+				{info?.go2rtc.running ? 'Running' : 'Not running'}
+			</div>
+			<p class="mt-1 text-xs text-muted">
+				{info?.go2rtc.version ? `Version ${info.go2rtc.version} · ` : ''}Relays the video without
+				re-encoding it.
+			</p>
+		</div>
+	</section>
+
+	<section class="divide-y divide-line card">
+		<div class="flex items-center gap-2 p-5 text-muted">
+			<HardDrive class="size-4" /><span class="eyebrow">Recording</span>
+		</div>
+		{#if info}
+			{#each [['Keep recordings', info.recording.retention_days ? `${info.recording.retention_days} days` : 'Forever'], ['Continuous file length', `${info.recording.segment_minutes} minutes`], ['Clip length', `${info.recording.clip_seconds} seconds`], ['Available', info.recording_available ? 'Yes' : 'No — needs go2rtc and FFmpeg']] as [label, value] (label)}
+				<div class="flex items-center justify-between gap-4 px-5 py-3.5 text-sm">
+					<span class="text-muted">{label}</span><span class="font-medium">{value}</span>
+				</div>
+			{/each}
+		{/if}
+	</section>
+
+	<section class="card p-5">
+		<div class="mb-3 flex items-center gap-2 text-muted">
+			<FileCode class="size-4" /><span class="eyebrow">Webhook</span>
+		</div>
+		<p class="text-sm text-muted">
+			Start a clip from anything that can send an HTTP request, like Home Assistant or a doorbell:
+		</p>
+		<pre
+			class="mt-3 overflow-x-auto rounded-xl bg-surface-2 p-4 font-mono text-xs leading-relaxed">curl -X POST {origin}/api/cameras/<span
+				class="text-accent">CAMERA</span
+			>/record \
+  -H 'Content-Type: application/json' \
+  -d '&#123;"trigger": "doorbell", "seconds": 30&#125;'</pre>
+		<p class="mt-3 text-xs text-muted">
+			All endpoints: <a class="text-accent hover:underline" href="/api/docs">API docs</a> · Config
+			file:
+			<code class="font-mono">{info?.config_path ?? ''}</code>
+		</p>
+	</section>
+
+	<section class="card p-5">
+		<div class="mb-4 flex items-center gap-2 text-muted">
+			<Puzzle class="size-4" /><span class="eyebrow">Camera drivers</span>
+		</div>
+		<div class="grid gap-3 sm:grid-cols-2">
+			{#each drivers as d (d.name)}
+				<div class="rounded-xl border border-line bg-surface-2/60 p-4">
+					<div class="flex items-center justify-between">
+						<span class="text-sm font-semibold">{d.label}</span>
+						<code class="font-mono text-xs text-muted">{d.name}</code>
+					</div>
+					<p class="mt-1 text-xs text-muted">{d.description}</p>
+				</div>
+			{/each}
+		</div>
+	</section>
+</div>
