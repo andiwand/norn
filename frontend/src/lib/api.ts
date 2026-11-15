@@ -202,8 +202,11 @@ export const api = {
 	updateCamera: (id: string, body: Record<string, unknown>) =>
 		request<Camera>('PUT', `/cameras/${enc(id)}`, body),
 	deleteCamera: (id: string) => request<void>('DELETE', `/cameras/${enc(id)}`),
-	controls: (id: string) =>
-		request<{ controls: Control[]; presets: Preset[] }>('GET', `/cameras/${enc(id)}/controls`),
+	controls: (id: string, fresh = false) =>
+		request<{ controls: Control[]; presets: Preset[] }>(
+			'GET',
+			`/cameras/${enc(id)}/controls${fresh ? '?fresh=true' : ''}`
+		),
 	setControl: (id: string, control: string, value: unknown) =>
 		request<void>('POST', `/cameras/${enc(id)}/controls/${enc(control)}`, { value }),
 	ptz: (id: string, command: PtzCommand) =>

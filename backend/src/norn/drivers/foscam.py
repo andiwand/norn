@@ -183,22 +183,43 @@ class FoscamDriver(Driver):
                 options=[Option(value=str(k), label=v) for k, v in resolutions.items()],
             ),
             Control(
-                id="brightness", label="Brightness", kind="range", group="Image", icon="sun",
-                value=int(p.get("brightness", 0)), min=0, max=255, step=1,
+                id="brightness",
+                label="Brightness",
+                kind="range",
+                group="Image",
+                icon="sun",
+                value=int(p.get("brightness", 0)),
+                min=0,
+                max=255,
+                step=1,
             ),
             Control(
-                id="contrast", label="Contrast", kind="range", group="Image",
-                value=int(p.get("contrast", 0)), min=0, max=contrast_max, step=1,
+                id="contrast",
+                label="Contrast",
+                kind="range",
+                group="Image",
+                value=int(p.get("contrast", 0)),
+                min=0,
+                max=contrast_max,
+                step=1,
             ),
             Control(
-                id="flip", label="Orientation", kind="select", group="Image", value=p.get("flip"),
+                id="flip",
+                label="Orientation",
+                kind="select",
+                group="Image",
+                value=p.get("flip"),
                 options=[Option(value=str(k), label=v) for k, v in FLIP.items()],
             ),
             Control(
-                id="mode", label="Mains frequency", kind="select", group="Image", value=p.get("mode"),
+                id="mode",
+                label="Mains frequency",
+                kind="select",
+                group="Image",
+                value=p.get("mode"),
                 options=[Option(value=str(k), label=v) for k, v in MODES.items()],
             ),
-        ]  # fmt: skip
+        ]
 
     async def set_control(self, control_id: str, value: Any) -> None:
         params = {"resolution": 0, "brightness": 1, "contrast": 2, "mode": 3, "flip": 5}

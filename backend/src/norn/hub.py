@@ -14,7 +14,7 @@ from pydantic import ValidationError
 from . import __version__
 from .config import CameraConfig, Config, ConfigError, ConfigStore
 from .drivers import DRIVERS
-from .drivers.base import Capability, DeviceInfo, Driver
+from .drivers.base import Capability, Control, DeviceInfo, Driver, Preset
 from .events import EventBus
 from .firmware import FirmwareStatus, check
 from .go2rtc import Go2rtc, Go2rtcUnavailableError
@@ -44,6 +44,11 @@ class Camera:
     device_time: float = 0
     firmware_time: float = 0
     update: dict[str, Any] | None = field(default=None)  # a running or failed firmware update
+    # The last controls and presets read from the camera, so a page opens complete at once.
+    controls: list[Control] | None = None
+    presets: list[Preset] | None = None
+    controls_time: float = 0
+    controls_task: asyncio.Task[None] | None = field(default=None, repr=False)
 
     def to_json(self, recording: dict[str, Any] | None) -> dict[str, Any]:
         driver = self.driver
@@ -155,6 +160,41 @@ class Hub:
             )
         self.bus.publish("camera.device", {"camera": camera_id})
 
+    async def get_controls(self, camera_id: str, max_age: float = 30) -> tuple[list[Control], list[Preset]]:
+        """The camera's controls: from the cache, refreshed in the background when older than max_age."""
+        camera = self.cameras[camera_id]
+        if camera.controls is None:
+            await self.refresh_controls(camera_id)
+        elif time.time() - camera.controls_time > max_age and not (
+            camera.controls_task and not camera.controls_task.done()
+        ):
+            camera.controls_task = asyncio.create_task(self.refresh_controls(camera_id))
+        return camera.controls or [], camera.presets or []
+
+    async def refresh_controls(self, camera_id: str) -> None:
+        camera = self.cameras.get(camera_id)
+        if not camera or not camera.driver or not camera.config.enabled:
+            return
+        try:
+            controls = await asyncio.wait_for(camera.driver.controls(), 30)
+            presets = await asyncio.wait_for(camera.driver.presets(), 15)
+        except Exception as e:
+            log.info("%s: reading controls failed: %s", camera_id, e)
+            return
+        if self.cameras.get(camera_id) is not camera:
+            return
+        changed = (controls, presets) != (camera.controls, camera.presets)
+        camera.controls, camera.presets, camera.controls_time = controls, presets, time.time()
+        if changed:
+            self.bus.publish("camera.controls", {"camera": camera_id})
+
+    def remember_control(self, camera_id: str, control_id: str, value: Any) -> None:
+        """Keep the cache in step with a change made through Norn."""
+        camera = self.cameras.get(camera_id)
+        for control in (camera.controls or []) if camera else []:
+            if control.id == control_id and control.kind != "button":
+                control.value = value
+
     async def refresh_devices(self, only_new: bool = False) -> None:
         ids = [cid for cid, cam in self.cameras.items() if not only_new or cam.device is None]
         await asyncio.gather(*(self.refresh_device(cid) for cid in ids))
@@ -184,6 +224,14 @@ class Hub:
     async def _poll_devices(self) -> None:
         while True:
             await self.refresh_devices()
+            # Keep the controls warm too, so a camera page never waits for the camera.
+            await asyncio.gather(
+                *(
+                    self.refresh_controls(cid)
+                    for cid, cam in self.cameras.items()
+                    if cam.device is None or cam.device.online
+                )
+            )
             now = time.time()
             for cid, camera in list(self.cameras.items()):
                 if now - camera.firmware_time >= FIRMWARE_INTERVAL:

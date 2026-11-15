@@ -32,6 +32,12 @@ image or the PyPI package `norn-hub`. The name may change later.
     of the newest versions (with the date each entry was checked). Firmware updates go through
     `firmware_upload` (a file) or `firmware_online_update`; `auto_update` in a camera's config only
     acts for drivers with `Capability.FIRMWARE_ONLINE`.
+  - The hub caches each camera's controls and presets (`get_controls`), refreshes them with the
+    device poll, and publishes `camera.controls` on a change; the web app also keeps them in
+    localStorage, so a camera page renders complete at once.
+  - `reolink.py` uses reolink_aio in Baichuan-only mode (`bc_only=True`). Keep it that way: the
+    library's normal mode opens ports on the camera by itself. `tapo.py` wraps pytapo (sync) with
+    `asyncio.to_thread`. Drivers marked untested in the README were written from vendor docs.
   - Driver notes: `foscam.py` must never call `get_params.cgi` (old firmware returns all
     passwords and the Wi-Fi key); `onvif.py` (the client, in `norn/`) signs with the camera's
     clock; credentials in stream URLs are always percent-encoded.

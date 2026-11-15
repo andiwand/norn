@@ -195,9 +195,16 @@ class HikvisionDriver(Driver):
             if values[control_id] is None:
                 return None
             return Control(
-                id=control_id, label=label, kind="range", group="Image", icon=icon,
-                value=int(values[control_id] or 0), min=0, max=100, step=1,
-            )  # fmt: skip
+                id=control_id,
+                label=label,
+                kind="range",
+                group="Image",
+                icon=icon,
+                value=int(values[control_id] or 0),
+                min=0,
+                max=100,
+                step=1,
+            )
 
         controls = [
             Control(
@@ -215,7 +222,10 @@ class HikvisionDriver(Driver):
             level("contrast", "Contrast"),
             level("saturation", "Saturation"),
             Control(
-                id="wdr", label="Wide dynamic range", kind="toggle", group="Image",
+                id="wdr",
+                label="Wide dynamic range",
+                kind="toggle",
+                group="Image",
                 value=values["wdr"] == "open",
             )
             if values["wdr"]
@@ -226,12 +236,16 @@ class HikvisionDriver(Driver):
             if values["flip"]
             else None,
             Control(
-                id="motion", label="Motion detection", kind="toggle", group="Alarm", icon="activity",
+                id="motion",
+                label="Motion detection",
+                kind="toggle",
+                group="Alarm",
+                icon="activity",
                 value=values["motion"] == "true",
             )
             if values["motion"]
             else None,
-        ]  # fmt: skip
+        ]
         return [c for c in controls if c]
 
     async def set_control(self, control_id: str, value: Any) -> None:

@@ -27,6 +27,21 @@ def describe(cls: type[Driver]) -> dict[str, Any]:
 
 
 # Importing the modules registers the drivers.
-from . import demo, foscam, hikvision, onvif, reolink, rtsp  # noqa: E402
+from . import axis, dahua, demo, foscam, foscam_hd, hikvision, onvif, reolink, rtsp, tapo, unifi  # noqa: E402
 
-__all__ = ["DRIVERS", "demo", "describe", "foscam", "hikvision", "onvif", "register", "reolink", "rtsp"]
+__all__ = [
+    "DRIVERS",
+    "axis",
+    "dahua",
+    "demo",
+    "describe",
+    "foscam",
+    "foscam_hd",
+    "hikvision",
+    "onvif",
+    "register",
+    "reolink",
+    "rtsp",
+    "tapo",
+    "unifi",
+]

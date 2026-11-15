@@ -180,11 +180,15 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
         return hub.camera_json(camera_id)
 
     @api.get("/cameras/{camera_id}/controls")
-    async def controls(camera_id: str) -> dict[str, Any]:
-        driver = driver_of(camera_id)
+    async def controls(camera_id: str, fresh: bool = False) -> dict[str, Any]:
+        """The controls and presets. From a cache that the hub keeps warm; `fresh` reads the camera."""
+        driver_of(camera_id)
+        if fresh:
+            await hub.refresh_controls(camera_id)
+        controls, presets = await hub.get_controls(camera_id)
         return {
-            "controls": [c.model_dump(exclude_none=True) for c in await driver.controls()],
-            "presets": [p.model_dump() for p in await driver.presets()],
+            "controls": [c.model_dump(exclude_none=True) for c in controls],
+            "presets": [p.model_dump() for p in presets],
         }
 
     @api.post("/cameras/{camera_id}/controls/{control_id}")
@@ -192,6 +196,7 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
         driver = driver_of(camera_id)
         try:
             await driver.set_control(control_id, body.value)
+            hub.remember_control(camera_id, control_id, body.value)
         except NotSupportedError as e:
             raise HTTPException(404, str(e)) from e
         except ValueError as e:

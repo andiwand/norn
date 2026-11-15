@@ -51,7 +51,7 @@ CATALOGUE: list[Entry] = [
         released="2025-07-08",
         url="https://reolink.com/download-center/",
         checked="2026-11-16",
-        notes=("For hardware IPC_566SD54MP. Check the hardware version in the Reolink app first.",),
+        notes=("For hardware IPC_566SD54MP; the driver also asks Reolink live for the camera's hardware.",),
     ),
     Entry(
         manufacturer="supra",

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { api, urls, type Control, type Preset, type Recording } from '#lib/api.js';
+	import { api, urls, type Control, type Recording } from '#lib/api.js';
 	import { store } from '#lib/state.svelte.js';
 	import { formatDuration } from '#lib/format.js';
 	import LiveVideo from '#lib/components/LiveVideo.svelte';
@@ -29,8 +29,9 @@
 	let muted = $state(true);
 	let mode = $state<string | null>(null);
 	let frame = $state<HTMLElement | null>(null);
-	let controls = $state<Control[]>([]);
-	let presets = $state<Preset[]>([]);
+	const controls = $derived(store.controls[id]?.controls ?? []);
+	const presets = $derived(store.controls[id]?.presets ?? []);
+	const enabled = $derived(camera?.enabled ?? false);
 	let recent = $state<Recording[]>([]);
 	let open = $state<Recording | null>(null);
 	let now = $state(Date.now());
@@ -48,27 +49,19 @@
 		clip?.start ? Math.max(0, (now - new Date(clip.start).getTime()) / 1000) : 0
 	);
 
-	async function loadControls(cameraId: string) {
-		const data = await api.controls(cameraId).catch(() => ({ controls: [], presets: [] }));
-		controls = data.controls;
-		presets = data.presets;
-	}
 	async function loadRecent(cameraId: string) {
 		recent =
 			(await api.recordings({ camera: cameraId, limit: 8 }).catch(() => null))?.recordings ?? [];
 	}
 
+	// Depends on the id and enabled only: the camera object is replaced on each refresh.
 	$effect(() => {
-		if (!camera || !camera.enabled) return;
-		const cameraId = camera.id;
-		if (caps.has('controls') || caps.has('presets')) loadControls(cameraId);
+		if (!id || !enabled) return;
+		const cameraId = id;
+		store.loadControls(cameraId); // shows the cached controls at once; this updates them
 		loadRecent(cameraId);
 		return store.on((event) => {
 			if (event.data.camera !== cameraId) return;
-			if (event.type === 'camera.control') {
-				const c = controls.find((c) => c.id === event.data.control);
-				if (c) c.value = event.data.value;
-			}
 			if (event.type === 'recording.finished' || event.type === 'recording.deleted')
 				loadRecent(cameraId);
 		});
@@ -84,7 +77,7 @@
 	async function setControl(control: Control, value: unknown) {
 		const previous = control.value;
 		if (control.kind !== 'button') control.value = value;
-		const ok = await store.attempt(() => api.setControl(id, control.id, value));
+		const ok = await store.attempt(() => api.setControl(id, control.id, value).then(() => true));
 		if (ok === undefined && control.kind !== 'button') control.value = previous;
 		else if (control.kind === 'button') store.toast(`${control.label} triggered`, 'success');
 	}

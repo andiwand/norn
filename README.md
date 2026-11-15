@@ -15,14 +15,22 @@ the controls of the camera's own app, and records.</p>
 > Norn is an early preview. Support for cameras grows one real camera at a time. See
 > [PLAN.md](PLAN.md).
 
-| Driver      | Cameras                                         | Video        | Control                                                    |
-| ----------- | ----------------------------------------------- | ------------ | ---------------------------------------------------------- |
-| `hikvision` | Hikvision IP cameras (tested: DS-2CD2042WD-I)   | RTSP H.264   | day/night, WDR, flip, colour, motion detection, firmware   |
-| `reolink`   | Reolink (tested: E1 Pro)                        | RTSP H.264   | pan/tilt, presets, day/night, image (ONVIF)                |
-| `onvif`     | any ONVIF camera                                | RTSP         | PTZ, presets, day/night, image                             |
-| `foscam`    | Foscam CGI: supra IPC-1A / IPC-100HD, Wansview… | MJPEG (HTTP) | pan/tilt, presets, resolution, brightness, flip            |
-| `rtsp`      | anything with an RTSP URL                       | RTSP         | –                                                          |
-| `demo`      | a test pattern with pretend controls            | FFmpeg       | everything, pretend                                        |
+| Driver      | Cameras                                             | Video        | Control                                                         | Tested on a real camera |
+| ----------- | --------------------------------------------------- | ------------ | --------------------------------------------------------------- | ----------------------- |
+| `reolink`   | Reolink (over Reolink's app protocol, no HTTP needed) | RTSP H.264 | pan/tilt, presets, IR, status light, siren, day/night, firmware | yes (E1 Pro)            |
+| `hikvision` | Hikvision and relabels (Annke, HiLook, …)           | RTSP H.264   | day/night, WDR, flip, colour, motion detection, firmware file   | yes (DS-2CD2042WD-I)    |
+| `foscam`    | Foscam CGI: supra IPC-1A / IPC-100HD, Wansview, …   | MJPEG (HTTP) | pan/tilt, presets, resolution, brightness, flip                 | yes (supra)             |
+| `dahua`     | Dahua, Amcrest, Lorex                               | RTSP         | pan/tilt/zoom, presets, day/night, flip, motion detection       | not yet                 |
+| `axis`      | Axis                                                | RTSP H.264   | pan/tilt/zoom, presets, day/night, firmware file                | not yet                 |
+| `foscam-hd` | Foscam HD (since about 2014)                        | RTSP H.264   | pan/tilt/zoom, presets, IR, mirror, flip                        | not yet                 |
+| `tapo`      | TP-Link Tapo                                        | RTSP H.264   | pan/tilt, presets, night vision, privacy, siren, firmware       | not yet                 |
+| `unifi`     | UniFi Protect cameras (through the console's API)   | RTSPS        | status light, microphone, PTZ presets                           | not yet                 |
+| `onvif`     | any ONVIF camera                                    | RTSP         | PTZ, presets, day/night, image                                  | yes (Reolink, ONVIF)    |
+| `rtsp`      | anything with an RTSP URL                           | RTSP         | –                                                               |                         |
+| `demo`      | a test pattern with pretend controls                | FFmpeg       | everything, pretend                                             |                         |
+
+Drivers marked "not yet" follow the vendor's documented API and have tests with its answers, but
+nobody has run them against the real camera yet. Reports and fixes are welcome.
 
 Each camera page shows what the camera reports about itself (model, firmware, uptime, …) and
 whether newer firmware exists.

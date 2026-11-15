@@ -32,7 +32,7 @@ def test_passwords_are_encoded_in_stream_urls() -> None:
         "rtsp://admin:p%231@10.0.0.3:554/Streaming/Channels/101",
         "rtsp://admin:p%231@10.0.0.3:554/Streaming/Channels/102",
     ]
-    reolink = make("reolink", host="10.0.0.4", password="x#y")
+    reolink = make("reolink", host="10.0.0.4", password="x#y")  # reolink_aio connects lazily
     assert reolink.streams()[1].source == "rtsp://admin:x%23y@10.0.0.4:554/h264Preview_01_sub"
     assert with_credentials("rtsp://10.0.0.5:554/s0", "u", "p#") == "rtsp://u:p%23@10.0.0.5:554/s0"
 

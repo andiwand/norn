@@ -18,5 +18,12 @@ The first version.
 - MJPEG cameras: the player shows MJPEG frames, the recorder encodes them to H.264.
 - Device status: Norn reads each camera every 5 minutes (model, firmware, uptime, ...), shows
   offline cameras, and compares the firmware with a catalogue of the latest versions.
-- Firmware updates from a file (Hikvision), an `auto_update` setting per camera, and a daily
-  check for drivers that can find firmware online.
+- Firmware updates from a file (Hikvision, Axis), one click where the driver finds firmware
+  online (Reolink, Tapo), an `auto_update` setting per camera, and a daily check.
+- `reolink` uses Reolink's app protocol (Baichuan, port 9000) through reolink_aio, so it works
+  with the camera's HTTP API off: IR, status light, siren, day/night, auto-tracking, motion
+  sensitivity, HTTP/HTTPS switches, and firmware download and upload.
+- New drivers `dahua` (Amcrest, Lorex), `axis`, `foscam-hd`, `tapo` and `unifi`, written from
+  the vendors' APIs and not yet tested on real cameras.
+- Controls are cached: the server keeps them warm, the browser remembers them, so a camera page
+  opens complete.

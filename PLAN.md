@@ -7,8 +7,9 @@ What comes next, roughly in order. The changelog has what is done.
 Done: Hikvision (ISAPI), Reolink (ONVIF), supra/Foscam CGI, generic ONVIF. Next for these:
 
 - Hikvision: motion events from `/ISAPI/Event/notification/alertStream` as recording triggers.
-- Reolink: with the HTTP API on, the online firmware check and update (`CheckFirmware`,
-  `UpgradeOnline`), spotlight and siren. ONVIF events (PullPoint) as triggers.
+- Reolink: motion and AI events pushed over Baichuan (`subscribe_events`) as triggers.
+- Test the drivers written from documentation (Dahua, Axis, Foscam HD, Tapo, UniFi) on real
+  cameras; cloud-only brands (Ring, Nest, Wyze, Eufy, Arlo) through go2rtc's sources.
 - supra/Foscam: the alarm state from `get_status.cgi` as a trigger; the IR LED.
 
 We add support by looking at one real camera after the other: find its protocols (RTSP, ONVIF,
