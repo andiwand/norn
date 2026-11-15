@@ -93,7 +93,12 @@ jobs:
       # The demo camera needs go2rtc and FFmpeg, so a frame of it proves the whole video path.
       - name: Check
         run: |
-          curl -sf http://localhost:8000/api/info | tee info.json
+          # The API answers before go2rtc has started; give it a moment.
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8000/api/info > info.json && grep -q '"running":true' info.json && break
+            sleep 1
+          done
+          cat info.json
           grep -q '"running":true' info.json
           curl -sf http://localhost:8000/ | grep -q '<title>'
           for i in $(seq 1 20); do
