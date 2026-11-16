@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Docker image: Norn's own object detection works when the container runs as a user other
+  than root (the model folders weren't readable).
+
 ## 0.3.0 — 2026-11-16
 
 - Instant live video: Norn keeps the newest keyframe of a stream, and what followed, ready.

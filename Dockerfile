@@ -35,6 +35,8 @@ ADD --chmod=644 --checksum=sha256:c789161ed43c8269fcd4e67c67eeeb4e80c622da2eb296
     https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/yolox_nano.onnx /usr/local/share/norn/models/
 ADD --chmod=644 --checksum=sha256:427cc366d34e27ff7a03e2899b5e3671425c262ea2291f88bb942bc1cc70b0f7 \
     https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/yolox_tiny.onnx /usr/local/share/norn/models/
+# ADD --chmod gives the folders it creates 644 too: without x, no one but root can enter them.
+RUN chmod 755 /usr/local/share/norn /usr/local/share/norn/models
 
 ENV PATH=/app/.venv/bin:$PATH \
     NORN_CONFIG=/config/config.yaml \
