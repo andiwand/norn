@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 — 2026-11-16
 
 - Docker image: Norn's own object detection works when the container runs as a user other
   than root (the model folders weren't readable).
