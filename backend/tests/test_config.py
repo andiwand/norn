@@ -97,3 +97,25 @@ def test_new_keys_go_above_trailing_comments(tmp_path: Path) -> None:
     text = store.path.read_text()
     assert "yard" not in text and "# A plain RTSP camera" in text
     assert list(ConfigStore(store.path).load().cameras) == ["demo"]
+
+
+def test_order_cameras_keeps_comments(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "cameras:\n"
+        "  a: {name: A, driver: demo}\n"
+        "  b:  # the garden\n"
+        "    name: B\n"
+        "    driver: demo\n"
+        "  c: {name: C, driver: demo}\n"
+        "\n"
+        "  # a camera to add later\n"
+    )
+    store = ConfigStore(path)
+    store.load()
+    config = store.order_cameras(["c", "b"])
+    assert list(config.cameras) == ["c", "b", "a"]
+    text = path.read_text()
+    assert "b:  # the garden" in text and text.rstrip().endswith("# a camera to add later")
+    with pytest.raises(ConfigError):
+        store.order_cameras(["nope"])

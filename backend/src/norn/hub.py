@@ -619,6 +619,11 @@ class Hub:
         await self.put_camera(camera_id, cfg.model_copy(update={"presets": presets, "patrol": patrol}))
         self.pilots[camera_id].picture(preset_id).unlink(missing_ok=True)
 
+    async def order_cameras(self, ids: list[str]) -> None:
+        async with self._lock:
+            self.store.order_cameras(ids)
+            await self._apply()
+
     async def put_settings(self, sections: dict[str, BaseModel]) -> None:
         async with self._lock:
             for name, values in sections.items():

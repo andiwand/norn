@@ -444,6 +444,7 @@ export const api = {
 	updateCamera: (id: string, body: Record<string, unknown>) =>
 		request<Camera>('PUT', `/cameras/${enc(id)}`, body),
 	deleteCamera: (id: string) => request<void>('DELETE', `/cameras/${enc(id)}`),
+	orderCameras: (ids: string[]) => request<Camera[]>('PUT', '/cameras/order', { ids }),
 	controls: (id: string, fresh = false) =>
 		request<{ controls: Control[]; presets: Preset[] }>(
 			'GET',

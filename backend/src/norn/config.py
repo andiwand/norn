@@ -464,6 +464,22 @@ class ConfigStore:
         data["name"], data["driver"] = camera.name, camera.driver
         return self._put_entry("cameras", camera_id, data)
 
+    def order_cameras(self, ids: list[str]) -> Config:
+        """Put the cameras in this order (the order of the Live page). Ones not named keep their
+        place after these; each keeps its comments."""
+        cameras = self._doc.get("cameras")
+        if not isinstance(cameras, CommentedMap):
+            return self.config
+        unknown = [i for i in ids if i not in cameras]
+        if unknown:
+            raise ConfigError(f"no camera {', '.join(unknown)}")
+        tail = _take_tail_comment(self._doc)
+        for camera_id in [*dict.fromkeys(ids), *[k for k in cameras if k not in ids]]:
+            cameras.move_to_end(camera_id)
+        if tail:
+            _put_tail_comment(self._doc, tail)
+        return self._commit()
+
     def put_circle(self, circle_id: str, circle: CircleConfig) -> Config:
         data = circle.model_dump(exclude_defaults=True, by_alias=True)
         data["name"], data["cameras"] = circle.name, list(circle.cameras)

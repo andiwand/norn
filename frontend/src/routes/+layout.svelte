@@ -9,6 +9,9 @@
 	import Settings from '@lucide/svelte/icons/settings';
 	import Plane from '@lucide/svelte/icons/plane';
 	import House from '@lucide/svelte/icons/house';
+	import Video from '@lucide/svelte/icons/video';
+	import Activity from '@lucide/svelte/icons/activity';
+	import CircleHelp from '@lucide/svelte/icons/circle-help';
 	import { api } from '#lib/api.js';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import type { LayoutProps } from './$types';
@@ -39,13 +42,10 @@
 
 	$effect(() => store.start());
 
+	// A camera's own page belongs to Live; the list, adding and editing to Cameras.
+	const cameraPage = (p: string) => /^\/cameras\/[^/]+$/.test(p) && p !== '/cameras/new';
 	const nav = [
-		{
-			href: '/',
-			label: 'Live',
-			icon: Cctv,
-			match: (p: string) => p === '/' || p.startsWith('/cameras')
-		},
+		{ href: '/', label: 'Live', icon: Cctv, match: (p: string) => p === '/' || cameraPage(p) },
 		{
 			href: '/recordings',
 			label: 'Recordings',
@@ -53,10 +53,32 @@
 			match: (p: string) => p.startsWith('/recordings')
 		},
 		{
+			href: '/cameras',
+			label: 'Cameras',
+			icon: Video,
+			match: (p: string) => (p.startsWith('/cameras') && !cameraPage(p)) || p.startsWith('/circles')
+		},
+		{ href: '/away', label: 'Away', icon: Plane, match: (p: string) => p.startsWith('/away') },
+		{
 			href: '/settings',
 			label: 'Settings',
 			icon: Settings,
 			match: (p: string) => p.startsWith('/settings')
+		},
+		// Not in the phone's bottom bar: Settings links to them there.
+		{
+			href: '/diagnostics',
+			label: 'Diagnostics',
+			icon: Activity,
+			match: (p: string) => p.startsWith('/diagnostics'),
+			desktop: true
+		},
+		{
+			href: '/help',
+			label: 'Help',
+			icon: CircleHelp,
+			match: (p: string) => p.startsWith('/help'),
+			desktop: true
 		}
 	];
 	const path = $derived(page.url.pathname);
@@ -69,7 +91,7 @@
 				<Logo size={30} class="text-text" />
 				<span class="text-lg">Norn</span>
 			</a>
-			<nav class="hidden items-center gap-1 md:flex">
+			<nav class="hidden items-center gap-0.5 md:flex">
 				{#each nav as item (item.href)}
 					{@const active = item.match(path)}
 					<a
@@ -78,9 +100,10 @@
 							? 'bg-surface-3 text-text'
 							: 'text-muted hover:text-text'}"
 						aria-current={active ? 'page' : undefined}
+						title={item.label}
 					>
 						<item.icon class="size-4" />
-						{item.label}
+						<span class="hidden lg:inline">{item.label}</span>
 					</a>
 				{/each}
 			</nav>
@@ -125,7 +148,7 @@
 	<nav
 		class="pb-safe fixed inset-x-0 bottom-0 z-30 flex border-t border-line bg-bg/85 pt-1.5 backdrop-blur-xl md:hidden"
 	>
-		{#each nav as item (item.href)}
+		{#each nav.filter((item) => !item.desktop) as item (item.href)}
 			{@const active = item.match(path)}
 			<a
 				href={item.href}

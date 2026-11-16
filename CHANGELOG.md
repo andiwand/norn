@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- New tabs: Cameras (the list, with rows you can click, and circles), Away, Diagnostics (version,
+  go2rtc, resources, storage, log) and Help (webhook, config file, links). Settings has sub-tabs
+  Recording, Detection and Firmware, with Save at the top. The list of camera drivers is gone.
+- Live: Auto, HD, SD or Stills for all tiles, remembered per browser; each tile shows the
+  quality that plays.
+- Arrange the cameras on the Live page by dragging or with arrows; the order is saved in
+  config.yaml (`PUT /api/cameras/order`).
+
 ## 0.1.1 — 2026-11-16
 
 - Pan/tilt: commands are sent in order, so a quick tap can't leave the camera turning to its

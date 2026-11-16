@@ -3,7 +3,12 @@
 	import { goto } from '$app/navigation';
 	import { store } from '#lib/state.svelte.js';
 	import Settings2 from '@lucide/svelte/icons/settings-2';
-	import CameraTile from '#lib/components/CameraTile.svelte';
+	import CameraTile, { type TileView } from '#lib/components/CameraTile.svelte';
+	import { api } from '#lib/api.js';
+	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
+	import ArrowRight from '@lucide/svelte/icons/arrow-right';
+	import GripVertical from '@lucide/svelte/icons/grip-vertical';
+	import ArrowDownUp from '@lucide/svelte/icons/arrow-down-up';
 	import Plus from '@lucide/svelte/icons/plus';
 	import Cctv from '@lucide/svelte/icons/cctv';
 	import Columns2 from '@lucide/svelte/icons/columns-2';
@@ -30,22 +35,58 @@
 		}
 	}
 
-	// Video, or a slow stream of stills that costs almost nothing.
-	let stills = $state(load('norn.stills') === '1');
-	function load(key: string): string | null {
+	// How the tiles show: Auto adapts to the connection; HD and SD are fixed; Stills is a
+	// picture every few seconds. Remembered in this browser.
+	const VIEWS: [TileView, string, string][] = [
+		['auto', 'Auto', 'SD, lower when the connection struggles'],
+		['hd', 'HD', 'Every camera in full quality'],
+		['sd', 'SD', 'The small stream: light on mobile data'],
+		['stills', 'Stills', 'A picture every 2 seconds: almost no data']
+	];
+	let view = $state<TileView>(loadView());
+	function loadView(): TileView {
 		try {
-			return localStorage.getItem(key);
+			const saved =
+				localStorage.getItem('norn.view') ??
+				(localStorage.getItem('norn.stills') === '1' ? 'stills' : 'auto');
+			return (['auto', 'hd', 'sd', 'stills'] as const).find((v) => v === saved) ?? 'auto';
 		} catch {
-			return null;
+			return 'auto';
 		}
 	}
-	function setStills(value: boolean) {
-		stills = value;
+	function setView(value: TileView) {
+		view = value;
 		try {
-			localStorage.setItem('norn.stills', value ? '1' : '0');
+			localStorage.setItem('norn.view', value);
 		} catch {
 			// private mode
 		}
+	}
+
+	// Arranging: drag tiles (or move them with the arrows), then save the order in config.yaml.
+	let arranging = $state(false);
+	let order = $state<string[]>([]);
+	let dragged = $state<string | null>(null);
+	let savingOrder = $state(false);
+	function arrange() {
+		order = store.cameras.map((c) => c.id);
+		arranging = true;
+	}
+	function moveTo(id: string, index: number) {
+		const rest = order.filter((x) => x !== id);
+		rest.splice(Math.max(0, Math.min(rest.length, index)), 0, id);
+		order = rest;
+	}
+	async function done() {
+		const before = store.cameras.map((c) => c.id).join(',');
+		if (order.join(',') !== before) {
+			savingOrder = true;
+			const ok = await store.attempt(() => api.orderCameras(order), 'Order saved');
+			savingOrder = false;
+			if (!ok) return;
+			await store.refresh();
+		}
+		arranging = false;
 	}
 
 	const columns: Record<Density, string> = {
@@ -59,7 +100,11 @@
 	const circleId = $derived(page.url.searchParams.get('circle') ?? '');
 	const circle = $derived(store.circle(circleId));
 	const shown = $derived(
-		circle ? store.cameras.filter((c) => circle.cameras.includes(c.id)) : store.cameras
+		arranging
+			? order.map((id) => store.camera(id)).filter((c) => c !== undefined)
+			: circle
+				? store.cameras.filter((c) => circle.cameras.includes(c.id))
+				: store.cameras
 	);
 
 	function showCircle(id: string) {
@@ -102,25 +147,45 @@
 		<div
 			class="flex rounded-xl border border-line bg-surface-2/70 p-1"
 			role="radiogroup"
-			aria-label="Show"
+			aria-label="Quality"
 		>
-			{#each [[false, 'Video'], [true, 'Stills']] as const as [value, label] (label)}
+			{#each VIEWS as [value, label, hint] (value)}
 				<button
-					class="h-8 rounded-lg px-3 text-xs font-medium transition {stills === value
+					class="h-8 rounded-lg px-2.5 text-xs font-medium transition {view === value
 						? 'bg-surface-3 text-text'
 						: 'text-muted hover:text-text'}"
 					role="radio"
-					aria-checked={stills === value}
-					title={value ? 'A still every 2 seconds: light on the network and the CPU' : 'Live video'}
-					onclick={() => setStills(value)}>{label}</button
+					aria-checked={view === value}
+					title={hint}
+					onclick={() => setView(value)}>{label}</button
 				>
 			{/each}
 		</div>
-		<a href="/cameras/new" class="btn-primary"><Plus class="size-4" />Add camera</a>
+		{#if arranging}
+			<button class="btn-primary" onclick={done} disabled={savingOrder}
+				>{savingOrder ? 'Saving…' : 'Done'}</button
+			>
+		{:else if store.cameras.length > 1}
+			<button class="btn-ghost" onclick={arrange} title="Change the order of the cameras"
+				><ArrowDownUp class="size-4" /><span class="hidden sm:inline">Arrange</span></button
+			>
+		{/if}
+		{#if !arranging}
+			<a href="/cameras/new" class="btn-primary"
+				><Plus class="size-4" /><span class="hidden sm:inline">Add camera</span></a
+			>
+		{/if}
 	</div>
 </div>
 
-{#if store.cameras.length}
+{#if arranging}
+	<p class="mb-4 rounded-xl bg-accent/10 px-4 py-2.5 text-sm text-accent">
+		Drag the cameras into the order you want, or move them with the arrows. The order is saved for
+		everyone.
+	</p>
+{/if}
+
+{#if store.cameras.length && !arranging}
 	<div class="mb-5 flex flex-wrap items-center gap-2">
 		<button class="chip {!circle ? 'chip-active' : ''}" onclick={() => showCircle('')}
 			>All cameras</button
@@ -161,8 +226,44 @@
 	</div>
 {:else}
 	<div class="grid gap-4 {columns[density]}">
-		{#each shown as camera (camera.id)}
-			<CameraTile {camera} {stills} />
+		{#each shown as camera, i (camera.id)}
+			{#if arranging}
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div
+					class="relative rounded-2xl transition {dragged === camera.id ? 'opacity-40' : ''}"
+					draggable="true"
+					ondragstart={(e) => {
+						dragged = camera.id;
+						e.dataTransfer?.setData('text/plain', camera.id);
+					}}
+					ondragover={(e) => {
+						e.preventDefault();
+						if (dragged && dragged !== camera.id) moveTo(dragged, order.indexOf(camera.id));
+					}}
+					ondragend={() => (dragged = null)}
+				>
+					<CameraTile {camera} arranging />
+					<div
+						class="absolute inset-x-0 top-1/2 flex -translate-y-1/2 items-center justify-between px-3"
+					>
+						<button
+							class="glass-btn"
+							aria-label="Earlier"
+							disabled={i === 0}
+							onclick={() => moveTo(camera.id, i - 1)}><ArrowLeft class="size-4" /></button
+						>
+						<span class="pointer-events-none glass-btn"><GripVertical class="size-4" /></span>
+						<button
+							class="glass-btn"
+							aria-label="Later"
+							disabled={i === shown.length - 1}
+							onclick={() => moveTo(camera.id, i + 1)}><ArrowRight class="size-4" /></button
+						>
+					</div>
+				</div>
+			{:else}
+				<CameraTile {camera} {view} />
+			{/if}
 		{/each}
 	</div>
 {/if}

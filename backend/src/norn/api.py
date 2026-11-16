@@ -94,6 +94,10 @@ class PresetBody(BaseModel):
     controls: list[str] = []  # controls whose current values the preset applies
 
 
+class OrderBody(BaseModel):
+    ids: list[str]
+
+
 class PinBody(BaseModel):
     pinned: bool = True
 
@@ -239,6 +243,12 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
         except ConfigError as e:
             raise HTTPException(422, str(e)) from e
         return hub.camera_json(camera_id)
+
+    @api.put("/cameras/order")
+    async def order_cameras(body: OrderBody) -> list[dict[str, Any]]:
+        """Arrange the cameras: their order in config.yaml, which the app shows."""
+        await hub.order_cameras(body.ids)
+        return [hub.camera_json(cid) for cid in hub.cameras]
 
     @api.get("/cameras/{camera_id}")
     async def camera(camera_id: str) -> dict[str, Any]:
