@@ -6,6 +6,7 @@
 	import { untrack } from 'svelte';
 	import IntervalSetting from './IntervalSetting.svelte';
 	import ChoiceSetting from './ChoiceSetting.svelte';
+	import StreamSettings from './StreamSettings.svelte';
 	import TriggerSetting from './TriggerSetting.svelte';
 	import ScheduleSetting from './ScheduleSetting.svelte';
 	import NumberSetting from './NumberSetting.svelte';
@@ -32,6 +33,7 @@
 	let pictureSeconds = $state<number | null>(initial?.picture_seconds ?? null);
 	let triggers = $state<string[] | null>(initial?.triggers ?? null);
 	let schedule = $state<Window[] | null>(initial?.schedule ?? null);
+	let streams = $state<string[] | null>(initial?.stream_selection ?? null);
 	// Norn's detection on this camera; null fields: as set above.
 	let detectMotion = $state<boolean | null>(initial?.detection?.motion ?? null);
 	let detectObjects = $state<boolean | null>(initial?.detection?.objects ?? null);
@@ -108,6 +110,7 @@
 			triggers,
 			schedule,
 			detection,
+			streams,
 			prebuffer_seconds:
 				typeof prebuffer === 'number' && Number.isFinite(prebuffer) ? prebuffer : null
 		};
@@ -215,6 +218,9 @@
 				onchange={(e) => (record = e.currentTarget.checked ? 'continuous' : 'off')}
 			/>
 		</label>
+		{#if initial && initial.stream_options.length}
+			<StreamSettings camera={initial} bind:value={streams} />
+		{/if}
 		<IntervalSetting
 			label="Pictures"
 			hint="Take a picture on a timer. They show in Recordings and expire like other automatic recordings."

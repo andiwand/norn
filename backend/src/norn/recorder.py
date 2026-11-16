@@ -812,7 +812,27 @@ class Recorder:
         for day in (today, today + timedelta(days=1)):
             self.temp.path(camera, day.isoformat()).mkdir(parents=True, exist_ok=True)
 
+    async def _evict(self) -> None:
+        """Keep the recordings within their size limit and the disk's free space."""
+        r = self._config.recording
+        try:
+            deleted, excess = await asyncio.to_thread(
+                self.library.evict, int(r.max_gb * 1e9), int(r.min_free_gb * 1e9)
+            )
+        except Exception:
+            log.exception("keeping the recordings within their limits failed")
+            return
+        if deleted:
+            log.warning("deleted %d old recordings to stay within the storage limits", len(deleted))
+            self.bus.publish("recording.deleted", {"ids": deleted})
+        if excess:
+            log.error(
+                "the storage limits can't be met: %.1f GB too much, all of it clips kept by hand",
+                excess / 1e9,
+            )
+
     async def _housekeep(self) -> None:
+        last_evict = 0.0
         last_prune = 0.0
         while True:
             # Each step on its own: one failing must not stop the others, nor the loop.
@@ -838,6 +858,9 @@ class Recorder:
                     log.info("deleted expired recording %s", item)
                 if deleted:
                     self.bus.publish("recording.deleted", {"ids": deleted})
+            if time.time() - last_evict >= 60:
+                last_evict = time.time()
+                await self._evict()
             await asyncio.sleep(5)
 
 

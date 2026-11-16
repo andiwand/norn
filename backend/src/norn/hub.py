@@ -9,6 +9,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ValidationError
 
@@ -16,13 +17,23 @@ from . import __version__
 from .config import CameraConfig, CircleConfig, Config, ConfigError, ConfigStore
 from .detect import OBJECT_KINDS, Detectors, MotionDetector, Tracker, gray_from_bgr
 from .drivers import DRIVERS
-from .drivers.base import Capability, Control, DeviceInfo, Driver, Event, NotSupportedError, Preset
+from .drivers.base import (
+    Capability,
+    Control,
+    DeviceInfo,
+    Driver,
+    Event,
+    NotSupportedError,
+    Preset,
+    Stream,
+)
 from .events import EventBus
 from .firmware import FirmwareStatus, check
 from .forecast import forecast, history
 from .go2rtc import Go2rtc, Go2rtcUnavailableError
 from .labels import LABELS
-from .recorder import Recorder
+from .probe import StreamProbe, probe_all, probeable
+from .recorder import Recorder, ffprobe_of
 from .recordings import Library
 from .resources import Resources
 from .settings import Settings
@@ -31,6 +42,12 @@ from .stills import Stills, StillStream
 log = logging.getLogger("norn")
 
 DEVICE_INTERVAL = 300  # seconds between two reads of each camera's state
+# The transcoded stream for weak connections: small H.264 at a low, capped bitrate.
+LOW = "low"
+LOW_SOURCE = (
+    "ffmpeg:{base}#video=h264#width=480"
+    "#raw=-r 12 -g 24 -b:v 350k -maxrate 400k -bufsize 800k -preset superfast"
+)
 HOLD_INTERVAL = 5  # seconds between two extensions of a clip while a detection lasts
 STORAGE_CACHE = 15  # seconds a storage report stays fresh; it walks the folders
 
@@ -61,6 +78,12 @@ class Camera:
     events_task: asyncio.Task[None] | None = field(default=None, repr=False)
     stills_task: asyncio.Task[None] | None = field(default=None, repr=False)  # Norn's detection
     detect_ms: float | None = None  # how long Norn's object detection takes on its stills
+    # What probing found: each stream's resolution (or why it failed), and whether the camera
+    # serves its streams at the same time. None: not probed (yet, or not RTSP).
+    probe: dict[str, StreamProbe] | None = None
+    concurrent: bool | None = None
+    probe_task: asyncio.Task[None] | None = field(default=None, repr=False)
+    web_url: str | None = None  # the camera's own web page, when it answers
 
     def camera_kinds(self) -> list[str]:
         driver = self.driver
@@ -99,12 +122,26 @@ class Camera:
             "streams": [
                 {"id": s.id, "label": s.label, "name": stream_name(self.id, s.id), "codec": s.codec}
                 for s in streams
-            ],
+            ]
+            + (
+                [
+                    {
+                        "id": LOW,
+                        "label": "Low",
+                        "name": stream_name(self.id, LOW),
+                        "codec": "h264",
+                        "transcoded": True,
+                    }
+                ]
+                if streams
+                else []
+            ),
             "recording": recording,
             "auto_update": self.config.auto_update,
             "picture_seconds": self.config.picture_seconds,
             "prebuffer_seconds": self.config.prebuffer_seconds,
             "triggers": self.config.triggers,
+            "stream_selection": self.config.streams,
             "detection": self.config.detection.model_dump(exclude_none=True)
             if self.config.detection
             else None,
@@ -181,20 +218,23 @@ class Hub:
         await self.go2rtc.stop()
 
     def streams(self) -> dict[str, str]:
-        """All go2rtc streams: name -> source."""
-        return {
-            stream_name(cid, s.id): s.source
-            for cid, cam in self.cameras.items()
-            if cam.driver and cam.config.enabled
-            for s in cam.driver.streams()
-        }
+        """All go2rtc streams: name -> source. Besides the camera's own, a `low` one, transcoded
+        for weak connections; go2rtc runs its FFmpeg only while someone watches it."""
+        found = {}
+        for cid, cam in self.cameras.items():
+            own = self.go2rtc_streams(cam)
+            for sid, s in own:
+                found[stream_name(cid, sid)] = s.source
+            if own and self.needs_low(cam):
+                found[stream_name(cid, LOW)] = LOW_SOURCE.format(base=stream_name(cid, own[-1][0]))
+        return found
 
     def transcoded(self) -> set[str]:
         """Cameras whose main stream must be encoded to record it (MJPEG)."""
         return {
             cid
             for cid, cam in self.cameras.items()
-            if cam.driver and any(s.id == "main" and s.codec == "mjpeg" for s in cam.driver.streams())
+            if (own := self.go2rtc_streams(cam)) and own[0][1].codec == "mjpeg"
         }
 
     async def refresh_device(self, camera_id: str) -> None:
@@ -213,6 +253,7 @@ class Hub:
             return  # the camera changed meanwhile
         was_online = camera.device.online if camera.device else None
         camera.device = device
+        camera.web_url = await reachable(camera.driver.web_url()) if device.online else None
         camera.device_time = time.time()
         if device.online:
             camera.firmware = check(device.manufacturer, device.model, device.firmware)
@@ -327,9 +368,128 @@ class Hub:
             kinds += list(OBJECT_KINDS)
         return kinds
 
+    # Streams: the camera's own (probed, enabled by the user) and the transcoded low one.
+    def active_streams(self, camera: Camera) -> list[Stream]:
+        """The streams Norn uses for the camera, best first. The first one is the camera's
+        main stream in go2rtc (named after the camera), whatever its id."""
+        driver = camera.driver
+        if not driver or not camera.config.enabled:
+            return []
+        base = driver.streams()
+        probe = camera.probe
+        if probe is None:
+            working = base  # not probed: trust the driver
+        else:
+            known = [*base, *driver.extra_streams()]
+            working = [s for s in known if ((p := probe.get(s.id)) is None and s in base) or (p and p.ok)]
+            working.sort(key=lambda s: -(probe[s.id].pixels if s.id in probe else 1 << 40))
+        wanted = camera.config.streams
+        chosen = [s for s in working if wanted is None or s.id in wanted]
+        if camera.concurrent is False:
+            chosen = chosen[:1]  # it serves one stream at a time
+        return chosen or working[:1] or base[:1]
+
+    def go2rtc_streams(self, camera: Camera) -> list[tuple[str, Stream]]:
+        """(the id the web app uses, the stream): the first is "main"."""
+        active = self.active_streams(camera)
+        return [("main" if i == 0 else s.id, s) for i, s in enumerate(active)]
+
+    def needs_low(self, camera: Camera) -> bool:
+        """A transcoded stream only when the camera has no small one of its own."""
+        streams = self.active_streams(camera)
+        if not streams:
+            return False
+        smallest = streams[-1]
+        probe = (camera.probe or {}).get(smallest.id)
+        if smallest.codec == "mjpeg" or (probe and probe.codec == "mjpeg"):
+            return True
+        if probe and probe.width:
+            return probe.width > 640
+        return len(streams) == 1
+
+    def stream_ids(self, camera_id: str) -> set[str]:
+        camera = self.cameras.get(camera_id)
+        if camera is None:
+            return set()
+        ids = {sid for sid, _ in self.go2rtc_streams(camera)}
+        return ids | ({LOW} if self.needs_low(camera) else set())
+
+    def streams_json(self, camera: Camera) -> list[dict[str, Any]]:
+        found = []
+        for sid, s in self.go2rtc_streams(camera):
+            p = (camera.probe or {}).get(s.id)
+            found.append(
+                {
+                    "id": sid,
+                    "label": s.label,
+                    "name": stream_name(camera.id, sid),
+                    "codec": s.codec or (p.codec if p else None),
+                    **({"width": p.width, "height": p.height, "fps": p.fps} if p and p.ok else {}),
+                }
+            )
+        if self.needs_low(camera):
+            found.append(
+                {"id": LOW, "label": "Low", "name": stream_name(camera.id, LOW), "codec": "h264",
+                 "transcoded": True}
+            )  # fmt: skip
+        return found
+
+    def stream_options(self, camera: Camera) -> list[dict[str, Any]]:
+        """Every stream the camera may have, for the user to switch on and off."""
+        if not camera.driver:
+            return []
+        active = {s.id for s in self.active_streams(camera)}
+        options = []
+        for s in [*camera.driver.streams(), *camera.driver.extra_streams()]:
+            p = (camera.probe or {}).get(s.id)
+            if p is not None and not p.ok and s not in camera.driver.streams():
+                continue  # an extra stream this camera doesn't have
+            options.append(
+                {"id": s.id, "label": s.label, "active": s.id in active, "probe": p.to_json() if p else None}
+            )
+        return options
+
+    async def _probe(self, camera: Camera) -> None:
+        """Find out which streams work, and whether at the same time; then offer them."""
+        driver = camera.driver
+        if not driver or not self.recorder.available:
+            return
+        sources = {s.id: s.source for s in [*driver.streams(), *driver.extra_streams()]}
+        if not any(probeable(s) for s in sources.values()):
+            return
+        await self.go2rtc.ready.wait()
+        probes, concurrent = await probe_all(ffprobe_of(self.settings.ffmpeg_bin), sources)
+        if self.cameras.get(camera.id) is not camera:
+            return
+        camera.probe, camera.concurrent = probes, concurrent
+        found = ", ".join(
+            f"{i} {p.width}x{p.height}" if p.ok else f"{i}: {p.error}" for i, p in probes.items()
+        )
+        log.info("%s: streams %s%s", camera.id, found, "" if concurrent is not False else " (one at a time)")
+        async with self._lock:
+            await self._restream()
+
+    async def probe_streams(self, camera_id: str) -> None:
+        camera = self.cameras[camera_id]
+        await self._probe(camera)
+
+    async def _restream(self) -> None:
+        """Hand go2rtc and the recorder the streams as they are now."""
+        streams = self.streams()
+        try:
+            await self.go2rtc.apply(streams)
+        except Go2rtcUnavailableError as e:
+            log.error("go2rtc didn't take the new streams: %s", e)
+        await self.recorder.apply(self.config, streams, self.transcoded(), self.away)
+        self.bus.publish("cameras.changed")
+
     def camera_json(self, camera_id: str) -> dict[str, Any]:
         camera = self.cameras[camera_id]
         data = camera.to_json(self.recorder.status(camera_id))
+        data["streams"] = self.streams_json(camera)
+        data["stream_options"] = self.stream_options(camera)
+        data["concurrent"] = camera.concurrent
+        data["web_url"] = camera.web_url
         data["events"] = camera.events_json(self.norn_kinds(camera_id) if camera.config.enabled else [])
         data["buffered"] = self.recorder.buffered(camera_id)
         return data
@@ -352,7 +512,8 @@ class Hub:
             for r in items:
                 if r.trigger == "continuous" and r.duration and r.camera not in bitrates:
                     bitrates[r.camera] = r.size / r.duration
-            return forecast(self.config, items, bitrates, storage["recordings"]["free"], now)
+            recordings = storage["recordings"]
+            return forecast(self.config, items, bitrates, recordings["free"], now, recordings["used"])
 
         return await asyncio.to_thread(compute)
 
@@ -502,7 +663,7 @@ class Hub:
                 await new[cid].driver.start()
         for cid, camera in old.items():
             if new.get(cid) is not camera:
-                for task in (camera.events_task, camera.stills_task):
+                for task in (camera.events_task, camera.stills_task, camera.probe_task):
                     if task:
                         task.cancel()
                 if camera.driver:
@@ -510,6 +671,8 @@ class Hub:
                         await camera.driver.stop()
         self.cameras = new
         for camera in new.values():
+            if camera.probe_task is None and camera.driver and camera.config.enabled:
+                camera.probe_task = asyncio.create_task(self._probe(camera), name=f"probe-{camera.id}")
             if camera.stills_task is None and camera.driver and camera.config.enabled:
                 camera.stills_task = asyncio.create_task(
                     self._watch_stills(camera), name=f"detect-{camera.id}"
@@ -616,9 +779,9 @@ class Hub:
         return jpeg
 
     def still_source(self, camera: Camera) -> str:
-        """Where the camera's still streams read from: its sub-stream when it has one."""
-        streams = {s.id for s in camera.driver.streams()} if camera.driver else set()
-        return self.go2rtc.rtsp_url(stream_name(camera.id, "sub" if "sub" in streams else "main"))
+        """Where the camera's still streams read from: its smallest stream of its own."""
+        own = self.go2rtc_streams(camera)
+        return self.go2rtc.rtsp_url(stream_name(camera.id, own[-1][0] if own else "main"))
 
     def still_stream(self, camera: Camera, mode: str) -> StillStream:
         return self.stills.stream(camera.id, self.still_source(camera), mode)  # type: ignore[arg-type]
@@ -714,6 +877,22 @@ class Hub:
             await asyncio.sleep(2)
             if self.store.changed_on_disk():
                 await self.reload()
+
+
+async def reachable(url: str | None, timeout: float = 2) -> str | None:
+    """`url` if something answers on its port, else None."""
+    if not url:
+        return None
+    parts = urlsplit(url)
+    port = parts.port or (443 if parts.scheme == "https" else 80)
+    try:
+        _, writer = await asyncio.wait_for(asyncio.open_connection(parts.hostname, port), timeout)
+    except (OSError, TimeoutError):
+        return None
+    writer.close()
+    with contextlib.suppress(OSError):
+        await writer.wait_closed()
+    return url
 
 
 def _alike(a: Control, b: Control) -> bool:

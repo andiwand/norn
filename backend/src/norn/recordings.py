@@ -58,8 +58,18 @@ class Recording:
     def id(self) -> str:
         return f"{self.camera}/{self.day}/{self.name}"
 
+    @property
+    def pinned(self) -> bool:
+        """Kept until someone unpins it, whatever the limits (in the sidecar: "pinned": true)."""
+        return self.meta.get("pinned") is True
+
+    @property
+    def kept(self) -> bool:
+        """Never deleted by Norn: recorded by hand, or pinned."""
+        return self.trigger in KEPT or self.pinned
+
     def to_json(self, retention_days: int = 0) -> dict[str, Any]:
-        end = expires(self.start, self.trigger, retention_days)
+        end = None if self.pinned else expires(self.start, self.trigger, retention_days)
         return {
             "id": self.id,
             "camera": self.camera,
@@ -72,6 +82,7 @@ class Recording:
             "duration": self.duration,
             "thumbnail": self.thumbnail,
             "expires": end.astimezone().isoformat() if end else None,
+            "pinned": self.pinned,
             "meta": self.meta,
         }
 
@@ -211,10 +222,65 @@ class Library:
                 if day > newest_day:
                     continue
                 for recording in self._day(camera, day):
+                    if recording.pinned:
+                        continue
                     end = expires(recording.start, recording.trigger, retention_days)
                     if end and end <= now and self.delete(camera, day, recording.name):
                         deleted.append(recording.id)
         return deleted
+
+    def evict(self, max_bytes: int = 0, min_free: int = 0) -> tuple[list[str], int]:
+        """Delete the oldest recordings that expire anyway (not `manual` ones) until the folder
+        holds at most `max_bytes` and its disk has `min_free` free (0: no limit). Returns what
+        it deleted and how many bytes are still over the limits (0 when they are met)."""
+        if not max_bytes and not min_free:
+            return [], 0
+
+        def over() -> int:
+            used = folder_size(self.root)[0] if max_bytes else 0
+            free = disk(self.root)["free"] if min_free else None
+            return max(used - max_bytes if max_bytes else 0, min_free - free if free is not None else 0, 0)
+
+        excess = over()
+        if not excess:
+            return [], 0
+        candidates = sorted(
+            (r for camera in self.cameras() for day in self.days(camera) for r in self._day(camera, day)),
+            key=lambda r: r.start,
+        )
+        deleted = []
+        for recording in candidates:
+            if excess <= 0:
+                break
+            if recording.kept:
+                continue
+            video = self.path(recording.camera, recording.day, recording.name)
+            size = sum(p.stat().st_size for s in SUFFIXES if (p := video.with_suffix(s)).exists())
+            if self.delete(recording.camera, recording.day, recording.name):
+                deleted.append(recording.id)
+                excess -= size
+        return deleted, max(0, over()) if deleted else excess
+
+    def set_pinned(self, camera: str, day: str, name: str, pinned: bool) -> Recording | None:
+        """Pin or unpin a recording: a flag in its JSON sidecar (made for it if it has none)."""
+        path = self.path(camera, day, name)
+        if not path.is_file() or path.suffix not in (".mp4", ".jpg"):
+            return None
+        sidecar = path.with_suffix(".json")
+        meta: dict[str, Any] = {}
+        if sidecar.is_file():
+            try:
+                meta = json.loads(sidecar.read_text())
+            except (ValueError, OSError):
+                meta = {}
+        if pinned:
+            meta["pinned"] = True
+        else:
+            meta.pop("pinned", None)
+        tmp = sidecar.with_name(f".{sidecar.name}.tmp")
+        tmp.write_text(json.dumps(meta, indent=2) + "\n")
+        tmp.replace(sidecar)
+        return self.get(camera, day, name)
 
     def usage(self) -> dict[str, Any]:
         """How much the folder holds, and how much room its disk has."""

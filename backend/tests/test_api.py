@@ -28,6 +28,7 @@ def test_default_demo_camera(client: TestClient) -> None:
     [camera] = client.get("/api/cameras").json()
     assert camera["id"] == "demo"
     assert {"live", "ptz", "presets", "controls"} <= set(camera["capabilities"])
+    # A sub-stream of its own: no transcoded one.
     assert [s["name"] for s in camera["streams"]] == ["demo", "demo_sub"]
 
 
@@ -35,7 +36,9 @@ def test_camera_crud_writes_yaml(client: TestClient, settings: Settings) -> None
     body = {"id": "porch", "name": "Porch", "driver": "rtsp", "url": "rtsp://cam/1"}
     response = client.post("/api/cameras", json=body)
     assert response.status_code == 201, response.text
-    assert response.json()["streams"] == [{"id": "main", "label": "Main", "name": "porch", "codec": None}]
+    assert response.json()["streams"][0] == {"id": "main", "label": "Main", "name": "porch", "codec": None}
+    hub = client.app.state.hub  # type: ignore[attr-defined]
+    assert hub.streams()["porch_low"].startswith("ffmpeg:porch#video=h264")
     assert "url: rtsp://cam/1" in settings.config_path.read_text()
 
     assert client.post("/api/cameras", json=body).status_code == 409
@@ -49,6 +52,7 @@ def test_camera_crud_writes_yaml(client: TestClient, settings: Settings) -> None
         json={"name": "Porch", "driver": "rtsp", "url": "rtsp://cam/1", "substream": "rtsp://cam/2"},
     ).json()
     assert [s["id"] for s in updated["streams"]] == ["main", "sub"]
+    assert "porch_low" not in hub.streams()  # it has a small stream of its own
 
     assert client.delete("/api/cameras/porch").status_code == 204
     assert client.get("/api/cameras/porch").status_code == 404
@@ -268,3 +272,57 @@ def test_live_continuous_file_is_listed(client: TestClient, settings: Settings) 
     [item] = client.get("/api/recordings").json()["recordings"]
     assert item["live"] is True and item["id"] == "demo/2026-11-16/09-00-00_continuous.mp4"
     assert client.get(f"/api/recordings/{item['id']}").content == b"frag"
+
+
+def test_pin_keeps_a_recording(client: TestClient, settings: Settings) -> None:
+    picture = settings.recordings_path / "demo" / "2020-01-01" / "10-00-00_interval.jpg"
+    picture.parent.mkdir(parents=True)
+    picture.write_bytes(b"jpeg")
+    url = "/api/recordings/demo/2020-01-01/10-00-00_interval.jpg/pin"
+    pinned = client.put(url, json={"pinned": True}).json()
+    assert pinned["pinned"] is True and pinned["expires"] is None
+    hub = client.app.state.hub  # type: ignore[attr-defined]
+    assert hub.library.prune(14) == [] and hub.library.evict(max_bytes=1)[0] == []
+    assert client.put(url, json={"pinned": False}).json()["expires"] is not None
+    assert hub.library.prune(14) == ["demo/2020-01-01/10-00-00_interval.jpg"]
+
+
+def test_streams_from_probing(client: TestClient) -> None:
+    from norn.probe import StreamProbe
+
+    client.post(
+        "/api/cameras",
+        json={"id": "door", "name": "Door", "driver": "rtsp", "url": "rtsp://c/1", "substream": "rtsp://c/2"},
+    )
+    hub = client.app.state.hub  # type: ignore[attr-defined]
+    camera = hub.cameras["door"]
+    camera.probe = {
+        "main": StreamProbe(ok=True, width=2560, height=1440, codec="h264", fps=15),
+        "sub": StreamProbe(ok=True, width=640, height=360, codec="h264", fps=7),
+    }
+    camera.concurrent = True
+    data = client.get("/api/cameras/door").json()
+    # A small stream of its own: no transcoding.
+    assert [s["id"] for s in data["streams"]] == ["main", "sub"] and "door_low" not in hub.streams()
+    assert data["streams"][1]["width"] == 640
+    camera.concurrent = False  # one stream at a time: only the best
+    assert [s["id"] for s in client.get("/api/cameras/door").json()["streams"]] == ["main", "low"]
+    camera.concurrent = True
+    body = {
+        "name": "Door",
+        "driver": "rtsp",
+        "url": "rtsp://c/1",
+        "substream": "rtsp://c/2",
+        "streams": ["sub"],
+    }
+    client.put("/api/cameras/door", json=body)
+    camera = hub.cameras["door"]
+    camera.probe = {
+        "main": StreamProbe(ok=True, width=2560, height=1440),
+        "sub": StreamProbe(ok=True, width=640),
+    }
+    camera.concurrent = True
+    # Only the sub-stream, as the camera's main one in go2rtc.
+    assert hub.streams()["door"] == "rtsp://c/2"
+    options = {o["id"]: o["active"] for o in client.get("/api/cameras/door").json()["stream_options"]}
+    assert options == {"main": False, "sub": True}

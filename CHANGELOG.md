@@ -33,6 +33,16 @@ The first version.
   animal, ...), the Hikvision alert stream, and the alarm of supra/Foscam cameras. A clip runs
   while the detection lasts; a circle can record all its cameras together. A live badge shows
   what each camera detects.
+- Storage limits besides the age: a size limit and a minimum of free disk space; the oldest
+  automatic recordings go first. The forecast says when a limit is reached.
+- Recordings can be pinned (kept whatever the limits) and downloaded, from the tile or the
+  big view.
+- Adaptive quality: the player steps down (HD, SD, Low) when the connection struggles and up
+  again after a calm. Norn probes each camera's streams (also third and fourth ones) and
+  whether they work at the same time; each stream can be switched on or off (one at a time
+  where the camera can't do more). A transcoded low stream exists only when a camera has no
+  small one, and go2rtc runs it only while someone watches.
+- A button to the camera's own web page, when it has one that answers.
 - Norn's own detection on stills: motion (comparing stills, no extra packages) and people,
   vehicles and animals (YOLOX on ONNX Runtime, the optional extra `norn-hub[detect]`, in the
   Docker image). Things that stand still stop counting. Labels are defined once (labels.py);

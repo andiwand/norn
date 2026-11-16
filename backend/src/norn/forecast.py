@@ -80,7 +80,9 @@ def forecast(
     bitrates: dict[str, float],
     free: int | None,
     now: datetime | None = None,
+    used: int | None = None,
 ) -> dict[str, Any]:
+    """`free`: bytes free on the recordings' disk; `used`: bytes the recordings take now."""
     now = now or datetime.now()
     retention = config.recording.retention_days
     pictures: dict[str, list[int]] = defaultdict(list)
@@ -141,12 +143,31 @@ def forecast(
             days_full = free / per_day  # full before the expiring ones level off
         elif growing > 0:
             days_full = headroom / growing
+    r = config.recording
+    room = []  # bytes until each limit
+    if r.max_gb and used is not None:
+        room.append(r.max_gb * 1e9 - used)
+    if r.min_free_gb and free is not None:
+        room.append(free - r.min_free_gb * 1e9)
+    limit = round(min(room)) if room else None
+    days_limit = None
+    if limit is not None:
+        # It is reached when something only grows, or when the expiring ones level off beyond it.
+        reaches = growing > 0 or steady - expiring_now > limit
+        if limit <= 0:
+            days_limit = 0.0
+        elif per_day > 0 and reaches:
+            days_limit = round(limit / per_day, 1)
     return {
         "retention_days": retention,
         "per_day": per_day,
         "steady": steady,
         "growing_per_day": growing,
-        "days_until_full": round(days_full, 1) if days_full is not None else None,
+        "days_until_full": round(days_full, 1) if days_full is not None and not limit else None,
+        # With a size or free-space limit, the disk doesn't fill up: old recordings go earlier
+        # than their retention time once the limit is reached.
+        "limit": limit,
+        "days_until_limit": days_limit,
         "triggers": triggers,
     }
 

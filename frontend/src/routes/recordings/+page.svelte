@@ -82,6 +82,15 @@
 		)
 	);
 
+	async function pin(r: Recording, pinned: boolean) {
+		const updated = await store.pin(r, pinned);
+		if (updated) replace(updated);
+	}
+
+	function replace(updated: Recording) {
+		recordings = recordings.map((x) => (x.id === updated.id ? updated : x));
+	}
+
 	async function remove(r: Recording) {
 		const ok = await store.attempt(async () => {
 			await api.deleteRecording(r.id);
@@ -208,6 +217,7 @@
 								open = x;
 							}}
 							ondelete={remove}
+							onpin={pin}
 							{now}
 						/>
 					{/each}
@@ -219,6 +229,7 @@
 
 <RecordingDialog
 	bind:recording={open}
+	onchanged={replace}
 	{at}
 	ondeleted={(r) => (recordings = recordings.filter((x) => x.id !== r.id))}
 />

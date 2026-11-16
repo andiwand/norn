@@ -16,6 +16,28 @@ export interface StreamInfo {
 	label: string;
 	name: string;
 	codec: 'h264' | 'h265' | 'mjpeg' | null;
+	/** Made by Norn for weak connections (FFmpeg runs only while someone watches). */
+	transcoded?: boolean;
+	width?: number | null;
+	height?: number | null;
+	fps?: number | null;
+}
+
+export interface StreamProbe {
+	ok: boolean;
+	width: number | null;
+	height: number | null;
+	codec: string | null;
+	fps: number | null;
+	error: string | null;
+}
+
+/** A stream the camera may have, to switch on or off; `probe`: what testing it found. */
+export interface StreamOption {
+	id: string;
+	label: string;
+	active: boolean;
+	probe: StreamProbe | null;
 }
 
 export interface DeviceInfo {
@@ -72,6 +94,13 @@ export interface Camera {
 	triggers: string[] | null;
 	schedule: Window[] | null;
 	detection: Partial<DetectionSettings> | null;
+	/** The streams Norn uses, by id; null: all that work. */
+	stream_selection?: string[] | null;
+	stream_options: StreamOption[];
+	/** The camera's own web page, when it answers. */
+	web_url: string | null;
+	/** The camera serves its streams at the same time (null: not known). */
+	concurrent: boolean | null;
 	/** What the camera can detect (by itself, and by Norn), and what it detects now. */
 	events: {
 		kinds: string[];
@@ -157,6 +186,8 @@ export interface Recording {
 	thumbnail: boolean;
 	/** When Norn deletes it; null: kept until someone deletes it. */
 	expires: string | null;
+	/** Kept until someone unpins it, whatever the limits. */
+	pinned: boolean;
 	/** Still being recorded (a continuous file in the temporary storage). */
 	live?: boolean;
 	meta: Record<string, unknown>;
@@ -211,6 +242,8 @@ export interface AwaySettings {
 
 export interface RecordingSettings {
 	retention_days: number;
+	max_gb: number;
+	min_free_gb: number;
 	segment_minutes: number;
 	clip_seconds: number;
 	prebuffer_seconds: number;
@@ -276,6 +309,9 @@ export interface Forecast {
 	steady: number;
 	growing_per_day: number;
 	days_until_full: number | null;
+	/** Bytes until the size or free-space limit; null: no limit set. */
+	limit: number | null;
+	days_until_limit: number | null;
 	triggers: ForecastTrigger[];
 }
 
@@ -403,6 +439,8 @@ export const api = {
 		);
 	},
 	deleteRecording: (id: string) => request<void>('DELETE', `/recordings/${id}`),
+	pinRecording: (id: string, pinned: boolean) =>
+		request<Recording>('PUT', `/recordings/${id}/pin`, { pinned }),
 	circles: () => request<Circle[]>('GET', '/circles'),
 	addCircle: (body: Circle) => request<Circle>('POST', '/circles', body),
 	updateCircle: (id: string, body: Omit<Circle, 'id'>) =>
@@ -423,6 +461,7 @@ export const api = {
 			{ trigger: 'manual' }
 		),
 	stopCircle: (id: string) => request<unknown>('DELETE', `/circles/${enc(id)}/record`),
+	probeStreams: (id: string) => request<Camera>('POST', `/cameras/${enc(id)}/streams/probe`),
 	refreshDevice: (id: string) => request<Camera>('POST', `/cameras/${enc(id)}/device`),
 	updateFirmware: async (id: string, file?: File): Promise<Camera> => {
 		const response = await fetch(`/api/cameras/${enc(id)}/firmware`, {
@@ -451,6 +490,7 @@ export function cameraBody(camera: Camera, change: Record<string, unknown> = {})
 		triggers: camera.triggers,
 		schedule: camera.schedule,
 		detection: camera.detection,
+		streams: camera.stream_selection ?? null,
 		...camera.options,
 		...change
 	};

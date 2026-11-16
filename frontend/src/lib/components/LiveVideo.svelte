@@ -1,7 +1,9 @@
 <script lang="ts">
 	// Live video of one stream, through go2rtc: WebRTC first, MSE/HLS as fallback.
 	import '../go2rtc/norn-video.js';
-	import { urls } from '../api';
+	import { urls, type StreamInfo } from '../api';
+	import { QualityGuard, watchVideo } from '../quality';
+	import { untrack } from 'svelte';
 	import LoaderCircle from '@lucide/svelte/icons/loader-circle';
 	import VideoOff from '@lucide/svelte/icons/video-off';
 
@@ -14,6 +16,10 @@
 		mode?: string | null;
 		element?: HTMLElement | null;
 		class?: string;
+		/** Adapt the quality: the streams from best to worst; `stream` is where it starts. */
+		ladder?: StreamInfo[];
+		/** The stream playing now (with `ladder`, it changes on its own). */
+		playing?: string;
 	}
 
 	let {
@@ -24,8 +30,26 @@
 		muted = true,
 		mode = $bindable(null),
 		element = $bindable(null),
-		class: className = ''
+		class: className = '',
+		ladder,
+		playing = $bindable(stream)
 	}: Props = $props();
+
+	// With a ladder, a guard picks the stream; without, it is `stream`.
+	let guard = $state<QualityGuard | null>(null);
+	let current = $state(untrack(() => stream));
+	$effect(() => {
+		const ids = ladder?.map((s) => s.id) ?? [];
+		const start = Math.max(0, ids.indexOf(stream));
+		untrack(() => {
+			guard = ids.length > 1 ? new QualityGuard(ids, start) : null;
+			current = guard?.stream ?? stream;
+		});
+	});
+	$effect(() => {
+		playing = current;
+	});
+	const currentCodec = $derived(ladder?.find((s) => s.id === current)?.codec ?? codec);
 
 	let status = $state<'connecting' | 'playing' | 'error'>('connecting');
 	let poster = $state<string | null>(null);
@@ -38,8 +62,8 @@
 		const el = element as (HTMLElement & { src: string; mode: string }) | null;
 		if (!el) return;
 		// MJPEG can't go over WebRTC or MSE; go2rtc sends it as JPEG frames instead.
-		el.mode = codec === 'mjpeg' ? 'mjpeg' : 'webrtc,mse,hls,mjpeg';
-		el.src = urls.stream(camera, stream);
+		el.mode = currentCodec === 'mjpeg' ? 'mjpeg' : 'webrtc,mse,hls,mjpeg';
+		el.src = urls.stream(camera, current);
 	});
 
 	$effect(() => {
@@ -47,9 +71,24 @@
 		if (video) video.muted = muted;
 	});
 
+	// While it plays, the guard watches the video and steps the quality down or up.
+	$effect(() => {
+		const video = (element as (HTMLElement & { video?: HTMLVideoElement }) | null)?.video;
+		if (!guard || !video || status !== 'playing') return;
+		const g = guard;
+		return watchVideo(video, (health) => {
+			const next = g.check(health);
+			if (next !== current) current = next;
+		});
+	});
+
 	function onState(e: Event) {
 		status = (e as CustomEvent).detail;
 		if (status === 'playing') error = '';
+		if (status === 'error' && guard) {
+			const next = guard.down(); // it doesn't play at all: try a lighter stream
+			if (next !== current) current = next;
+		}
 	}
 	function onMode(e: Event) {
 		mode = (e as CustomEvent).detail;

@@ -14,6 +14,7 @@
 	import Panel from '#lib/components/Panel.svelte';
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 	import Pencil from '@lucide/svelte/icons/pencil';
+	import ExternalLink from '@lucide/svelte/icons/external-link';
 	import Volume2 from '@lucide/svelte/icons/volume-2';
 	import VolumeX from '@lucide/svelte/icons/volume-x';
 	import Maximize from '@lucide/svelte/icons/maximize';
@@ -27,7 +28,9 @@
 	const camera = $derived(store.camera(id));
 	const caps = $derived(new Set(camera?.capabilities ?? []));
 
-	let stream = $state('main');
+	let stream = $state('auto');
+	let playing = $state('main');
+	const qualityName = (id: string) => ({ main: 'HD', sub: 'SD', low: 'Low' })[id] ?? id;
 	let muted = $state(true);
 	let mode = $state<string | null>(null);
 	let frame = $state<HTMLElement | null>(null);
@@ -84,6 +87,15 @@
 		const timer = setInterval(() => (now = Date.now()), 500);
 		return () => clearInterval(timer);
 	});
+
+	async function pin(r: Recording, pinned: boolean) {
+		const updated = await store.pin(r, pinned);
+		if (updated) replace(updated);
+	}
+
+	function replace(updated: Recording) {
+		recent = recent.map((x) => (x.id === updated.id ? updated : x));
+	}
 
 	async function remove(r: Recording) {
 		const ok = await store.attempt(async () => {
@@ -143,6 +155,16 @@
 			<h1 class="truncate text-xl font-semibold tracking-tight">{camera.name}</h1>
 			<p class="text-xs text-muted">{camera.driver} · {camera.id}</p>
 		</div>
+		{#if camera.web_url}
+			<a
+				href={camera.web_url}
+				target="_blank"
+				rel="noopener noreferrer"
+				class="btn-ghost"
+				title="The camera's own web page"
+				><ExternalLink class="size-4" /><span class="hidden sm:inline">Camera page</span></a
+			>
+		{/if}
 		<a href="/cameras/{camera.id}/edit" class="btn-ghost"
 			><Pencil class="size-4" /><span class="hidden sm:inline">Edit</span></a
 		>
@@ -166,8 +188,10 @@
 					{#key stream}
 						<LiveVideo
 							camera={camera.id}
-							{stream}
+							stream={stream === 'auto' ? 'main' : stream}
 							codec={camera.streams.find((s) => s.id === stream)?.codec}
+							ladder={stream === 'auto' ? camera.streams : undefined}
+							bind:playing
 							{muted}
 							bind:mode
 							class="aspect-video w-full"
@@ -203,14 +227,19 @@
 					</button>
 					{#if camera.streams.length > 1}
 						<div class="flex rounded-full bg-black/45 p-1 backdrop-blur-md">
-							{#each camera.streams as s (s.id)}
+							{#each [{ id: 'auto', transcoded: false }, ...camera.streams] as s (s.id)}
 								<button
 									class="rounded-full px-3 py-1 text-xs font-medium transition {stream === s.id
 										? 'bg-white text-black'
 										: 'text-white/80 hover:text-white'}"
+									title={s.id === 'auto'
+										? `Adapts to the connection; now ${qualityName(playing)}`
+										: s.transcoded
+											? 'Made small by Norn, for weak connections'
+											: ''}
 									onclick={() => (stream = s.id)}
 								>
-									{s.id === 'main' ? 'HD' : 'SD'}
+									{s.id === 'auto' ? `Auto · ${qualityName(playing)}` : qualityName(s.id)}
 								</button>
 							{/each}
 						</div>
@@ -249,6 +278,7 @@
 								cameraName={camera.name}
 								onopen={(x) => (open = x)}
 								ondelete={remove}
+								onpin={pin}
 								now={ringNow}
 							/>
 						{/each}
@@ -324,5 +354,5 @@
 		</aside>
 	</div>
 
-	<RecordingDialog bind:recording={open} ondeleted={() => loadRecent(id)} />
+	<RecordingDialog bind:recording={open} onchanged={replace} ondeleted={() => loadRecent(id)} />
 {/if}

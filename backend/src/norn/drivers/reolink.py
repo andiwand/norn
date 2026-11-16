@@ -192,6 +192,10 @@ class ReolinkDriver(Driver):
             with contextlib.suppress(ReolinkError, OSError):
                 await self._api.logout()
 
+    def web_url(self) -> str | None:
+        # Many Reolink cameras have no web server at all; Norn shows the link only if it answers.
+        return f"https://{self.options.host}/"
+
     def streams(self) -> list[Stream]:
         o = self.options
         auth = f"{quote(o.username, safe='')}:{quote(o.password, safe='')}@"
@@ -200,6 +204,13 @@ class ReolinkDriver(Driver):
             Stream(id="main", label="Main", source=f"{base}main", codec="h264"),
             Stream(id="sub", label="Sub", source=f"{base}sub", codec="h264"),
         ]
+
+    def extra_streams(self) -> list[Stream]:
+        o = self.options
+        auth = f"{quote(o.username, safe='')}:{quote(o.password, safe='')}@"
+        # The "fluent" third stream of some models.
+        source = f"rtsp://{auth}{o.host}:{o.rtsp_port}/h264Preview_01_ext"
+        return [Stream(id="ext", label="Third", source=source, codec="h264")]
 
     def _supported(self, feature: str, channel: int | None = CHANNEL) -> bool:
         try:

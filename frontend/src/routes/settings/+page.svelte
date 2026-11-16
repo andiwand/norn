@@ -177,6 +177,22 @@
 				unit="days"
 			/>
 			<NumberSetting
+				label="Keep at most"
+				hint="The most the recordings may take; the oldest automatic ones go first. 0: no limit."
+				bind:value={form.recording.max_gb}
+				fallback={defaults.recording.max_gb}
+				step={1}
+				unit="GB"
+			/>
+			<NumberSetting
+				label="Keep free on the disk"
+				hint="Old automatic recordings go before the disk gets this full. 0: no limit."
+				bind:value={form.recording.min_free_gb}
+				fallback={defaults.recording.min_free_gb}
+				step={1}
+				unit="GB"
+			/>
+			<NumberSetting
 				label="Continuous file length"
 				hint="A continuous recording starts a new file this often."
 				bind:value={form.recording.segment_minutes}

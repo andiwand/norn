@@ -55,3 +55,13 @@ def test_off_triggers_are_left_out() -> None:
     cfg.cameras["door"].record = "off"
     items = [rec("door", "continuous", h, 1000) for h in range(1, 5)]
     assert forecast(cfg, items, {}, free=None, now=NOW)["triggers"] == []
+
+
+def test_limits() -> None:
+    items = [rec("door", "continuous", h, 6_000_000) for h in range(1, 25)]
+    cfg = config()
+    cfg.recording.max_gb = 1.0
+    result = forecast(cfg, items, {}, free=10**12, now=NOW, used=144_000_000)
+    # 856 MB to go at ~144 MB a day; at its level it would need 1.3 GB more: the limit comes first.
+    assert result["limit"] == 856_000_000 and 5 < result["days_until_limit"] < 7
+    assert result["days_until_full"] is None

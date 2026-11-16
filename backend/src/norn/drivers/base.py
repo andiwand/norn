@@ -137,6 +137,15 @@ class Driver(ABC):
     @abstractmethod
     def streams(self) -> list[Stream]: ...
 
+    def web_url(self) -> str | None:
+        """The camera's own web page, if it has one (Norn checks that it answers)."""
+        return None
+
+    def extra_streams(self) -> list[Stream]:
+        """More streams the camera may have (a third, smaller one, ...). Norn probes them and
+        offers the ones that work; `streams()` are the ones every camera of the kind has."""
+        return []
+
     def capabilities(self) -> set[Capability]:
         caps = {Capability.SNAPSHOT}
         if self.streams():

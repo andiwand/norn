@@ -4,18 +4,33 @@
 	import { store } from '../state.svelte';
 	import Download from '@lucide/svelte/icons/download';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
+	import Pin from '@lucide/svelte/icons/pin';
+	import PinOff from '@lucide/svelte/icons/pin-off';
 	import X from '@lucide/svelte/icons/x';
 
 	let {
 		recording = $bindable(null),
 		at = 0,
-		ondeleted
+		ondeleted,
+		onchanged
 	}: {
 		recording: Recording | null;
 		/** Where to start playing, in seconds from the start of the video. */
 		at?: number;
 		ondeleted?: (r: Recording) => void;
+		/** It was pinned or unpinned: the new state. */
+		onchanged?: (r: Recording) => void;
 	} = $props();
+
+	async function pin() {
+		if (!recording) return;
+		const wanted = !recording.pinned;
+		const updated = await store.pin(recording, wanted);
+		if (updated) {
+			recording = updated;
+			onchanged?.(updated);
+		}
+	}
 
 	function seek(video: HTMLVideoElement) {
 		if (at > 0) video.currentTime = at;
@@ -97,6 +112,8 @@
 				<span class="mr-auto text-xs text-muted">
 					{#if recording.live}
 						Still being recorded.
+					{:else if recording.pinned}
+						Pinned: kept until you unpin it.
 					{:else if recording.expires}
 						Norn deletes it on {new Date(recording.expires).toLocaleDateString([], {
 							month: 'short',
@@ -107,6 +124,11 @@
 					{/if}
 				</span>
 				{#if !recording.live}
+					<button class="btn-ghost" onclick={pin}
+						>{#if recording.pinned}<PinOff class="size-4" />Unpin{:else}<Pin
+								class="size-4"
+							/>Pin{/if}</button
+					>
 					<button class="btn-danger" onclick={() => (confirming = true)}
 						><Trash2 class="size-4" />Delete</button
 					>

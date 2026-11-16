@@ -95,6 +95,10 @@ class RecordingSettings(BaseModel):
 
     # Recordings Norn makes by itself expire after this; clips recorded by hand stay. 0: never.
     retention_days: int = Field(14, ge=0)
+    # Besides the age: the most the recordings may take, and the least the disk must keep free,
+    # in GB. When either is crossed, the oldest automatic recordings go first. 0: no limit.
+    max_gb: float = Field(0, ge=0)
+    min_free_gb: float = Field(0, ge=0)
     segment_minutes: int = Field(10, ge=1, le=60)
     clip_seconds: int = Field(30, ge=5, le=3600)
     # The last seconds of each camera, kept in RAM, so a clip starts before its trigger. 0: off.
@@ -194,6 +198,8 @@ class CameraConfig(BaseModel):
     triggers: list[EventKind] | None = None
     schedule: list[Window] | None = None
     detection: DetectionOverride | None = None
+    # The streams Norn uses, by id (main, sub, ...); None: all that work.
+    streams: list[str] | None = None
 
     @field_validator("picture_seconds")
     @classmethod

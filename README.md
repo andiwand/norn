@@ -93,6 +93,8 @@ uvx --from norn-hub norn
 ```yaml
 recording:
   retention_days: 14 # automatic recordings expire after this; 0 keeps them forever
+  max_gb: 500 # also keep them under this size (oldest automatic ones go first); 0: no limit
+  min_free_gb: 20 # and keep this much free on the disk; 0: no limit
   segment_minutes: 10 # length of one file of a continuous recording
   clip_seconds: 30 # length of a triggered clip
   prebuffer_seconds: 10 # a clip starts this long before its trigger; 0 turns it off

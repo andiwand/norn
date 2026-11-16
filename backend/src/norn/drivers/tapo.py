@@ -94,6 +94,9 @@ class TapoDriver(Driver):
                 self._tapo = None  # log in again next time
                 raise DriverError(str(e)) from e
 
+    def web_url(self) -> str | None:
+        return None  # Tapo cameras have no web page for users
+
     def streams(self) -> list[Stream]:
         o = self.options
         auth = f"{quote(o.camera_username, safe='')}:{quote(o.camera_password, safe='')}@"

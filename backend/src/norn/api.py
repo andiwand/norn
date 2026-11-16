@@ -60,6 +60,7 @@ class CameraBody(BaseModel):
     triggers: list[str] | None = None
     schedule: list[dict[str, Any]] | None = None
     detection: dict[str, Any] | None = None
+    streams: list[str] | None = None
 
 
 class NewCamera(CameraBody):
@@ -79,6 +80,10 @@ class SettingsBody(BaseModel):
     firmware: FirmwareSettings | None = None
     away: AwaySettings | None = None
     detection: DetectionSettings | None = None
+
+
+class PinBody(BaseModel):
+    pinned: bool = True
 
 
 class ControlBody(BaseModel):
@@ -235,8 +240,8 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
 
     @api.get("/cameras/{camera_id}/snapshot")
     async def snapshot(camera_id: str, stream: str = "main") -> Response:
-        driver = driver_of(camera_id)
-        if stream not in {s.id for s in driver.streams()}:
+        driver_of(camera_id)
+        if stream not in hub.stream_ids(camera_id):
             raise HTTPException(404, f"no stream {stream!r}")
         try:
             jpeg = await hub.go2rtc.frame(stream_name(camera_id, stream))
@@ -276,6 +281,13 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
             media_type="multipart/x-mixed-replace; boundary=frame",
             headers={"Cache-Control": "no-store"},
         )
+
+    @api.post("/cameras/{camera_id}/streams/probe")
+    async def probe(camera_id: str) -> dict[str, Any]:
+        """Find out again which of the camera's streams work, and whether at the same time."""
+        driver_of(camera_id)
+        await hub.probe_streams(camera_id)
+        return hub.camera_json(camera_id)
 
     @api.post("/cameras/{camera_id}/device")
     async def refresh_device(camera_id: str) -> dict[str, Any]:
@@ -482,6 +494,18 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
             raise HTTPException(404, "not found")
         return FileResponse(path)  # supports range requests, so the video can seek
 
+    @api.put("/recordings/{camera}/{day}/{name}/pin")
+    async def pin_recording(camera: str, day: str, name: str, body: PinBody) -> dict[str, Any]:
+        """Pin a recording (Norn never deletes it), or unpin it."""
+        try:
+            recording = hub.library.set_pinned(camera, day, name, body.pinned)
+        except InvalidPathError as e:
+            raise HTTPException(400, str(e)) from e
+        if recording is None:
+            raise HTTPException(404, "not found")
+        hub.bus.publish("recording.pinned", {"id": recording.id, "pinned": body.pinned})
+        return recording.to_json(hub.config.recording.retention_days)
+
     @api.delete("/recordings/{camera}/{day}/{name}", status_code=204)
     async def delete_recording(camera: str, day: str, name: str) -> Response:
         try:
@@ -515,11 +539,11 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
     async def stream(ws: WebSocket, camera: str, stream: str = "main") -> None:
         """go2rtc's WebSocket (WebRTC signaling and MSE video), forwarded."""
         try:
-            driver = hub.get_driver(camera)
+            hub.get_driver(camera)
         except (KeyError, LookupError):
             await ws.close(code=4404)
             return
-        if stream not in {s.id for s in driver.streams()}:
+        if stream not in hub.stream_ids(camera):
             stream = "main"
         await ws.accept()
         try:

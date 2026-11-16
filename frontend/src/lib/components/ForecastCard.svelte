@@ -61,16 +61,33 @@
 				</p>
 			</div>
 			<div class="rounded-xl border border-line bg-surface-2/60 p-4">
-				<div class="text-xs font-medium text-muted">Disk full</div>
-				<div
-					class="mt-2 text-xl font-semibold {forecast.days_until_full !== null &&
-					forecast.days_until_full < 30
-						? 'text-warning'
-						: ''}"
-				>
-					{forecast.days_until_full === null ? 'Never' : `In ${days(forecast.days_until_full)}`}
-				</div>
-				<p class="mt-1.5 text-xs text-muted">at this rate</p>
+				{#if forecast.limit !== null}
+					<div class="text-xs font-medium text-muted">Limit reached</div>
+					<div
+						class="mt-2 text-xl font-semibold {forecast.days_until_limit !== null &&
+						forecast.days_until_limit < 7
+							? 'text-warning'
+							: ''}"
+					>
+						{forecast.days_until_limit === null
+							? 'Never'
+							: forecast.days_until_limit === 0
+								? 'Now'
+								: `In ${days(forecast.days_until_limit)}`}
+					</div>
+					<p class="mt-1.5 text-xs text-muted">then the oldest automatic recordings go earlier</p>
+				{:else}
+					<div class="text-xs font-medium text-muted">Disk full</div>
+					<div
+						class="mt-2 text-xl font-semibold {forecast.days_until_full !== null &&
+						forecast.days_until_full < 30
+							? 'text-warning'
+							: ''}"
+					>
+						{forecast.days_until_full === null ? 'Never' : `In ${days(forecast.days_until_full)}`}
+					</div>
+					<p class="mt-1.5 text-xs text-muted">at this rate</p>
+				{/if}
 			</div>
 		</div>
 		<div class="mt-3 overflow-x-auto">

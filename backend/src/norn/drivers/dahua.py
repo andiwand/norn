@@ -101,6 +101,9 @@ class DahuaDriver(Driver):
     async def stop(self) -> None:
         await self.client.aclose()
 
+    def web_url(self) -> str | None:
+        return f"http://{self.options.host}:{self.options.http_port}/"
+
     def streams(self) -> list[Stream]:
         o = self.options
         auth = f"{quote(o.username, safe='')}:{quote(o.password, safe='')}@"
@@ -109,6 +112,12 @@ class DahuaDriver(Driver):
             Stream(id="main", label="Main", source=f"{base}0"),
             Stream(id="sub", label="Sub", source=f"{base}1"),
         ]
+
+    def extra_streams(self) -> list[Stream]:
+        o = self.options
+        auth = f"{quote(o.username, safe='')}:{quote(o.password, safe='')}@"
+        base = f"rtsp://{auth}{o.host}:{o.rtsp_port}/cam/realmonitor?channel={o.channel}&subtype="
+        return [Stream(id="third", label="Third", source=f"{base}2")]
 
     def capabilities(self) -> set[Capability]:
         caps = super().capabilities() | {Capability.CONTROLS}

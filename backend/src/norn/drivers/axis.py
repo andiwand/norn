@@ -76,6 +76,9 @@ class AxisDriver(Driver):
     async def stop(self) -> None:
         await self.client.aclose()
 
+    def web_url(self) -> str | None:
+        return f"http://{self.options.host}:{self.options.http_port}/"
+
     def streams(self) -> list[Stream]:
         o = self.options
         auth = f"{quote(o.username, safe='')}:{quote(o.password, safe='')}@"

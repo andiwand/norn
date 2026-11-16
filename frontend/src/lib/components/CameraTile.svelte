@@ -11,7 +11,9 @@
 	let { camera, stills = false }: { camera: Camera; stills?: boolean } = $props();
 
 	// The grid uses the small stream where there is one; it costs the browser and the network less.
+	// It drops to Norn's low stream when the connection struggles.
 	const stream = $derived(camera.streams.find((s) => s.id === 'sub') ?? camera.streams[0]);
+	const ladder = $derived(camera.streams.filter((s) => s.id === stream.id || s.id === 'low'));
 	const offline = $derived(camera.device && !camera.device.online);
 </script>
 
@@ -41,6 +43,7 @@
 			camera={camera.id}
 			stream={stream.id}
 			codec={stream.codec}
+			{ladder}
 			fit="cover"
 			class="h-full w-full"
 		/>

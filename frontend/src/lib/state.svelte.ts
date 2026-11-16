@@ -7,7 +7,8 @@ import {
 	type Info,
 	type Label,
 	type NornEvent,
-	type Preset
+	type Preset,
+	type Recording
 } from './api';
 import { setLabels } from './format';
 
@@ -140,6 +141,14 @@ class Store {
 
 	dismiss(id: number) {
 		this.toasts = this.toasts.filter((t) => t.id !== id);
+	}
+
+	/** Pin or unpin a recording; the new state, or undefined when it failed. */
+	pin(recording: Recording, pinned: boolean) {
+		return this.attempt(
+			() => api.pinRecording(recording.id, pinned),
+			pinned ? 'Pinned: Norn keeps it' : 'Unpinned'
+		);
 	}
 
 	/** Run an API call; show its error as a toast instead of throwing. */

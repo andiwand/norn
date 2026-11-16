@@ -4,6 +4,9 @@
 	import Film from '@lucide/svelte/icons/film';
 	import Play from '@lucide/svelte/icons/play';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
+	import Pin from '@lucide/svelte/icons/pin';
+	import PinOff from '@lucide/svelte/icons/pin-off';
+	import Download from '@lucide/svelte/icons/download';
 	import LifetimeRing from './LifetimeRing.svelte';
 
 	let {
@@ -11,12 +14,15 @@
 		cameraName,
 		onopen,
 		ondelete,
+		onpin,
 		now
 	}: {
 		recording: Recording;
 		cameraName?: string;
 		onopen: (r: Recording) => void;
 		ondelete?: (r: Recording) => void;
+		/** Pin or unpin; without it the tile has no pin button. */
+		onpin?: (r: Recording, pinned: boolean) => void;
 		/** The time the lifetime rings count from; the page ticks it. */
 		now?: number;
 	} = $props();
@@ -86,7 +92,12 @@
 			><span class="size-1.5 animate-pulse rounded-full bg-danger"></span>Recording</span
 		>
 	{/if}
-	{#if recording.expires}
+	{#if recording.pinned}
+		<span
+			class="absolute top-2 left-2 grid size-7 place-items-center rounded-full bg-accent text-accent-ink"
+			title="Pinned: kept until you unpin it"><Pin class="size-3.5" /></span
+		>
+	{:else if recording.expires}
 		<LifetimeRing
 			start={recording.start}
 			expires={recording.expires}
@@ -94,21 +105,47 @@
 			class="pointer-events-auto absolute top-2 left-2"
 		/>
 	{/if}
-	{#if ondelete && !recording.live}
-		<button
-			class="absolute top-2 right-2 flex h-8 items-center gap-1.5 rounded-full px-2 text-xs font-medium backdrop-blur-md transition focus-visible:opacity-100 {armed
-				? 'bg-danger text-white opacity-100'
-				: 'bg-black/50 text-white opacity-100 hover:bg-danger [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100'}"
-			onclick={clickDelete}
-			onmouseleave={() => {
-				clearTimeout(disarm);
-				disarm = setTimeout(() => (armed = false), 800);
-			}}
-			aria-label={armed ? 'Click again to delete' : 'Delete recording'}
-			title={armed ? 'Click again to delete' : 'Delete'}
+	{#if !recording.live}
+		<!-- Small actions, shown on hover (always on touch screens). -->
+		<div
+			class="absolute top-2 right-2 flex items-center gap-1 transition focus-within:opacity-100 {armed
+				? 'opacity-100'
+				: '[@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100'}"
 		>
-			<Trash2 class="size-4" />
-			{#if armed}<span class="pr-0.5">Delete?</span>{/if}
-		</button>
+			{#if onpin && !armed}
+				<button
+					class="tile-action"
+					onclick={() => onpin(recording, !recording.pinned)}
+					aria-label={recording.pinned ? 'Unpin' : 'Pin: keep it'}
+					title={recording.pinned ? 'Unpin' : 'Pin: Norn keeps it'}
+				>
+					{#if recording.pinned}<PinOff class="size-4" />{:else}<Pin class="size-4" />{/if}
+				</button>
+			{/if}
+			{#if !armed}
+				<a
+					class="tile-action"
+					href={urls.recording(recording)}
+					download
+					aria-label="Download"
+					title="Download"><Download class="size-4" /></a
+				>
+			{/if}
+			{#if ondelete}
+				<button
+					class="tile-action {armed ? 'w-auto bg-danger px-2' : 'hover:bg-danger'}"
+					onclick={clickDelete}
+					onmouseleave={() => {
+						clearTimeout(disarm);
+						disarm = setTimeout(() => (armed = false), 800);
+					}}
+					aria-label={armed ? 'Click again to delete' : 'Delete recording'}
+					title={armed ? 'Click again to delete' : 'Delete'}
+				>
+					<Trash2 class="size-4" />
+					{#if armed}<span class="pr-0.5 text-xs font-medium">Delete?</span>{/if}
+				</button>
+			{/if}
+		</div>
 	{/if}
 </div>

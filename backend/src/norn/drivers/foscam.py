@@ -96,6 +96,9 @@ class FoscamDriver(Driver):
     async def stop(self) -> None:
         await self._client.aclose()
 
+    def web_url(self) -> str | None:
+        return f"http://{self.options.host}:{self.options.port}/"
+
     def streams(self) -> list[Stream]:
         o = self.options
         # go2rtc reads the credentials from the URL; they must be percent-encoded (# in a password).

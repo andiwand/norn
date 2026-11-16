@@ -118,6 +118,9 @@ class HikvisionDriver(Driver):
     async def stop(self) -> None:
         await self._client.aclose()
 
+    def web_url(self) -> str | None:
+        return f"http://{self.options.host}:{self.options.http_port}/"
+
     def streams(self) -> list[Stream]:
         o = self.options
         auth = f"{quote(o.username, safe='')}:{quote(o.password, safe='')}@"
@@ -125,6 +128,15 @@ class HikvisionDriver(Driver):
         return [
             Stream(id="main", label="Main", source=f"{base}01", codec="h264"),
             Stream(id="sub", label="Sub", source=f"{base}02", codec="h264"),
+        ]
+
+    def extra_streams(self) -> list[Stream]:
+        o = self.options
+        auth = f"{quote(o.username, safe='')}:{quote(o.password, safe='')}@"
+        base = f"rtsp://{auth}{o.host}:{o.rtsp_port}/Streaming/Channels/{o.channel}"
+        return [
+            Stream(id="third", label="Third", source=f"{base}03", codec="h264"),
+            Stream(id="fourth", label="Fourth", source=f"{base}04", codec="h264"),
         ]
 
     def capabilities(self) -> set[Capability]:

@@ -187,3 +187,7 @@
 		margin: 0;
 	}
 }
+
+@utility tile-action {
+	@apply flex size-8 items-center justify-center gap-1.5 rounded-full bg-black/50 text-white backdrop-blur-md transition hover:bg-black/70;
+}

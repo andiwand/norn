@@ -170,3 +170,17 @@ def test_describe_stills() -> None:
             return "ffmpeg"
 
     assert describe(Fake()) == ("Stills", "door")  # type: ignore[arg-type]
+
+
+def test_evict_oldest_automatic_first(library: Library) -> None:
+    from norn.recordings import folder_size
+
+    assert library.evict() == ([], 0)  # no limits
+    total = folder_size(library.root)[0]
+    # 3 bytes too much: the oldest automatic recording (the 5-byte continuous file) goes.
+    deleted, excess = library.evict(max_bytes=total - 3)
+    assert deleted == ["door/2026-11-14/08-00-00_continuous.mp4"] and excess == 0
+    deleted, excess = library.evict(max_bytes=1)
+    assert deleted == ["yard/2026-11-15/09-00-00_motion.mp4"]
+    assert excess > 0  # the manual clip stays, whatever the limit
+    assert [r.trigger for r in library.list()] == ["manual"]
