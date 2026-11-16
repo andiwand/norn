@@ -165,3 +165,25 @@ async def test_default_preset_changes_and_races(settings: Settings) -> None:
         pilot.moved(PtzCommand(action="stop"))
     finally:
         await hub.stop()
+
+
+async def test_no_default_preset_in_a_slot_the_camera_lost(settings: Settings) -> None:
+    settings.config_path.parent.mkdir(parents=True)
+    settings.config_path.write_text(
+        "cameras:\n"
+        "  yard:\n"
+        "    name: Yard\n"
+        "    driver: demo\n"
+        "    presets: {gone: {name: Gone, slot: deleted-on-the-camera}}\n"
+        "    default_preset: gone\n"
+    )
+    hub = Hub(settings)
+    await hub.start()
+    try:
+        await hub.refresh_controls("yard")
+        pilot, driver = hub.pilots["yard"], hub.get_driver("yard")
+        before = list(driver.position)  # type: ignore[attr-defined]
+        await pilot._to_default()
+        assert driver.position == before and pilot.at_preset is None  # type: ignore[attr-defined]
+    finally:
+        await hub.stop()

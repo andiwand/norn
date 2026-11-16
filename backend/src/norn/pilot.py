@@ -48,6 +48,7 @@ class Pilot:
         self.at_preset: str | None = None  # the Norn preset it's at, as far as Norn knows
         self._moves = 0  # counts every command that moves it: a goto knows if another came meanwhile
         self.last_manual = -DEFAULT_AFTER_MANUAL
+        self._missing_warned: str | None = None  # the default's slot the camera lacks (warned once)
         self._paused = asyncio.Event()  # set by pause(): a dwell ends at once
         self._auto_stop: asyncio.Task[None] | None = None
         self.task = asyncio.create_task(self._run(), name=f"pilot-{camera_id}")
@@ -201,9 +202,26 @@ class Pilot:
         default = cfg.default_preset if cfg else None
         if time.monotonic() - self.last_manual < DEFAULT_AFTER_MANUAL:
             return
-        if default and default in cfg.presets and self.at_preset != default:
-            log.info("%s: back to the default preset %s", self.camera_id, default)
-            await self.goto(default)
+        if not default or default not in cfg.presets or self.at_preset == default:
+            return
+        # A slot the camera no longer has (deleted on the camera) would send it somewhere odd.
+        slot = cfg.presets[default].slot
+        cached = self.hub.cameras.get(self.camera_id)
+        listed = cached.presets if cached else None
+        if listed is not None and slot not in {p.id for p in listed}:
+            if self._missing_warned != slot:
+                log.warning(
+                    "%s: the default preset %s is in slot %s, which the camera doesn't have any more;"
+                    " save the view again",
+                    self.camera_id,
+                    default,
+                    slot,
+                )
+                self._missing_warned = slot
+            return
+        self._missing_warned = None
+        log.info("%s: back to the default preset %s", self.camera_id, default)
+        await self.goto(default)
 
     # Patrol
 

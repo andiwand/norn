@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- A default preset whose slot the camera no longer has (deleted on the camera) isn't steered
+  to any more; the log says to save the view again.
+
 ## 0.2.0 — 2026-11-16
 
 - New tabs: Cameras (the list, with rows you can click, and circles), Away, Diagnostics (version,
