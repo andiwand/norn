@@ -29,6 +29,10 @@ The first version.
 - Three storage stages: a RAM buffer per camera, so clips start before their trigger; temporary
   storage for what is being recorded; the recordings folder for finished files. Settings shows
   what each holds, and the CPU and memory of Norn, go2rtc and each FFmpeg.
+- Camera detections as triggers: motion and AI events pushed by Reolink cameras (person,
+  animal, ...), the Hikvision alert stream, and the alarm of supra/Foscam cameras. A clip runs
+  while the detection lasts; a circle can record all its cameras together. A live badge shows
+  what each camera detects.
 - A storage forecast per trigger and camera: bytes per day, the size it levels off at, and when
   the disk is full; measured from recordings, estimated from the bitrate before.
 - Pictures on a timer (trigger `interval`), globally, per circle or per camera.

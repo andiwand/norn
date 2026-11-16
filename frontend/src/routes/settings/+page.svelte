@@ -3,6 +3,7 @@
 	import { store } from '#lib/state.svelte.js';
 	import NumberSetting from '#lib/components/NumberSetting.svelte';
 	import IntervalSetting from '#lib/components/IntervalSetting.svelte';
+	import TriggerSetting from '#lib/components/TriggerSetting.svelte';
 	import StorageStages from '#lib/components/StorageStages.svelte';
 	import ForecastCard from '#lib/components/ForecastCard.svelte';
 	import CloudDownload from '@lucide/svelte/icons/cloud-download';
@@ -194,6 +195,12 @@
 				label="Pictures"
 				hint="A picture of every camera on a timer. Circles and cameras can set their own."
 				bind:value={form.recording.picture_seconds}
+			/>
+			<TriggerSetting
+				label="Record on detections"
+				hint="What the cameras detect that starts a clip. It runs while the detection lasts, plus the clip length."
+				bind:value={form.recording.triggers}
+				kinds={[...new Set(store.cameras.flatMap((c) => c.events?.kinds ?? []))]}
 			/>
 			<div class="flex items-center gap-2 p-5 pb-1 text-muted">
 				<CloudDownload class="size-4" /><span class="eyebrow">Firmware</span>

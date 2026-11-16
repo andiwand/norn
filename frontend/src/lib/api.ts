@@ -68,6 +68,10 @@ export interface Camera {
 	/** Overrides of the global recording settings; null: the global value. */
 	picture_seconds: number | null;
 	prebuffer_seconds: number | null;
+	/** What the camera detects that starts a clip; null: as its circle or the settings say. */
+	triggers: string[] | null;
+	/** What the camera can detect, and what it detects now; null: it reports nothing. */
+	events: { kinds: string[]; active: string[] } | null;
 	/** Seconds of the past a clip started now would include (the RAM buffer). */
 	buffered: number;
 	device: DeviceInfo | null;
@@ -81,6 +85,9 @@ export interface Circle {
 	cameras: string[];
 	picture_seconds: number | null;
 	prebuffer_seconds: number | null;
+	triggers: string[] | null;
+	/** When one camera detects a trigger, all cameras of the circle record. */
+	together: boolean;
 }
 
 /** A control all cameras of a circle share. `mixed`: the cameras have different values. */
@@ -161,6 +168,7 @@ export interface RecordingSettings {
 	clip_seconds: number;
 	prebuffer_seconds: number;
 	picture_seconds: number;
+	triggers: string[];
 }
 
 export interface SettingsValues {
@@ -388,6 +396,7 @@ export function cameraBody(camera: Camera, change: Record<string, unknown> = {})
 		auto_update: camera.auto_update,
 		picture_seconds: camera.picture_seconds,
 		prebuffer_seconds: camera.prebuffer_seconds,
+		triggers: camera.triggers,
 		...camera.options,
 		...change
 	};

@@ -15,7 +15,7 @@ from pydantic import BaseModel, ValidationError
 from . import __version__
 from .config import CameraConfig, CircleConfig, Config, ConfigError, ConfigStore
 from .drivers import DRIVERS
-from .drivers.base import Capability, Control, DeviceInfo, Driver, Preset
+from .drivers.base import Capability, Control, DeviceInfo, Driver, Event, NotSupportedError, Preset
 from .events import EventBus
 from .firmware import FirmwareStatus, check
 from .forecast import forecast, history
@@ -28,6 +28,7 @@ from .settings import Settings
 log = logging.getLogger("norn")
 
 DEVICE_INTERVAL = 300  # seconds between two reads of each camera's state
+HOLD_INTERVAL = 5  # seconds between two extensions of a clip while a detection lasts
 STORAGE_CACHE = 15  # seconds a storage report stays fresh; it walks the folders
 
 
@@ -52,6 +53,9 @@ class Camera:
     presets: list[Preset] | None = None
     controls_time: float = 0
     controls_task: asyncio.Task[None] | None = field(default=None, repr=False)
+    # What the camera detects right now (event kinds), and the task that listens for it.
+    detecting: set[str] = field(default_factory=set)
+    events_task: asyncio.Task[None] | None = field(default=None, repr=False)
 
     def to_json(self, recording: dict[str, Any] | None) -> dict[str, Any]:
         driver = self.driver
@@ -74,9 +78,13 @@ class Camera:
             "auto_update": self.config.auto_update,
             "picture_seconds": self.config.picture_seconds,
             "prebuffer_seconds": self.config.prebuffer_seconds,
+            "triggers": self.config.triggers,
             "device": self.device.model_dump() if self.device else None,
             "firmware": self.firmware.model_dump() if self.firmware else None,
             "update": self.update,
+            "events": {"kinds": driver.event_kinds(), "active": sorted(self.detecting)}
+            if driver and self.config.enabled and Capability.EVENTS in driver.capabilities()
+            else None,
         }
 
 
@@ -94,6 +102,10 @@ class Hub:
         self._poller: asyncio.Task[None] | None = None
         self._lock = asyncio.Lock()
         self._storage: tuple[float, dict[str, Any]] | None = None
+        # Cameras recording because of detections: what holds each one (camera, kind), and the
+        # task that keeps its clip going.
+        self._held: dict[str, set[tuple[str, str]]] = {}
+        self._holds: dict[str, asyncio.Task[None]] = {}
         self._resources = Resources()
         self._resources_lock = asyncio.Lock()
 
@@ -116,9 +128,12 @@ class Hub:
         log.info("Norn %s with %d cameras", __version__, len(self.cameras))
 
     async def stop(self) -> None:
-        for task in (self._watcher, self._poller):
+        for task in (self._watcher, self._poller, *self._holds.values()):
             if task:
                 task.cancel()
+        for camera in self.cameras.values():
+            if camera.events_task:
+                camera.events_task.cancel()
         await self.recorder.stop()
         for camera in self.cameras.values():
             if camera.driver:
@@ -432,10 +447,95 @@ class Hub:
             if new[cid].driver and cfg.enabled:
                 await new[cid].driver.start()
         for cid, camera in old.items():
-            if new.get(cid) is not camera and camera.driver:
-                with contextlib.suppress(Exception):
-                    await camera.driver.stop()
+            if new.get(cid) is not camera:
+                if camera.events_task:
+                    camera.events_task.cancel()
+                if camera.driver:
+                    with contextlib.suppress(Exception):
+                        await camera.driver.stop()
         self.cameras = new
+        for camera in new.values():
+            driver = camera.driver
+            if (
+                camera.events_task is None
+                and driver
+                and camera.config.enabled
+                and Capability.EVENTS in driver.capabilities()
+            ):
+                camera.events_task = asyncio.create_task(
+                    self._watch_events(camera), name=f"events-{camera.id}"
+                )
+
+    # Camera events (motion, people, ...) as recording triggers.
+    async def _watch_events(self, camera: Camera) -> None:
+        """Listen to a camera's detections for as long as it exists; reconnect when it drops."""
+        delay = 5.0
+        while True:
+            assert camera.driver is not None
+            try:
+                async for event in camera.driver.events():
+                    delay = 5.0
+                    self.on_event(camera.id, event)
+            except asyncio.CancelledError:
+                raise
+            except NotSupportedError:
+                return
+            except Exception as e:
+                log.info("%s: events stopped: %s; again in %.0f s", camera.id, e, delay)
+            for kind in list(camera.detecting):  # without a connection, nothing is detected
+                self.on_event(camera.id, Event(kind=kind, active=False))
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 300)
+
+    def triggers_of(self, camera_id: str) -> set[str]:
+        return set(self.config.setting(camera_id, "triggers")[0] or [])
+
+    def on_event(self, camera_id: str, event: Event) -> None:
+        """A camera detected something, or stopped: publish it, and record if it is a trigger."""
+        camera = self.cameras.get(camera_id)
+        if camera is None:
+            return
+        was = event.kind in camera.detecting
+        if event.active:
+            camera.detecting.add(event.kind)
+        else:
+            camera.detecting.discard(event.kind)
+        if was != event.active:
+            self.bus.publish("camera.event", {"camera": camera_id, **event.model_dump()})
+        source = (camera_id, event.kind)
+        if not event.active:
+            for held in self._held.values():
+                held.discard(source)
+            return
+        if event.kind not in self.triggers_of(camera_id):
+            return
+        # The camera records; in a circle that records together, all its cameras do.
+        targets = {camera_id}
+        for circle_id in self.config.circles_of(camera_id):
+            if self.config.circles[circle_id].together:
+                targets |= set(self.circle_members(circle_id))
+        for target in targets:
+            self._held.setdefault(target, set()).add(source)
+            task = self._holds.get(target)
+            if task is None or task.done():
+                self._holds[target] = asyncio.create_task(self._hold(target, event.kind))
+
+    async def _hold(self, camera_id: str, trigger: str) -> None:
+        """Keep a camera's clip going while what triggered it lasts; it then runs `clip_seconds`
+        longer, like after a button press."""
+        held = self._held.setdefault(camera_id, set())
+        while held:
+            try:
+                kinds = sorted({kind for _, kind in held})
+                for kind in [trigger, *[k for k in kinds if k != trigger]]:
+                    await self.recorder.record_clip(camera_id, kind)
+            except RuntimeError as e:  # no FFmpeg or go2rtc
+                log.info("%s: can't record %s: %s", camera_id, trigger, e)
+                held.clear()
+                return
+            except Exception:
+                log.exception("%s: recording on %s failed", camera_id, trigger)
+            await asyncio.sleep(HOLD_INTERVAL)
 
     def _make_camera(self, cid: str, cfg: CameraConfig) -> Camera:
         cls = DRIVERS.get(cfg.driver)

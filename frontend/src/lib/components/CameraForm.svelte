@@ -5,6 +5,7 @@
 	import { store } from '../state.svelte';
 	import { untrack } from 'svelte';
 	import IntervalSetting from './IntervalSetting.svelte';
+	import TriggerSetting from './TriggerSetting.svelte';
 	import NumberSetting from './NumberSetting.svelte';
 
 	interface Props {
@@ -27,6 +28,7 @@
 		Object.fromEntries(Object.entries(initial?.options ?? {}).map(([k, v]) => [k, String(v ?? '')]))
 	);
 	let pictureSeconds = $state<number | null>(initial?.picture_seconds ?? null);
+	let triggers = $state<string[] | null>(initial?.triggers ?? null);
 	// Empty (null): the global setting.
 	let prebuffer = $state<number | null | undefined>(initial?.prebuffer_seconds ?? null);
 	const globals = $derived(store.info?.recording);
@@ -36,6 +38,7 @@
 		initial ? store.circles.find((c) => c.cameras.includes(initial.id)) : undefined
 	);
 	const inherited = $derived({
+		triggers: circle?.triggers ?? globals?.triggers ?? [],
 		picture_seconds: circle?.picture_seconds ?? globals?.picture_seconds ?? 0,
 		prebuffer_seconds: circle?.prebuffer_seconds ?? globals?.prebuffer_seconds ?? 0
 	});
@@ -80,6 +83,7 @@
 			record,
 			auto_update: initial?.auto_update ?? false,
 			picture_seconds: pictureSeconds,
+			triggers,
 			prebuffer_seconds:
 				typeof prebuffer === 'number' && Number.isFinite(prebuffer) ? prebuffer : null
 		};
@@ -193,6 +197,15 @@
 			bind:value={pictureSeconds}
 			inherit={inherited.picture_seconds}
 		/>
+		{#if initial?.events}
+			<TriggerSetting
+				label="Record on detections"
+				hint="What this camera detects that starts a clip."
+				bind:value={triggers}
+				kinds={initial.events.kinds}
+				inherit={inherited.triggers}
+			/>
+		{/if}
 		<NumberSetting
 			label="Record before the trigger"
 			hint="Seconds a clip includes from before what started it. Empty: as set above; 0: off."

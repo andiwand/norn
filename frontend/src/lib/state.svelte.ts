@@ -159,6 +159,16 @@ class Store {
 			if (camera && event.type === 'camera.controls' && camera in this.controls) {
 				this.loadControls(camera);
 			}
+			if (camera && event.type === 'camera.event') {
+				// Live, without loading all cameras again.
+				const events = this.camera(camera)?.events;
+				const kind = String(event.data.kind);
+				if (events) {
+					events.active = event.data.active
+						? [...new Set([...events.active, kind])]
+						: events.active.filter((k) => k !== kind);
+				}
+			}
 			if (camera && event.type === 'camera.control') {
 				const control = this.controls[camera]?.controls.find((c) => c.id === event.data.control);
 				if (control && control.kind !== 'button') control.value = event.data.value;

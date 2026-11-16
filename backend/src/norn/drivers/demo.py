@@ -7,6 +7,7 @@ UI in development and tests.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from typing import Any, Literal
 
 from pydantic import Field
@@ -17,6 +18,7 @@ from .base import (
     Control,
     Driver,
     DriverOptions,
+    Event,
     NotSupportedError,
     Option,
     Preset,
@@ -28,6 +30,9 @@ from .base import (
 class DemoOptions(DriverOptions):
     pattern: Literal["testsrc2", "smptehdbars", "mandelbrot", "life"] = Field(
         "testsrc2", title="Pattern", description="The FFmpeg test source to show."
+    )
+    event_seconds: int = Field(
+        120, title="Pretend motion every", ge=5, description="Seconds between pretend detections."
     )
 
 
@@ -66,7 +71,24 @@ class DemoDriver(Driver):
         ]
 
     def capabilities(self) -> set[Capability]:
-        return super().capabilities() | {Capability.PTZ, Capability.PRESETS, Capability.CONTROLS}
+        caps = {Capability.PTZ, Capability.PRESETS, Capability.CONTROLS, Capability.EVENTS}
+        return super().capabilities() | caps
+
+    def event_kinds(self) -> list[str]:
+        return ["motion", "person"]
+
+    async def events(self) -> AsyncIterator[Event]:
+        """Pretend motion every `event_seconds` (with a person in every other one), 8 s each."""
+        n = 0
+        while True:
+            await asyncio.sleep(self.options.event_seconds)
+            n += 1
+            kinds = ["motion", "person"] if n % 2 == 0 else ["motion"]
+            for kind in kinds:
+                yield Event(kind=kind, active=True)
+            await asyncio.sleep(8)
+            for kind in kinds:
+                yield Event(kind=kind, active=False)
 
     async def stop(self) -> None:
         if self._move:

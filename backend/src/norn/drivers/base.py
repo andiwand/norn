@@ -10,7 +10,7 @@ Video never passes through a driver: go2rtc reads the camera and repackages the 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from enum import StrEnum
 from typing import Any, ClassVar, Literal
 
@@ -27,6 +27,18 @@ class Capability(StrEnum):
     TALKBACK = "talkback"  # two-way audio
     FIRMWARE_UPLOAD = "firmware-upload"  # installs a firmware file the user provides
     FIRMWARE_ONLINE = "firmware-online"  # finds and installs new firmware by itself
+    EVENTS = "events"  # reports what the camera detects (motion, people, ...), see Driver.events
+
+
+# What cameras detect. A driver maps its own names onto these, so triggers mean the same everywhere.
+EVENT_KINDS = ("motion", "person", "vehicle", "animal", "face", "package", "doorbell")
+
+
+class Event(BaseModel):
+    """A detection starting (active) or ending."""
+
+    kind: str
+    active: bool
 
 
 class Stream(BaseModel):
@@ -164,6 +176,15 @@ class Driver(ABC):
 
     async def firmware_online_update(self) -> None:
         raise NotSupportedError(f"{self.label} can't update itself online")
+
+    def event_kinds(self) -> list[str]:
+        """The kinds of events this camera reports (a subset of EVENT_KINDS)."""
+        return []
+
+    def events(self) -> AsyncIterator[Event]:
+        """The camera's detections as they happen, for Capability.EVENTS. Runs until cancelled;
+        raise DriverError when the connection breaks, and the hub starts it again."""
+        raise NotSupportedError("this camera reports no events")
 
     async def ptz(self, command: PtzCommand) -> None:
         raise NotSupportedError(f"{self.label} cannot pan, tilt or zoom")

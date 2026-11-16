@@ -19,6 +19,7 @@ import io
 import logging
 import time
 import zipfile
+from collections.abc import AsyncIterator
 from typing import Any
 from urllib.parse import quote
 
@@ -36,6 +37,7 @@ from .base import (
     Driver,
     DriverError,
     DriverOptions,
+    Event,
     NotSupportedError,
     Option,
     Preset,
@@ -46,6 +48,9 @@ from .base import (
 log = logging.getLogger("norn.reolink")
 
 CHANNEL = 0  # a camera is channel 0; an NVR's cameras would be 0..n
+# Reolink's AI types onto Norn's event kinds.
+AI_KINDS = {"people": "person", "person": "person", "vehicle": "vehicle", "dog_cat": "animal",
+            "pet": "animal", "face": "face", "package": "package"}  # fmt: skip
 DIRECTIONS = {
     (0, 1): "Up",
     (0, -1): "Down",
@@ -140,6 +145,50 @@ class ReolinkDriver(Driver):
         except DriverError as e:
             log.warning("%s: %s", self.camera_id, e)
 
+    def event_kinds(self) -> list[str]:
+        kinds = ["motion"]
+        if self._connected:
+            for ai in self.api.ai_supported_types(CHANNEL):
+                if (kind := AI_KINDS.get(ai)) and kind not in kinds:
+                    kinds.append(kind)
+            if self.api.is_doorbell(CHANNEL):
+                kinds.append("doorbell")
+        return kinds
+
+    def _detections(self) -> dict[str, bool]:
+        """What the camera detects now, by event kind, from reolink_aio's pushed states."""
+        a = self.api
+        states = {"motion": bool(a.motion_detected(CHANNEL))}
+        for ai in a.ai_supported_types(CHANNEL):
+            if kind := AI_KINDS.get(ai):
+                states[kind] = states.get(kind, False) or bool(a.ai_detected(CHANNEL, ai))
+        if a.is_doorbell(CHANNEL):
+            states["doorbell"] = bool(a.visitor_detected(CHANNEL))
+        return states
+
+    async def events(self) -> AsyncIterator[Event]:
+        """Motion and AI detections, pushed by the camera over Baichuan (as in the Reolink app)."""
+        changed = asyncio.Event()
+        callback = f"norn-{self.camera_id}"
+        await self._call(self.api.baichuan.subscribe_events)
+        self.api.baichuan.register_callback(callback, changed.set, cmd_id=33)
+        last: dict[str, bool] = {}
+        try:
+            while True:
+                try:
+                    # A push wakes us; every 60 s the subscription is checked and renewed.
+                    await asyncio.wait_for(changed.wait(), 60)
+                except TimeoutError:
+                    await self._call(self.api.baichuan.check_subscribe_events)
+                changed.clear()
+                for kind, active in self._detections().items():
+                    if last.get(kind, False) != active:
+                        last[kind] = active
+                        yield Event(kind=kind, active=active)
+        finally:
+            # Only the callback: unsubscribing logs out, and the controls share that connection.
+            self.api.baichuan.unregister_callback(callback)
+
     async def stop(self) -> None:
         if self._api is not None:
             with contextlib.suppress(ReolinkError, OSError):
@@ -161,7 +210,11 @@ class ReolinkDriver(Driver):
             return False
 
     def capabilities(self) -> set[Capability]:
-        caps = super().capabilities() | {Capability.CONTROLS, Capability.FIRMWARE_ONLINE}
+        caps = super().capabilities() | {
+            Capability.CONTROLS,
+            Capability.FIRMWARE_ONLINE,
+            Capability.EVENTS,
+        }
         if not self._connected or self._supported("pan_tilt"):
             caps |= {Capability.PTZ, Capability.PRESETS}
         return caps

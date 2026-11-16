@@ -1,4 +1,5 @@
 <script lang="ts">
+	import EventBadge from '#lib/components/EventBadge.svelte';
 	import { page } from '$app/state';
 	import { api, urls, type Control, type Recording } from '#lib/api.js';
 	import { store } from '#lib/state.svelte.js';
@@ -180,6 +181,7 @@
 
 				<div class="absolute top-3 left-3 flex items-center gap-2">
 					{#if camera.recording}<RecBadge mode={camera.recording.mode} />{/if}
+					{#if camera.events}<EventBadge active={camera.events.active} />{/if}
 					{#if mode}
 						<span
 							class="rounded-full bg-black/50 px-2.5 py-1 text-[11px] font-medium text-white/85 backdrop-blur-md"

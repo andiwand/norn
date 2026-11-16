@@ -97,6 +97,7 @@ recording:
   clip_seconds: 30 # length of a triggered clip
   prebuffer_seconds: 10 # a clip starts this long before its trigger; 0 turns it off
   picture_seconds: 0 # a picture of every camera this often; 0 turns it off
+  triggers: [motion] # what the cameras detect that starts a clip: motion, person, vehicle, ...
 
 firmware:
   check_hours: 24 # how often to ask the vendors for new firmware; 0 never
@@ -106,6 +107,7 @@ circles: # groups of cameras
     name: Outside
     cameras: [front-door, garden]
     picture_seconds: 300 # settings for these cameras; a camera's own setting wins
+    together: true # when one camera here detects a trigger, all of them record
 
 cameras:
   front-door: # the id: the key here and the folder of its recordings

@@ -79,6 +79,12 @@ export function slugify(name: string): string {
 export const triggerLabels: Record<string, string> = {
 	continuous: 'Continuous',
 	interval: 'Picture',
+	person: 'Person',
+	vehicle: 'Vehicle',
+	animal: 'Animal',
+	face: 'Face',
+	package: 'Package',
+	doorbell: 'Doorbell',
 	manual: 'Manual',
 	motion: 'Motion',
 	webhook: 'Webhook'
@@ -87,3 +93,6 @@ export const triggerLabels: Record<string, string> = {
 export function triggerLabel(trigger: string): string {
 	return triggerLabels[trigger] ?? trigger.charAt(0).toUpperCase() + trigger.slice(1);
 }
+
+/** The kinds of detections Norn knows, in the order the UI shows them. */
+export const EVENT_KINDS = ['motion', 'person', 'vehicle', 'animal', 'face', 'package', 'doorbell'];

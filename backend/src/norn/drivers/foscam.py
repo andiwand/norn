@@ -18,7 +18,9 @@ Never call get_params.cgi: on old firmware it returns every password and the Wi-
 
 from __future__ import annotations
 
+import asyncio
 import re
+from collections.abc import AsyncIterator
 from typing import Any
 from urllib.parse import quote
 
@@ -33,6 +35,7 @@ from .base import (
     Driver,
     DriverError,
     DriverOptions,
+    Event,
     NotSupportedError,
     Option,
     Preset,
@@ -101,7 +104,24 @@ class FoscamDriver(Driver):
         return [Stream(id="main", label="Main", source=url, codec="mjpeg")]
 
     def capabilities(self) -> set[Capability]:
-        return super().capabilities() | {Capability.PTZ, Capability.PRESETS, Capability.CONTROLS}
+        caps = {Capability.PTZ, Capability.PRESETS, Capability.CONTROLS, Capability.EVENTS}
+        return super().capabilities() | caps
+
+    def event_kinds(self) -> list[str]:
+        return ["motion"]
+
+    async def events(self) -> AsyncIterator[Event]:
+        """The camera's motion alarm, polled from get_status.cgi every 2 s (it pushes nothing).
+        It only fires while the camera's own motion alarm is armed."""
+        active = False
+        while True:
+            status = parse_vars(await self._get("/get_status.cgi"))
+            alarm = status.get("alarm_status") or status.get("status_alarm") or "0"
+            now = alarm == "1"  # 1: motion; 2 would be the alarm input
+            if now != active:
+                active = now
+                yield Event(kind="motion", active=active)
+            await asyncio.sleep(2)
 
     async def _get(self, path: str, **params: Any) -> str:
         try:

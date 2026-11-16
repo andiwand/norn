@@ -47,6 +47,10 @@ cameras:
 """
 
 
+# What a camera detects, as Norn names it (drivers map their own names onto these).
+EventKind = Literal["motion", "person", "vehicle", "animal", "face", "package", "doorbell"]
+
+
 def _check_picture_interval(value: int | None) -> int | None:
     if value is not None and 0 < value < 10:
         raise ValueError("take a picture at most every 10 seconds")
@@ -64,6 +68,8 @@ class RecordingSettings(BaseModel):
     prebuffer_seconds: int = Field(10, ge=0, le=300)
     # Take a picture every this many seconds (the `interval` trigger). 0: off.
     picture_seconds: int = Field(0, ge=0, le=86400)
+    # What the cameras detect that starts a clip (the trigger is the kind: `motion`, ...).
+    triggers: list[EventKind] = Field(default_factory=list)
 
     @field_validator("picture_seconds")
     @classmethod
@@ -92,6 +98,7 @@ class CameraConfig(BaseModel):
     # Overrides of the global recording settings for this camera; None: the global value.
     picture_seconds: int | None = Field(None, ge=0, le=86400)
     prebuffer_seconds: int | None = Field(None, ge=0, le=300)
+    triggers: list[EventKind] | None = None
 
     @field_validator("picture_seconds")
     @classmethod
@@ -114,6 +121,9 @@ class CircleConfig(BaseModel):
     # Settings for the cameras in the circle, between the global ones and a camera's own.
     picture_seconds: int | None = Field(None, ge=0, le=86400)
     prebuffer_seconds: int | None = Field(None, ge=0, le=300)
+    triggers: list[EventKind] | None = None
+    # When one camera of the circle detects a trigger, all of them record.
+    together: bool = False
 
     @field_validator("picture_seconds")
     @classmethod
@@ -126,7 +136,7 @@ class CircleConfig(BaseModel):
         return list(dict.fromkeys(value))
 
 
-Override = Literal["picture_seconds", "prebuffer_seconds"]
+Override = Literal["picture_seconds", "prebuffer_seconds", "triggers"]
 
 
 class Config(BaseModel):
@@ -153,7 +163,7 @@ class Config(BaseModel):
     def circles_of(self, camera_id: str) -> list[str]:
         return [cid for cid, circle in self.circles.items() if camera_id in circle.cameras]
 
-    def setting(self, camera_id: str, name: Override) -> tuple[int, bool]:
+    def setting(self, camera_id: str, name: Override) -> tuple[Any, bool]:
         """A recording setting of a camera: its own, else its first circle's, else the global one.
         The flag says whether the camera or a circle set it explicitly."""
         camera = self.cameras.get(camera_id)

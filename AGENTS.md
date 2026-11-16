@@ -55,6 +55,10 @@ image or the PyPI package `norn-hub`. The name may change later.
   - Circles (`config.circles`) group cameras. `Config.setting(camera, name)` resolves
     `picture_seconds`/`prebuffer_seconds`: the camera's own, its first circle's, the global one.
     The hub computes the controls all members share (`circle_controls`) and sets them on all.
+  - Events: drivers with `Capability.EVENTS` yield `Event(kind, active)` from `events()`
+    (Reolink: Baichuan push; Hikvision: ISAPI alertStream; foscam: polls get_status.cgi). The
+    hub runs one watcher per camera (`_watch_events`), publishes `camera.event`, and while a
+    kind in the camera's `triggers` lasts, `_hold` extends a clip every few seconds.
   - `resources.py`: CPU and memory of Norn and its child processes (psutil), and the GPU.
   - `recordings.py`: the folder layout is the index (`<camera>/<YYYY-MM-DD>/<HH-MM-SS>_<trigger>.mp4`).
     A `.jpg` without a video next to it is a picture. Everything but `manual` expires after

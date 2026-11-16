@@ -15,7 +15,10 @@ document back (PUT), so the fields Norn doesn't know keep their values.
 
 from __future__ import annotations
 
+import asyncio
 import re
+import time
+from collections.abc import AsyncIterator
 from typing import Any
 from urllib.parse import quote
 
@@ -30,10 +33,32 @@ from .base import (
     Driver,
     DriverError,
     DriverOptions,
+    Event,
     NotSupportedError,
     Option,
     Stream,
 )
+
+# ISAPI event types onto Norn's event kinds. VMD is plain motion detection; the others are the
+# "smart" events of newer cameras, which may name what they saw in <targetType>.
+EVENT_TYPES = {"vmd": "motion", "fielddetection": "motion", "linedetection": "motion",
+               "regionentrance": "motion", "regionexiting": "motion"}  # fmt: skip
+TARGETS = {"human": "person", "vehicle": "vehicle"}
+QUIET = 5.0  # seconds without an "active" message after which a detection has ended
+
+
+def parse_alerts(buffer: str) -> tuple[list[tuple[str, bool]], str]:
+    """Complete <EventNotificationAlert> blocks in `buffer` as (kind, active); the rest stays."""
+    found = []
+    while (end := buffer.find("</EventNotificationAlert>")) >= 0:
+        block, buffer = buffer[: end + 25], buffer[end + 25 :]
+        event_type = (xml_value(block, "eventType") or "").lower()
+        kind = EVENT_TYPES.get(event_type)
+        if kind is None:
+            continue
+        kind = TARGETS.get((xml_value(block, "targetType") or "").lower(), kind)
+        found.append((kind, (xml_value(block, "eventState") or "").lower() == "active"))
+    return found, buffer[-20000:]
 
 
 def xml_value(xml: str, tag: str) -> str | None:
@@ -107,7 +132,64 @@ class HikvisionDriver(Driver):
         ]
 
     def capabilities(self) -> set[Capability]:
-        return super().capabilities() | {Capability.CONTROLS, Capability.FIRMWARE_UPLOAD}
+        return super().capabilities() | {
+            Capability.CONTROLS,
+            Capability.FIRMWARE_UPLOAD,
+            Capability.EVENTS,
+        }
+
+    def event_kinds(self) -> list[str]:
+        return ["motion"]
+
+    async def events(self) -> AsyncIterator[Event]:
+        """Detections from the camera's alert stream (ISAPI). It only reports motion when motion
+        detection is on in the camera (the Motion detection control)."""
+        queue: asyncio.Queue[tuple[str, bool] | Exception] = asyncio.Queue()
+        reader = asyncio.create_task(self._read_alerts(queue))
+        seen: dict[str, float] = {}  # kind -> when it was last reported active
+        try:
+            while True:
+                try:
+                    item = await asyncio.wait_for(queue.get(), 1)
+                except TimeoutError:
+                    item = None
+                if isinstance(item, Exception):
+                    raise DriverError(f"alert stream: {item}") from item
+                now = time.monotonic()
+                if item is not None:
+                    kind, active = item
+                    if active:
+                        if kind not in seen:
+                            yield Event(kind=kind, active=True)
+                        seen[kind] = now
+                    elif seen.pop(kind, None) is not None:
+                        yield Event(kind=kind, active=False)
+                # The camera repeats "active" while it sees motion and often never says "inactive".
+                for kind, last in list(seen.items()):
+                    if now - last > QUIET:
+                        del seen[kind]
+                        yield Event(kind=kind, active=False)
+        finally:
+            reader.cancel()
+
+    async def _read_alerts(self, queue: asyncio.Queue[tuple[str, bool] | Exception]) -> None:
+        try:
+            timeout = httpx.Timeout(10, read=120)  # the camera sends a heartbeat now and then
+            async with self._client.stream("GET", "Event/notification/alertStream", timeout=timeout) as r:
+                if r.status_code == 401:
+                    raise DriverError("wrong username or password")
+                if r.status_code >= 400:
+                    raise DriverError(f"HTTP {r.status_code}")
+                buffer = ""
+                async for chunk in r.aiter_text():
+                    alerts, buffer = parse_alerts(buffer + chunk)
+                    for alert in alerts:
+                        queue.put_nowait(alert)
+            raise DriverError("the camera closed the alert stream")
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            queue.put_nowait(e)
 
     async def firmware_upload(self, image: bytes) -> None:
         """Upload a firmware file (digicap.dav) and restart the camera to install it.

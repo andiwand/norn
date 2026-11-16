@@ -5,6 +5,7 @@
 	import { slugify } from '../format';
 	import { store } from '../state.svelte';
 	import IntervalSetting from './IntervalSetting.svelte';
+	import TriggerSetting from './TriggerSetting.svelte';
 	import NumberSetting from './NumberSetting.svelte';
 
 	let { circle, onsaved }: { circle?: Circle; onsaved: (circle: Circle) => void } = $props();
@@ -13,6 +14,11 @@
 	let name = $state(initial?.name ?? '');
 	let cameras = $state<string[]>([...(initial?.cameras ?? [])]);
 	let pictureSeconds = $state<number | null>(initial?.picture_seconds ?? null);
+	let triggers = $state<string[] | null>(initial?.triggers ?? null);
+	let together = $state(initial?.together ?? false);
+	const kinds = $derived([
+		...new Set(cameras.flatMap((id) => store.camera(id)?.events?.kinds ?? []))
+	]);
 	let prebuffer = $state<number | null | undefined>(initial?.prebuffer_seconds ?? null);
 	let saving = $state(false);
 	let error = $state('');
@@ -29,6 +35,8 @@
 			name,
 			cameras,
 			picture_seconds: pictureSeconds,
+			triggers,
+			together,
 			prebuffer_seconds:
 				typeof prebuffer === 'number' && Number.isFinite(prebuffer) ? prebuffer : null
 		};
@@ -100,6 +108,22 @@
 			bind:value={pictureSeconds}
 			inherit={globals?.picture_seconds ?? 0}
 		/>
+		<TriggerSetting
+			label="Record on detections"
+			hint="For the cameras in this circle; a camera's own setting wins."
+			bind:value={triggers}
+			{kinds}
+			inherit={globals?.triggers ?? []}
+		/>
+		<label class="flex cursor-pointer items-center justify-between gap-4 px-5 py-3.5">
+			<span>
+				<span class="block text-sm font-medium">Record together</span>
+				<span class="block text-xs text-muted"
+					>When one camera here detects a trigger, all of them record.</span
+				>
+			</span>
+			<input type="checkbox" role="switch" class="switch" bind:checked={together} />
+		</label>
 		<NumberSetting
 			label="Record before the trigger"
 			hint="Seconds a clip includes from before what started it. Empty: as set above; 0: off."

@@ -46,6 +46,7 @@ class CameraBody(BaseModel):
     auto_update: bool = False
     picture_seconds: int | None = None
     prebuffer_seconds: int | None = None
+    triggers: list[str] | None = None
 
 
 class NewCamera(CameraBody):

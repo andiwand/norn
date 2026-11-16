@@ -294,6 +294,7 @@ class Clip:
     triggered: datetime
     seconds: int
     end: float = 0  # time.time() when the clip should end
+    events: set[str] = field(default_factory=set)  # every trigger that started or extended it
     process: asyncio.subprocess.Process | None = None
     task: asyncio.Task[None] | None = field(default=None, repr=False)
 
@@ -451,6 +452,7 @@ class Recorder:
             # A second trigger during a clip makes it last long enough for this one too.
             clip.end = max(clip.end, time.time() + (seconds or self._config.recording.clip_seconds))
             clip.seconds = round(clip.end - clip.triggered.timestamp())
+            clip.events.add(trigger)
             return clip
         seconds = seconds or self._config.recording.clip_seconds
         now = datetime.now().replace(microsecond=0)
@@ -467,6 +469,7 @@ class Recorder:
             triggered=now,
             seconds=seconds,
             end=time.time() + seconds,
+            events={trigger},
         )
         self.clips[camera] = clip
         runner = self._run_buffered_clip(clip, buffer) if buffer and before else self._run_clip(clip)
@@ -603,6 +606,8 @@ class Recorder:
 
     async def _finish_clip(self, clip: Clip, meta: dict[str, Any]) -> None:
         self.clips.pop(clip.camera, None)
+        if clip.events != {clip.trigger}:
+            meta["events"] = sorted(clip.events)
         moved = None
         if clip.path.exists():
             clip.path.with_suffix(".json").write_text(json.dumps(meta, indent=2) + "\n")
