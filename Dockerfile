@@ -1,4 +1,5 @@
-# Norn in one image: the Python server, the web UI, go2rtc and FFmpeg.
+# syntax=docker/dockerfile:1
+# Norn in one image: the Python server, the web UI, go2rtc, FFmpeg, and the object detection.
 # Build: docker build -t norn .   Run: see compose.yaml.
 
 # 1. The web UI.
@@ -15,10 +16,10 @@ COPY --from=ghcr.io/astral-sh/uv:0.13 /uv /bin/uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
 WORKDIR /app
 COPY backend/pyproject.toml backend/uv.lock backend/README.md ./
-RUN uv sync --locked --no-dev --no-install-project
+RUN uv sync --locked --no-dev --extra detect --no-install-project
 COPY backend/src ./src
 COPY --from=web /src/build ./src/norn/web
-RUN uv sync --locked --no-dev --no-editable
+RUN uv sync --locked --no-dev --extra detect --no-editable
 
 # 3. The runtime.
 FROM python:3.13-slim
@@ -29,6 +30,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends tzdata && rm -r
 ADD --chmod=755 https://github.com/AlexxIT/go2rtc/releases/download/v${GO2RTC_VERSION}/go2rtc_linux_${TARGETARCH} /usr/local/bin/go2rtc
 COPY --from=mwader/static-ffmpeg:9.0.2 /ffmpeg /ffprobe /usr/local/bin/
 COPY --from=app /app/.venv /app/.venv
+# The object detection models (YOLOX, Apache-2.0), so detection works without a download.
+ADD --chmod=644 --checksum=sha256:c789161ed43c8269fcd4e67c67eeeb4e80c622da2eb296a20bc6007bd18a0b7d \
+    https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/yolox_nano.onnx /usr/local/share/norn/models/
+ADD --chmod=644 --checksum=sha256:427cc366d34e27ff7a03e2899b5e3671425c262ea2291f88bb942bc1cc70b0f7 \
+    https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/yolox_tiny.onnx /usr/local/share/norn/models/
 
 ENV PATH=/app/.venv/bin:$PATH \
     NORN_CONFIG=/config/config.yaml \

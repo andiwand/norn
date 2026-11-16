@@ -25,6 +25,7 @@ from urllib.parse import quote
 import httpx
 from pydantic import Field
 
+from ..labels import HIKVISION_EVENTS, HIKVISION_TARGETS
 from . import register
 from .base import (
     Capability,
@@ -39,11 +40,6 @@ from .base import (
     Stream,
 )
 
-# ISAPI event types onto Norn's event kinds. VMD is plain motion detection; the others are the
-# "smart" events of newer cameras, which may name what they saw in <targetType>.
-EVENT_TYPES = {"vmd": "motion", "fielddetection": "motion", "linedetection": "motion",
-               "regionentrance": "motion", "regionexiting": "motion"}  # fmt: skip
-TARGETS = {"human": "person", "vehicle": "vehicle"}
 QUIET = 5.0  # seconds without an "active" message after which a detection has ended
 
 
@@ -53,10 +49,10 @@ def parse_alerts(buffer: str) -> tuple[list[tuple[str, bool]], str]:
     while (end := buffer.find("</EventNotificationAlert>")) >= 0:
         block, buffer = buffer[: end + 25], buffer[end + 25 :]
         event_type = (xml_value(block, "eventType") or "").lower()
-        kind = EVENT_TYPES.get(event_type)
+        kind = HIKVISION_EVENTS.get(event_type)
         if kind is None:
             continue
-        kind = TARGETS.get((xml_value(block, "targetType") or "").lower(), kind)
+        kind = HIKVISION_TARGETS.get((xml_value(block, "targetType") or "").lower(), kind)
         found.append((kind, (xml_value(block, "eventState") or "").lower() == "active"))
     return found, buffer[-20000:]
 

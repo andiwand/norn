@@ -61,14 +61,14 @@ async def test_motion_records_while_it_lasts(hub: Hub) -> None:
     assert count >= 2 and set(hub.calls) == {("hall", "motion")}  # type: ignore[attr-defined]
     await asyncio.sleep(0.2)
     assert len(hub.calls) == count  # type: ignore[attr-defined]  # stopped extending
-    assert hub.cameras["hall"].detecting == set()
+    assert hub.cameras["hall"].detecting == {}
 
 
 async def test_circle_records_together(hub: Hub) -> None:
     hub.on_event("door", Event(kind="motion", active=True))  # not a trigger for door
     await asyncio.sleep(0.05)
     assert hub.calls == []  # type: ignore[attr-defined]
-    assert hub.cameras["door"].detecting == {"motion"}
+    assert hub.cameras["door"].detecting == {"motion": {"camera"}}
     hub.on_event("door", Event(kind="person", active=True))
     await asyncio.sleep(0.1)
     hub.on_event("door", Event(kind="person", active=False))

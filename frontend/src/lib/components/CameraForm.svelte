@@ -5,6 +5,7 @@
 	import { store } from '../state.svelte';
 	import { untrack } from 'svelte';
 	import IntervalSetting from './IntervalSetting.svelte';
+	import ChoiceSetting from './ChoiceSetting.svelte';
 	import TriggerSetting from './TriggerSetting.svelte';
 	import ScheduleSetting from './ScheduleSetting.svelte';
 	import NumberSetting from './NumberSetting.svelte';
@@ -31,6 +32,24 @@
 	let pictureSeconds = $state<number | null>(initial?.picture_seconds ?? null);
 	let triggers = $state<string[] | null>(initial?.triggers ?? null);
 	let schedule = $state<Window[] | null>(initial?.schedule ?? null);
+	// Norn's detection on this camera; null fields: as set above.
+	let detectMotion = $state<boolean | null>(initial?.detection?.motion ?? null);
+	let detectObjects = $state<boolean | null>(initial?.detection?.objects ?? null);
+	let detectStills = $state<'keyframe' | 'live' | 'auto' | null>(
+		initial?.detection?.stills ?? null
+	);
+	let detectEvery = $state<number | null | undefined>(initial?.detection?.every_seconds ?? null);
+	const detection = $derived.by(() => {
+		const d: Record<string, unknown> = {
+			motion: detectMotion,
+			objects: detectObjects,
+			stills: detectStills,
+			every_seconds:
+				typeof detectEvery === 'number' && Number.isFinite(detectEvery) ? detectEvery : null
+		};
+		const set = Object.fromEntries(Object.entries(d).filter(([, v]) => v !== null));
+		return Object.keys(set).length ? set : null;
+	});
 	// Empty (null): the global setting.
 	let prebuffer = $state<number | null | undefined>(initial?.prebuffer_seconds ?? null);
 	const globals = $derived(store.info?.recording);
@@ -88,6 +107,7 @@
 			picture_seconds: pictureSeconds,
 			triggers,
 			schedule,
+			detection,
 			prebuffer_seconds:
 				typeof prebuffer === 'number' && Number.isFinite(prebuffer) ? prebuffer : null
 		};
@@ -215,6 +235,49 @@
 				inherit={inherited.schedule}
 			/>
 		{/if}
+		<ChoiceSetting
+			label="Motion by Norn"
+			hint="Norn compares stills of this camera."
+			bind:value={detectMotion}
+			choices={[
+				[null, 'Default'],
+				[true, 'On'],
+				[false, 'Off']
+			]}
+		/>
+		<ChoiceSetting
+			label="Objects by Norn"
+			hint={store.info?.detection.objects_unavailable
+				? `Not available: ${store.info.detection.objects_unavailable}.`
+				: "People, vehicles and animals, by Norn's AI."}
+			bind:value={detectObjects}
+			disabled={!!store.info?.detection.objects_unavailable}
+			choices={[
+				[null, 'Default'],
+				[true, 'On'],
+				[false, 'Off']
+			]}
+		/>
+		<ChoiceSetting
+			label="Stills"
+			hint="For pictures and Norn's detection."
+			bind:value={detectStills}
+			choices={[
+				[null, 'Default'],
+				['keyframe', 'Keyframes'],
+				['live', 'Every frame']
+			]}
+		/>
+		<NumberSetting
+			label="Look every"
+			hint="How often Norn checks a still. Empty: as set above."
+			bind:value={detectEvery}
+			min={0.5}
+			max={60}
+			step={0.5}
+			unit="sec"
+			placeholder={String(store.info?.detection.every_seconds ?? '')}
+		/>
 		<NumberSetting
 			label="Record before the trigger"
 			hint="Seconds a clip includes from before what started it. Empty: as set above; 0: off."

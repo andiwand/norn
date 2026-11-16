@@ -153,3 +153,20 @@ def test_filters_and_thinning(library: Library) -> None:
     thumb = touch(library.thumb_path("yard", "2026-11-15", "10-00-00_interval.jpg"))
     assert library.delete("yard", "2026-11-15", "10-00-00_interval.jpg") and not thumb.exists()
     assert "yard" in library.cameras() and ".thumbs" not in library.cameras()
+
+
+def test_describe_stills() -> None:
+    from norn.resources import describe
+    from norn.stills import still_command
+
+    class Fake:
+        pid = -1
+
+        def cmdline(self) -> list[str]:
+            source = "rtsp://127.0.0.1:8554/door_sub"
+            return still_command("ffmpeg", source, "keyframe", 1, {"jpeg": "pipe:1"})
+
+        def name(self) -> str:
+            return "ffmpeg"
+
+    assert describe(Fake()) == ("Stills", "door")  # type: ignore[arg-type]

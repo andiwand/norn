@@ -18,11 +18,17 @@ dependencies = [
     "websockets>=17.4",
 ]
 
+[project.optional-dependencies]
+# Norn's own object detection (detect.py): pip install 'norn-hub[detect]'
+detect = ["numpy>=2", "onnxruntime>=1.20"]
+
 [project.scripts]
 norn = "norn.__main__:main"
 
 [dependency-groups]
 dev = [
+    "numpy>=2",
+    "onnxruntime>=1.20",
     "pytest>=9",
     "pytest-asyncio>=1.5.0",
     "ruff>=0.17.5",

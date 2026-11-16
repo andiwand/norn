@@ -79,14 +79,7 @@ export function slugify(name: string): string {
 export const triggerLabels: Record<string, string> = {
 	continuous: 'Continuous',
 	interval: 'Picture',
-	person: 'Person',
-	vehicle: 'Vehicle',
-	animal: 'Animal',
-	face: 'Face',
-	package: 'Package',
-	doorbell: 'Doorbell',
 	manual: 'Manual',
-	motion: 'Motion',
 	webhook: 'Webhook'
 };
 
@@ -94,5 +87,11 @@ export function triggerLabel(trigger: string): string {
 	return triggerLabels[trigger] ?? trigger.charAt(0).toUpperCase() + trigger.slice(1);
 }
 
-/** The kinds of detections Norn knows, in the order the UI shows them. */
-export const EVENT_KINDS = ['motion', 'person', 'vehicle', 'animal', 'face', 'package', 'doorbell'];
+/** What cameras detect, in the order the UI shows it: the server's labels (labels.py). */
+export let EVENT_KINDS: string[] = [];
+
+/** Take the labels from the server: their names become the names of those triggers. */
+export function setLabels(labels: { id: string; name: string }[]) {
+	EVENT_KINDS = labels.map((l) => l.id);
+	for (const label of labels) triggerLabels[label.id] = label.name;
+}

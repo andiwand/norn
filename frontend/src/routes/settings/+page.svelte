@@ -11,6 +11,8 @@
 	import IntervalSetting from '#lib/components/IntervalSetting.svelte';
 	import TriggerSetting from '#lib/components/TriggerSetting.svelte';
 	import ScheduleSetting from '#lib/components/ScheduleSetting.svelte';
+	import ChoiceSetting from '#lib/components/ChoiceSetting.svelte';
+	import ScanEye from '@lucide/svelte/icons/scan-eye';
 	import Plane from '@lucide/svelte/icons/plane';
 	import X from '@lucide/svelte/icons/x';
 	import StorageStages from '#lib/components/StorageStages.svelte';
@@ -32,7 +34,6 @@
 	});
 
 	const info = $derived(store.info);
-	const allKinds = $derived([...new Set(store.cameras.flatMap((c) => c.events?.kinds ?? []))]);
 
 	// The settings form: a copy of the saved values, saved as a whole.
 	let saved = $state<SettingsValues | null>(null);
@@ -210,12 +211,85 @@
 				label="Record on detections"
 				hint="What the cameras detect that starts a clip. It runs while the detection lasts, plus the clip length."
 				bind:value={form.recording.triggers}
-				kinds={allKinds}
 			/>
 			<ScheduleSetting
 				label="When detections record"
 				hint="Only in these times, e.g. at night. Circles and cameras can have their own."
 				bind:value={form.recording.schedule as Window[] | null}
+			/>
+			<div class="flex items-center gap-2 p-5 pb-1 text-muted">
+				<ScanEye class="size-4" /><span class="eyebrow">Detection by Norn</span>
+			</div>
+			<p class="px-5 pb-2 text-xs text-muted">
+				Besides what cameras detect themselves, Norn can look at a still of each camera every few
+				seconds. The detections become the same triggers.
+			</p>
+			<ChoiceSetting
+				label="Motion"
+				hint="Compares the stills. Costs almost nothing."
+				bind:value={form.detection.motion}
+				choices={[
+					[false, 'Off'],
+					[true, 'On']
+				]}
+			/>
+			<ChoiceSetting
+				label="People, vehicles, animals"
+				hint={info?.detection.objects_unavailable
+					? `Not available: ${info.detection.objects_unavailable}.`
+					: 'A small AI model (YOLOX) on the CPU, about 20 ms per still.'}
+				bind:value={form.detection.objects}
+				disabled={!!info?.detection.objects_unavailable}
+				choices={[
+					[false, 'Off'],
+					[true, 'On']
+				]}
+			/>
+			<ChoiceSetting
+				label="Stills"
+				hint="Keyframes cost next to nothing but come every few seconds, as the camera sends them. Every frame is exact and uses more CPU."
+				bind:value={form.detection.stills}
+				choices={[
+					['auto', 'Auto'],
+					['keyframe', 'Keyframes'],
+					['live', 'Every frame']
+				]}
+			/>
+			<NumberSetting
+				label="Look every"
+				hint="How often Norn checks a still of each camera."
+				bind:value={form.detection.every_seconds}
+				fallback={defaults.detection.every_seconds}
+				min={0.5}
+				max={60}
+				step={0.5}
+				unit="sec"
+			/>
+			<NumberSetting
+				label="Motion sensitivity"
+				hint="Higher reacts to smaller changes."
+				bind:value={form.detection.sensitivity}
+				fallback={defaults.detection.sensitivity}
+				max={100}
+				unit="%"
+			/>
+			<NumberSetting
+				label="Certainty"
+				hint="How sure the AI must be about an object."
+				bind:value={form.detection.min_score}
+				fallback={defaults.detection.min_score}
+				min={0.1}
+				max={0.95}
+				step={0.05}
+			/>
+			<ChoiceSetting
+				label="Model"
+				hint="Tiny finds more, at about four times the CPU."
+				bind:value={form.detection.model}
+				choices={Object.entries(info?.detection.models ?? { nano: '', tiny: '' }).map(([id]) => [
+					id as 'nano' | 'tiny',
+					id === 'nano' ? 'Nano' : 'Tiny'
+				])}
 			/>
 			<div id="away" class="flex items-center gap-2 p-5 pb-1 text-muted">
 				<Plane class="size-4" /><span class="eyebrow">Away</span>
@@ -269,7 +343,6 @@
 				label="Record while away"
 				hint="What starts a clip while away, on every camera."
 				bind:value={form.away.triggers as string[] | null}
-				kinds={allKinds}
 			/>
 			<IntervalSetting
 				label="Pictures while away"

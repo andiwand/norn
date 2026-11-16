@@ -29,6 +29,7 @@ from reolink_aio.api import Host
 from reolink_aio.baichuan.util import PortType
 from reolink_aio.exceptions import ReolinkError
 
+from ..labels import REOLINK_AI
 from . import register
 from .base import (
     Capability,
@@ -48,9 +49,6 @@ from .base import (
 log = logging.getLogger("norn.reolink")
 
 CHANNEL = 0  # a camera is channel 0; an NVR's cameras would be 0..n
-# Reolink's AI types onto Norn's event kinds.
-AI_KINDS = {"people": "person", "person": "person", "vehicle": "vehicle", "dog_cat": "animal",
-            "pet": "animal", "face": "face", "package": "package"}  # fmt: skip
 DIRECTIONS = {
     (0, 1): "Up",
     (0, -1): "Down",
@@ -149,7 +147,7 @@ class ReolinkDriver(Driver):
         kinds = ["motion"]
         if self._connected:
             for ai in self.api.ai_supported_types(CHANNEL):
-                if (kind := AI_KINDS.get(ai)) and kind not in kinds:
+                if (kind := REOLINK_AI.get(ai)) and kind not in kinds:
                     kinds.append(kind)
             if self.api.is_doorbell(CHANNEL):
                 kinds.append("doorbell")
@@ -160,7 +158,7 @@ class ReolinkDriver(Driver):
         a = self.api
         states = {"motion": bool(a.motion_detected(CHANNEL))}
         for ai in a.ai_supported_types(CHANNEL):
-            if kind := AI_KINDS.get(ai):
+            if kind := REOLINK_AI.get(ai):
                 states[kind] = states.get(kind, False) or bool(a.ai_detected(CHANNEL, ai))
         if a.is_doorbell(CHANNEL):
             states["doorbell"] = bool(a.visitor_detected(CHANNEL))

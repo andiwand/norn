@@ -71,8 +71,15 @@ export interface Camera {
 	/** What the camera detects that starts a clip; null: as its circle or the settings say. */
 	triggers: string[] | null;
 	schedule: Window[] | null;
-	/** What the camera can detect, and what it detects now; null: it reports nothing. */
-	events: { kinds: string[]; active: string[] } | null;
+	detection: Partial<DetectionSettings> | null;
+	/** What the camera can detect (by itself, and by Norn), and what it detects now. */
+	events: {
+		kinds: string[];
+		camera: string[];
+		norn: string[];
+		active: string[];
+		detect_ms: number | null;
+	} | null;
 	/** Seconds of the past a clip started now would include (the RAM buffer). */
 	buffered: number;
 	device: DeviceInfo | null;
@@ -164,6 +171,10 @@ export interface Info {
 	recording: RecordingSettings;
 	/** Away mode: `now` is whether it is on at the moment (switched on, or planned). */
 	away: AwaySettings & { now: boolean };
+	detection: DetectionSettings & {
+		objects_unavailable: string | null;
+		models: Record<string, string>;
+	};
 }
 
 /** A time of the week; `to` before `from` runs past midnight. */
@@ -171,6 +182,23 @@ export interface Window {
 	days: string[];
 	from: string;
 	to: string;
+}
+
+export interface DetectionSettings {
+	stills: 'auto' | 'keyframe' | 'live';
+	motion: boolean;
+	objects: boolean;
+	every_seconds: number;
+	sensitivity: number;
+	min_score: number;
+	model: 'nano' | 'tiny';
+}
+
+/** What cameras detect, under Norn's names (GET /api/labels). */
+export interface Label {
+	id: string;
+	name: string;
+	description: string;
 }
 
 export interface AwaySettings {
@@ -195,6 +223,7 @@ export interface SettingsValues {
 	recording: RecordingSettings;
 	firmware: { check_hours: number };
 	away: AwaySettings;
+	detection: DetectionSettings;
 }
 
 export interface StorageStage {
@@ -327,6 +356,7 @@ export const api = {
 	saveSettings: (values: { [K in keyof SettingsValues]?: Partial<SettingsValues[K]> }) =>
 		request<SettingsData>('PUT', '/settings', values),
 	drivers: () => request<Driver[]>('GET', '/drivers'),
+	labels: () => request<Label[]>('GET', '/labels'),
 	cameras: () => request<Camera[]>('GET', '/cameras'),
 	camera: (id: string) => request<Camera>('GET', `/cameras/${enc(id)}`),
 	addCamera: (body: Record<string, unknown>) => request<Camera>('POST', '/cameras', body),
@@ -420,6 +450,7 @@ export function cameraBody(camera: Camera, change: Record<string, unknown> = {})
 		prebuffer_seconds: camera.prebuffer_seconds,
 		triggers: camera.triggers,
 		schedule: camera.schedule,
+		detection: camera.detection,
 		...camera.options,
 		...change
 	};
@@ -428,6 +459,10 @@ export function cameraBody(camera: Camera, change: Record<string, unknown> = {})
 export const urls = {
 	stream: (camera: string, stream = 'main') =>
 		`/api/stream?camera=${enc(camera)}&stream=${enc(stream)}`,
+	/** The newest still, at once (for a picture before the video plays). */
+	still: (camera: string) => `/api/cameras/${enc(camera)}/still.jpg?t=${Date.now()}`,
+	/** The camera as a slow stream of stills (MJPEG, for an <img>). */
+	stills: (camera: string, every = 2) => `/api/cameras/${enc(camera)}/stills?every=${every}`,
 	snapshot: (camera: string, stream = 'main') =>
 		`/api/cameras/${enc(camera)}/snapshot?stream=${enc(stream)}&t=${Date.now()}`,
 	recording: (r: Recording) => `/api/recordings/${r.id}`,

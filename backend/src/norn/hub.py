@@ -14,16 +14,19 @@ from pydantic import BaseModel, ValidationError
 
 from . import __version__
 from .config import CameraConfig, CircleConfig, Config, ConfigError, ConfigStore
+from .detect import OBJECT_KINDS, Detectors, MotionDetector, Tracker, gray_from_bgr
 from .drivers import DRIVERS
 from .drivers.base import Capability, Control, DeviceInfo, Driver, Event, NotSupportedError, Preset
 from .events import EventBus
 from .firmware import FirmwareStatus, check
 from .forecast import forecast, history
 from .go2rtc import Go2rtc, Go2rtcUnavailableError
+from .labels import LABELS
 from .recorder import Recorder
 from .recordings import Library
 from .resources import Resources
 from .settings import Settings
+from .stills import Stills, StillStream
 
 log = logging.getLogger("norn")
 
@@ -53,9 +56,32 @@ class Camera:
     presets: list[Preset] | None = None
     controls_time: float = 0
     controls_task: asyncio.Task[None] | None = field(default=None, repr=False)
-    # What the camera detects right now (event kinds), and the task that listens for it.
-    detecting: set[str] = field(default_factory=set)
+    # What the camera detects right now: event kind -> who detects it ("camera", "norn").
+    detecting: dict[str, set[str]] = field(default_factory=dict)
     events_task: asyncio.Task[None] | None = field(default=None, repr=False)
+    stills_task: asyncio.Task[None] | None = field(default=None, repr=False)  # Norn's detection
+    detect_ms: float | None = None  # how long Norn's object detection takes on its stills
+
+    def camera_kinds(self) -> list[str]:
+        driver = self.driver
+        if driver and self.config.enabled and Capability.EVENTS in driver.capabilities():
+            return driver.event_kinds()
+        return []
+
+    def events_json(self, norn: list[str] | None = None) -> dict[str, Any] | None:
+        """What the camera can detect (by the camera itself, and by Norn), and what it detects now."""
+        norn = norn or []
+        camera = self.camera_kinds()
+        if not camera and not norn:
+            return None
+        kinds = [k for k in LABELS if k in camera or k in norn]
+        return {
+            "kinds": kinds,
+            "camera": camera,
+            "norn": norn,
+            "active": sorted(self.detecting),
+            "detect_ms": round(self.detect_ms, 1) if self.detect_ms is not None else None,
+        }
 
     def to_json(self, recording: dict[str, Any] | None) -> dict[str, Any]:
         driver = self.driver
@@ -79,15 +105,16 @@ class Camera:
             "picture_seconds": self.config.picture_seconds,
             "prebuffer_seconds": self.config.prebuffer_seconds,
             "triggers": self.config.triggers,
+            "detection": self.config.detection.model_dump(exclude_none=True)
+            if self.config.detection
+            else None,
             "schedule": [w.model_dump(by_alias=True) for w in self.config.schedule]
             if self.config.schedule is not None
             else None,
             "device": self.device.model_dump() if self.device else None,
             "firmware": self.firmware.model_dump() if self.firmware else None,
             "update": self.update,
-            "events": {"kinds": driver.event_kinds(), "active": sorted(self.detecting)}
-            if driver and self.config.enabled and Capability.EVENTS in driver.capabilities()
-            else None,
+            "events": self.events_json(),
         }
 
 
@@ -107,6 +134,9 @@ class Hub:
         self._storage: tuple[float, dict[str, Any]] | None = None
         # Cameras recording because of detections: what holds each one (camera, kind), and the
         # task that keeps its clip going.
+        self.detectors = Detectors(settings)
+        self.stills = Stills(settings.ffmpeg_bin)
+        self._still_cache: dict[str, tuple[bytes, float]] = {}
         self.away = False  # away mode is on (now, or planned for now)
         self._away_task: asyncio.Task[None] | None = None
         self._held: dict[str, set[tuple[str, str]]] = {}
@@ -139,9 +169,11 @@ class Hub:
             if task:
                 task.cancel()
         for camera in self.cameras.values():
-            if camera.events_task:
-                camera.events_task.cancel()
+            for task in (camera.events_task, camera.stills_task):
+                if task:
+                    task.cancel()
         await self.recorder.stop()
+        await self.stills.stop()
         for camera in self.cameras.values():
             if camera.driver:
                 with contextlib.suppress(Exception):
@@ -287,8 +319,18 @@ class Hub:
             with contextlib.suppress(Exception):
                 await self.update_firmware(camera_id)
 
+    def norn_kinds(self, camera_id: str) -> list[str]:
+        """What Norn's own detection looks for on the camera."""
+        d = self.config.detection_for(camera_id)
+        kinds = ["motion"] if d.motion else []
+        if d.objects and self.detectors.unavailable is None:
+            kinds += list(OBJECT_KINDS)
+        return kinds
+
     def camera_json(self, camera_id: str) -> dict[str, Any]:
-        data = self.cameras[camera_id].to_json(self.recorder.status(camera_id))
+        camera = self.cameras[camera_id]
+        data = camera.to_json(self.recorder.status(camera_id))
+        data["events"] = camera.events_json(self.norn_kinds(camera_id) if camera.config.enabled else [])
         data["buffered"] = self.recorder.buffered(camera_id)
         return data
 
@@ -460,13 +502,18 @@ class Hub:
                 await new[cid].driver.start()
         for cid, camera in old.items():
             if new.get(cid) is not camera:
-                if camera.events_task:
-                    camera.events_task.cancel()
+                for task in (camera.events_task, camera.stills_task):
+                    if task:
+                        task.cancel()
                 if camera.driver:
                     with contextlib.suppress(Exception):
                         await camera.driver.stop()
         self.cameras = new
         for camera in new.values():
+            if camera.stills_task is None and camera.driver and camera.config.enabled:
+                camera.stills_task = asyncio.create_task(
+                    self._watch_stills(camera), name=f"detect-{camera.id}"
+                )
             driver = camera.driver
             if (
                 camera.events_task is None
@@ -487,7 +534,7 @@ class Hub:
             try:
                 async for event in camera.driver.events():
                     delay = 5.0
-                    self.on_event(camera.id, event)
+                    self.on_event(camera.id, event, "camera")
             except asyncio.CancelledError:
                 raise
             except NotSupportedError:
@@ -495,7 +542,7 @@ class Hub:
             except Exception as e:
                 log.info("%s: events stopped: %s; again in %.0f s", camera.id, e, delay)
             for kind in list(camera.detecting):  # without a connection, nothing is detected
-                self.on_event(camera.id, Event(kind=kind, active=False))
+                self.on_event(camera.id, Event(kind=kind, active=False), "camera")
             await asyncio.sleep(delay)
             delay = min(delay * 2, 300)
 
@@ -511,20 +558,27 @@ class Hub:
                 async with self._lock:
                     await self._apply()
 
-    def on_event(self, camera_id: str, event: Event) -> None:
-        """A camera detected something, or stopped: publish it, and record if it is a trigger."""
+    def on_event(self, camera_id: str, event: Event, by: str = "camera") -> None:
+        """Something was detected on a camera (by the camera itself, or by Norn), or stopped:
+        publish it, and record if it is a trigger. A kind counts as long as anyone detects it."""
         camera = self.cameras.get(camera_id)
         if camera is None:
             return
         was = event.kind in camera.detecting
+        sources = camera.detecting.setdefault(event.kind, set())
         if event.active:
-            camera.detecting.add(event.kind)
+            sources.add(by)
         else:
-            camera.detecting.discard(event.kind)
-        if was != event.active:
-            self.bus.publish("camera.event", {"camera": camera_id, **event.model_dump()})
+            sources.discard(by)
+            if not sources:
+                del camera.detecting[event.kind]
+        now = event.kind in camera.detecting
+        if was != now:
+            self.bus.publish(
+                "camera.event", {"camera": camera_id, "kind": event.kind, "active": now, "by": by}
+            )
         source = (camera_id, event.kind)
-        if not event.active:
+        if not now:
             for held in self._held.values():
                 held.discard(source)
             return
@@ -540,6 +594,91 @@ class Hub:
             task = self._holds.get(target)
             if task is None or task.done():
                 self._holds[target] = asyncio.create_task(self._hold(target, event.kind))
+
+    async def still_jpeg(self, camera_id: str, max_age: float = 15) -> bytes | None:
+        """The camera's newest still, fast: from a running still stream, else the RAM buffer's
+        newest keyframe (no new connection), else go2rtc. Kept a few seconds for other viewers."""
+        jpeg = self.stills.latest(camera_id, "jpeg", max_age)
+        if jpeg is not None:
+            return jpeg
+        cached = self._still_cache.get(camera_id)
+        if cached and time.monotonic() - cached[1] < min(max_age, 5):
+            return cached[0]
+        jpeg = None
+        piece = self.recorder.keyframe_piece(camera_id)
+        if piece is not None:
+            jpeg = await self.recorder.piece_jpeg(piece)
+        if jpeg is None:
+            with contextlib.suppress(Go2rtcUnavailableError):
+                jpeg = await self.go2rtc.frame(camera_id)
+        if jpeg:
+            self._still_cache[camera_id] = (jpeg, time.monotonic())
+        return jpeg
+
+    def still_source(self, camera: Camera) -> str:
+        """Where the camera's still streams read from: its sub-stream when it has one."""
+        streams = {s.id for s in camera.driver.streams()} if camera.driver else set()
+        return self.go2rtc.rtsp_url(stream_name(camera.id, "sub" if "sub" in streams else "main"))
+
+    def still_stream(self, camera: Camera, mode: str) -> StillStream:
+        return self.stills.stream(camera.id, self.still_source(camera), mode)  # type: ignore[arg-type]
+
+    async def _watch_stills(self, camera: Camera) -> None:
+        """Norn's own detection on one camera, on its still stream. The settings are read on
+        every still, so a change takes effect without a restart; with detection off, nothing
+        subscribes and the stream idles."""
+        motion = MotionDetector()
+        tracker = Tracker()
+        active: dict[str, float] = {}  # kind -> when Norn last saw it
+
+        def end(kind: str) -> None:
+            del active[kind]
+            self.on_event(camera.id, Event(kind=kind, active=False), "norn")
+
+        while True:
+            d = self.config.detection_for(camera.id)
+            objects = d.objects and self.detectors.unavailable is None
+            if not (d.motion or objects) or not self.go2rtc.ready.is_set():
+                for kind in list(active):
+                    end(kind)
+                await asyncio.sleep(2)
+                continue
+            fmt = "bgr" if objects else "gray"
+            mode = "live" if d.stills == "live" else "keyframe"
+            wanted = (fmt, mode, d.every_seconds)
+            quiet = max(10.0, 3 * d.every_seconds)
+            async with self.still_stream(camera, mode).subscribe(fmt, d.every_seconds) as sub:
+                while True:
+                    try:
+                        data: bytes | None = await asyncio.wait_for(sub.queue.get(), quiet)
+                    except TimeoutError:
+                        data = None  # no stills (the camera is gone?): detections end below
+                    now = time.monotonic()
+                    d = self.config.detection_for(camera.id)
+                    seen: set[str] = set()
+                    try:
+                        if data and d.motion:
+                            motion.sensitivity = d.sensitivity
+                            if motion.update(data if fmt == "gray" else gray_from_bgr(data)):
+                                seen.add("motion")
+                        if data and d.objects and fmt == "bgr":
+                            found, ms = await self.detectors.detect(d.model, data, d.min_score)
+                            before = camera.detect_ms
+                            camera.detect_ms = ms if before is None else before * 0.8 + ms * 0.2
+                            seen |= tracker.update(found, now)
+                    except Exception as e:
+                        log.warning("%s: detection failed: %s", camera.id, e)
+                    for kind in seen:
+                        if kind not in active:
+                            self.on_event(camera.id, Event(kind=kind, active=True), "norn")
+                        active[kind] = now
+                    for kind, last in list(active.items()):
+                        if now - last > quiet:
+                            end(kind)
+                    objects = d.objects and self.detectors.unavailable is None
+                    changed = ("bgr" if objects else "gray", "live" if d.stills == "live" else "keyframe")
+                    if not (d.motion or objects) or (*changed, d.every_seconds) != wanted:
+                        break  # subscribe again with the new settings
 
     async def _hold(self, camera_id: str, trigger: str) -> None:
         """Keep a camera's clip going while what triggered it lasts; it then runs `clip_seconds`

@@ -663,11 +663,36 @@ class Recorder:
         if code != 0:
             log.info("no small copy of %s: %s", name, error)
 
-    async def _picture(self, camera: str, path: Path) -> bool:
-        """A full-size picture of the camera now: from the newest finished piece of its buffer,
-        which costs one decoded frame and no new connection; else a frame from go2rtc."""
+    def keyframe_piece(self, camera: str, stills: str = "auto") -> Piece | None:
+        """The buffer piece whose first frame (a keyframe) is the camera's still, if the
+        setting `stills` takes keyframes and the camera has a running buffer."""
+        if stills == "live":
+            return None
         buffer = self._buffers.get(camera)
         pieces = buffer.pieces()[:-1] if buffer and buffer.running else []
+        return pieces[-1] if pieces else None
+
+    async def piece_jpeg(self, piece: Piece, width: int = 960) -> bytes | None:
+        """The first frame (a keyframe) of a buffer piece as a JPEG."""
+        process = await asyncio.create_subprocess_exec(
+            self.settings.ffmpeg_bin, "-hide_banner", "-loglevel", "error", "-nostdin",
+            "-i", str(piece.path), "-frames:v", "1", "-vf", f"scale='min({width},iw)':-2",
+            "-q:v", "5", "-f", "image2", "-c:v", "mjpeg", "pipe:1",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+        )  # fmt: skip
+        try:
+            out, _ = await asyncio.wait_for(process.communicate(), 10)
+        except TimeoutError:
+            process.kill()
+            await process.wait()
+            return None
+        return out if process.returncode == 0 and out else None
+
+    async def _picture(self, camera: str, path: Path) -> bool:
+        """A full-size picture of the camera now: as the `stills` setting says, from the newest
+        finished piece of its buffer (one decoded frame, no new connection), or from go2rtc."""
+        piece = self.keyframe_piece(camera, self._config.detection_for(camera).stills)
+        pieces = [piece] if piece else []
         if pieces:
             code, error = await run(
                 thumbnail_command(self.settings.ffmpeg_bin, pieces[-1].path, path, width=None), timeout=20

@@ -19,7 +19,7 @@ from typing import Any, Literal
 
 import websockets
 from fastapi import APIRouter, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from starlette.websockets import WebSocketState
 
@@ -30,13 +30,16 @@ from .config import (
     CameraConfig,
     CircleConfig,
     ConfigError,
+    DetectionSettings,
     FirmwareSettings,
     RecordingSettings,
 )
+from .detect import MODELS
 from .drivers import DRIVERS, describe
 from .drivers.base import Capability, DriverError, NotSupportedError, PtzCommand
 from .go2rtc import Go2rtcUnavailableError
 from .hub import Hub, stream_name
+from .labels import describe as describe_labels
 from .recorder import RESERVED
 from .recordings import InvalidPathError
 from .settings import Settings
@@ -56,6 +59,7 @@ class CameraBody(BaseModel):
     prebuffer_seconds: int | None = None
     triggers: list[str] | None = None
     schedule: list[dict[str, Any]] | None = None
+    detection: dict[str, Any] | None = None
 
 
 class NewCamera(CameraBody):
@@ -74,6 +78,7 @@ class SettingsBody(BaseModel):
     recording: RecordingSettings | None = None
     firmware: FirmwareSettings | None = None
     away: AwaySettings | None = None
+    detection: DetectionSettings | None = None
 
 
 class ControlBody(BaseModel):
@@ -148,6 +153,11 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
             "go2rtc": await hub.go2rtc.info(),
             "recording_available": hub.recorder.available,
             "recording": hub.config.recording.model_dump(by_alias=True),
+            "detection": {
+                **hub.config.detection.model_dump(),
+                "objects_unavailable": hub.detectors.unavailable,
+                "models": {name: m.label for name, m in MODELS.items()},
+            },
             "away": {"now": hub.away, **hub.config.away.model_dump()},
         }
 
@@ -177,6 +187,11 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
         }
         await hub.put_settings(sections)
         return settings_json()
+
+    @api.get("/labels")
+    async def labels() -> list[dict[str, Any]]:
+        """What cameras detect, under Norn's names: the event kinds that triggers use."""
+        return describe_labels()
 
     @api.get("/drivers")
     async def drivers() -> list[dict[str, Any]]:
@@ -228,6 +243,39 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
         except Go2rtcUnavailableError as e:
             raise HTTPException(503, str(e)) from e
         return Response(jpeg, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+    @api.get("/cameras/{camera_id}/still.jpg")
+    async def still(camera_id: str, max_age: float = Query(15, ge=0, le=3600)) -> Response:
+        """The camera's newest still, at once: from a running still stream if it has one that
+        recent, else a frame from go2rtc. For a picture to show before the video plays."""
+        driver_of(camera_id)
+        jpeg = await hub.still_jpeg(camera_id, max_age)
+        if jpeg is None:
+            raise HTTPException(503, "no picture of the camera right now")
+        return Response(jpeg, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+    @api.get("/cameras/{camera_id}/stills")
+    async def stills(
+        camera_id: str,
+        every: float = Query(1, ge=0.5, le=60),
+        mode: Literal["keyframe", "live"] = "keyframe",
+    ) -> StreamingResponse:
+        """The camera as a stream of stills (MJPEG: an <img> shows it). Light on the network and
+        the CPU; the stream idles when nobody watches."""
+        driver_of(camera_id)
+        stream = hub.still_stream(hub.cameras[camera_id], mode)
+
+        async def parts() -> AsyncIterator[bytes]:
+            async with stream.subscribe("jpeg", every) as sub:
+                async for jpeg in sub:
+                    head = f"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: {len(jpeg)}\r\n\r\n"
+                    yield head.encode() + jpeg + b"\r\n"
+
+        return StreamingResponse(
+            parts(),
+            media_type="multipart/x-mixed-replace; boundary=frame",
+            headers={"Cache-Control": "no-store"},
+        )
 
     @api.post("/cameras/{camera_id}/device")
     async def refresh_device(camera_id: str) -> dict[str, Any]:

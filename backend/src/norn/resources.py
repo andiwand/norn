@@ -36,6 +36,8 @@ def describe(process: psutil.Process) -> tuple[str, str | None]:
         source = cmd[cmd.index("-i") + 1]
         if source.startswith("rtsp://"):
             camera = source.rsplit("/", 1)[-1].split("_")[0] or None
+    if any("prev_selected_t" in part for part in cmd):
+        return "Stills", camera
     if "mpegts" in cmd and "-segment_start_number" in cmd:
         return "Buffer", camera
     if cmd and cmd[-1].endswith("_continuous.mp4"):

@@ -111,6 +111,12 @@ away: # holiday mode: detections record at any time; also a switch in the header
 firmware:
   check_hours: 24 # how often to ask the vendors for new firmware; 0 never
 
+detection: # Norn's own detection, on a still of each camera every few seconds
+  motion: true # compare stills (no extra packages)
+  objects: true # people, vehicles, animals: pip install 'norn-hub[detect]' (in the Docker image)
+  every_seconds: 2
+  stills: auto # keyframe (nearly free), live (every frame, exact), auto
+
 circles: # groups of cameras
   outside:
     name: Outside

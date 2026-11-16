@@ -30,6 +30,24 @@
 		}
 	}
 
+	// Video, or a slow stream of stills that costs almost nothing.
+	let stills = $state(load('norn.stills') === '1');
+	function load(key: string): string | null {
+		try {
+			return localStorage.getItem(key);
+		} catch {
+			return null;
+		}
+	}
+	function setStills(value: boolean) {
+		stills = value;
+		try {
+			localStorage.setItem('norn.stills', value ? '1' : '0');
+		} catch {
+			// private mode
+		}
+	}
+
 	const columns: Record<Density, string> = {
 		1: 'grid-cols-1 max-w-5xl mx-auto',
 		2: 'grid-cols-1 md:grid-cols-2',
@@ -81,6 +99,23 @@
 				</button>
 			{/each}
 		</div>
+		<div
+			class="flex rounded-xl border border-line bg-surface-2/70 p-1"
+			role="radiogroup"
+			aria-label="Show"
+		>
+			{#each [[false, 'Video'], [true, 'Stills']] as const as [value, label] (label)}
+				<button
+					class="h-8 rounded-lg px-3 text-xs font-medium transition {stills === value
+						? 'bg-surface-3 text-text'
+						: 'text-muted hover:text-text'}"
+					role="radio"
+					aria-checked={stills === value}
+					title={value ? 'A still every 2 seconds: light on the network and the CPU' : 'Live video'}
+					onclick={() => setStills(value)}>{label}</button
+				>
+			{/each}
+		</div>
 		<a href="/cameras/new" class="btn-primary"><Plus class="size-4" />Add camera</a>
 	</div>
 </div>
@@ -127,7 +162,7 @@
 {:else}
 	<div class="grid gap-4 {columns[density]}">
 		{#each shown as camera (camera.id)}
-			<CameraTile {camera} />
+			<CameraTile {camera} {stills} />
 		{/each}
 	</div>
 {/if}

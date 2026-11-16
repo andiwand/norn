@@ -59,6 +59,13 @@ image or the PyPI package `norn-hub`. The name may change later.
     (Reolink: Baichuan push; Hikvision: ISAPI alertStream; foscam: polls get_status.cgi). The
     hub runs one watcher per camera (`_watch_events`), publishes `camera.event`, and while a
     kind in the camera's `triggers` lasts, `_hold` extends a clip every few seconds.
+  - `labels.py` defines the detection labels (motion, person, vehicle, ...) and maps each
+    source's names onto them (Reolink AI, Hikvision events, COCO). Use it, never raw names.
+  - `stills.py`: one FFmpeg per camera and mode reads go2rtc's sub-stream and emits stills
+    (JPEG, gray for motion, the detector's input) to subscribers; `-skip_frame nokey` in
+    keyframe mode. It stops `IDLE_AFTER` seconds after the last subscriber. `detect.py`: the
+    motion detector, YOLOX (`Detectors`, one inference at a time) and the `Tracker`. The hub's
+    `_watch_stills` subscribes per camera when the camera's `detection_for` asks for it.
   - `resources.py`: CPU and memory of Norn and its child processes (psutil), and the GPU.
   - `recordings.py`: the folder layout is the index (`<camera>/<YYYY-MM-DD>/<HH-MM-SS>_<trigger>.mp4`).
     A `.jpg` without a video next to it is a picture. Everything but `manual` expires after

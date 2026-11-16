@@ -18,9 +18,6 @@
 	let triggers = $state<string[] | null>(initial?.triggers ?? null);
 	let together = $state(initial?.together ?? false);
 	let schedule = $state<Window[] | null>(initial?.schedule ?? null);
-	const kinds = $derived([
-		...new Set(cameras.flatMap((id) => store.camera(id)?.events?.kinds ?? []))
-	]);
 	let prebuffer = $state<number | null | undefined>(initial?.prebuffer_seconds ?? null);
 	let saving = $state(false);
 	let error = $state('');
@@ -115,7 +112,6 @@
 			label="Record on detections"
 			hint="For the cameras in this circle; a camera's own setting wins."
 			bind:value={triggers}
-			{kinds}
 			inherit={globals?.triggers ?? []}
 		/>
 		<ScheduleSetting

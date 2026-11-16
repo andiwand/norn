@@ -5,9 +5,11 @@ import {
 	type Circle,
 	type Control,
 	type Info,
+	type Label,
 	type NornEvent,
 	type Preset
 } from './api';
+import { setLabels } from './format';
 
 export interface Toast {
 	id: number;
@@ -47,6 +49,8 @@ function loadCachedControls(): Record<string, CameraControls> {
 class Store {
 	cameras = $state<Camera[]>([]);
 	circles = $state<Circle[]>([]);
+	/** What cameras detect, under Norn's names, from the server. */
+	labels = $state<Label[]>([]);
 	// The controls of each camera, kept between visits (and reloads), so a camera page opens
 	// complete and then updates in place.
 	controls = $state<Record<string, CameraControls>>(loadCachedControls());
@@ -61,6 +65,11 @@ class Store {
 	#refreshTimer: ReturnType<typeof setTimeout> | undefined;
 	#nextToast = 1;
 	#started = false;
+
+	#takeLabels(labels: Label[]) {
+		setLabels(labels);
+		this.labels = labels;
+	}
 
 	camera(id: string): Camera | undefined {
 		return this.cameras.find((c) => c.id === id);
@@ -82,7 +91,8 @@ class Store {
 			const [cameras, info, circles] = await Promise.all([
 				api.cameras(),
 				api.info(),
-				api.circles()
+				api.circles(),
+				this.labels.length ? null : api.labels().then((l) => this.#takeLabels(l))
 			]);
 			this.cameras = cameras;
 			this.circles = circles;

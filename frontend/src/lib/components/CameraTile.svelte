@@ -6,7 +6,9 @@
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import VideoOff from '@lucide/svelte/icons/video-off';
 
-	let { camera }: { camera: Camera } = $props();
+	import { urls } from '../api';
+
+	let { camera, stills = false }: { camera: Camera; stills?: boolean } = $props();
 
 	// The grid uses the small stream where there is one; it costs the browser and the network less.
 	const stream = $derived(camera.streams.find((s) => s.id === 'sub') ?? camera.streams[0]);
@@ -31,6 +33,9 @@
 				{camera.enabled ? 'No stream' : 'Disabled'}
 			</div>
 		</div>
+	{:else if stills}
+		<!-- A slow stream of stills: hardly any network or CPU, for many cameras at once. -->
+		<img src={urls.stills(camera.id)} alt="" class="h-full w-full object-cover" />
 	{:else}
 		<LiveVideo
 			camera={camera.id}

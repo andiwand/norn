@@ -28,6 +28,10 @@
 	}: Props = $props();
 
 	let status = $state<'connecting' | 'playing' | 'error'>('connecting');
+	let poster = $state<string | null>(null);
+	$effect(() => {
+		poster = urls.still(camera);
+	});
 	let error = $state('');
 
 	$effect(() => {
@@ -67,6 +71,17 @@
 		onnorn-error={onError}
 	></norn-video>
 
+	{#if status !== 'playing' && poster}
+		<!-- The newest still until the video plays: the wait for a keyframe isn't a black box. -->
+		<img
+			src={poster}
+			alt=""
+			class="pointer-events-none absolute inset-0 h-full w-full {fit === 'cover'
+				? 'object-cover'
+				: 'object-contain'}"
+			onerror={() => (poster = null)}
+		/>
+	{/if}
 	{#if status !== 'playing'}
 		<div
 			class="pointer-events-none absolute inset-0 grid place-items-center bg-gradient-to-b from-black/30 to-black/60 text-white/80"

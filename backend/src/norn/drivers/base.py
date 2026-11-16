@@ -30,10 +30,6 @@ class Capability(StrEnum):
     EVENTS = "events"  # reports what the camera detects (motion, people, ...), see Driver.events
 
 
-# What cameras detect. A driver maps its own names onto these, so triggers mean the same everywhere.
-EVENT_KINDS = ("motion", "person", "vehicle", "animal", "face", "package", "doorbell")
-
-
 class Event(BaseModel):
     """A detection starting (active) or ending."""
 
@@ -178,7 +174,7 @@ class Driver(ABC):
         raise NotSupportedError(f"{self.label} can't update itself online")
 
     def event_kinds(self) -> list[str]:
-        """The kinds of events this camera reports (a subset of EVENT_KINDS)."""
+        """The kinds of events this camera reports: ids of labels.LABELS."""
         return []
 
     def events(self) -> AsyncIterator[Event]:

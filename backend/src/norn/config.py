@@ -20,6 +20,8 @@ from ruamel.yaml.comments import CommentedMap
 from ruamel.yaml.error import CommentMark
 from ruamel.yaml.tokens import CommentToken
 
+from .labels import LabelId
+
 CAMERA_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 
 DEFAULT_CONFIG = """\
@@ -48,8 +50,8 @@ cameras:
 """
 
 
-# What a camera detects, as Norn names it (drivers map their own names onto these).
-EventKind = Literal["motion", "person", "vehicle", "animal", "face", "package", "doorbell"]
+# What a camera detects, as Norn names it (labels.py maps each source's own names onto these).
+EventKind = LabelId
 
 
 Day = Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
@@ -134,6 +136,40 @@ class AwaySettings(BaseModel):
         return self.start is not None and self.start <= moment and (self.end is None or moment < self.end)
 
 
+Stills = Literal["auto", "keyframe", "live"]
+
+
+class DetectionSettings(BaseModel):
+    """Norn's own detection on stills (detect.py), and where stills come from.
+
+    `stills`: `keyframe` takes the newest keyframe of the camera's RAM buffer (one decoded frame,
+    no new connection, up to a few seconds old); `live` asks go2rtc for the current frame; `auto`
+    takes the keyframe when the camera has a buffer. Pictures on the timer use it too."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    stills: Stills = "auto"
+    motion: bool = False  # Norn compares stills for motion
+    objects: bool = False  # Norn finds people, vehicles and animals (norn-hub[detect])
+    every_seconds: float = Field(2, ge=0.5, le=60)
+    sensitivity: int = Field(50, ge=0, le=100)  # motion: higher reacts to smaller changes
+    min_score: float = Field(0.5, ge=0.1, le=0.95)  # objects: how sure the detector must be
+    model: Literal["nano", "tiny"] = "nano"
+
+
+class DetectionOverride(BaseModel):
+    """A circle's or camera's own detection settings; fields left out come from above."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    stills: Stills | None = None
+    motion: bool | None = None
+    objects: bool | None = None
+    every_seconds: float | None = Field(None, ge=0.5, le=60)
+    sensitivity: int | None = Field(None, ge=0, le=100)
+    min_score: float | None = Field(None, ge=0.1, le=0.95)
+
+
 class FirmwareSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -157,6 +193,7 @@ class CameraConfig(BaseModel):
     prebuffer_seconds: int | None = Field(None, ge=0, le=300)
     triggers: list[EventKind] | None = None
     schedule: list[Window] | None = None
+    detection: DetectionOverride | None = None
 
     @field_validator("picture_seconds")
     @classmethod
@@ -181,6 +218,7 @@ class CircleConfig(BaseModel):
     prebuffer_seconds: int | None = Field(None, ge=0, le=300)
     triggers: list[EventKind] | None = None
     schedule: list[Window] | None = None
+    detection: DetectionOverride | None = None
     # When one camera of the circle detects a trigger, all of them record.
     together: bool = False
 
@@ -204,10 +242,11 @@ class Config(BaseModel):
     recording: RecordingSettings = Field(default_factory=RecordingSettings)
     firmware: FirmwareSettings = Field(default_factory=FirmwareSettings)
     away: AwaySettings = Field(default_factory=AwaySettings)
+    detection: DetectionSettings = Field(default_factory=DetectionSettings)
     circles: dict[str, CircleConfig] = Field(default_factory=dict)
     cameras: dict[str, CameraConfig] = Field(default_factory=dict)
 
-    @field_validator("recording", "firmware", "away", "cameras", "circles", mode="before")
+    @field_validator("recording", "firmware", "away", "detection", "cameras", "circles", mode="before")
     @classmethod
     def _none_is_empty(cls, value: Any) -> Any:
         return {} if value is None else value
@@ -232,6 +271,18 @@ class Config(BaseModel):
         if not in_schedule(self.setting(camera_id, "schedule")[0] or [], moment):
             return set()
         return set(self.setting(camera_id, "triggers")[0] or [])
+
+    def detection_for(self, camera_id: str) -> DetectionSettings:
+        """The camera's detection settings: the global ones, changed by its first circle that
+        sets any, then by its own."""
+        values = self.detection.model_dump()
+        layers = [self.circles[c].detection for c in self.circles_of(camera_id)][:1]
+        camera = self.cameras.get(camera_id)
+        layers.append(camera.detection if camera else None)
+        for layer in layers:
+            if layer is not None:
+                values |= layer.model_dump(exclude_none=True)
+        return DetectionSettings.model_validate(values)
 
     def pictures(self, camera_id: str, away: bool = False) -> int:
         if away and self.away.picture_seconds:

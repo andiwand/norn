@@ -33,6 +33,13 @@ The first version.
   animal, ...), the Hikvision alert stream, and the alarm of supra/Foscam cameras. A clip runs
   while the detection lasts; a circle can record all its cameras together. A live badge shows
   what each camera detects.
+- Norn's own detection on stills: motion (comparing stills, no extra packages) and people,
+  vehicles and animals (YOLOX on ONNX Runtime, the optional extra `norn-hub[detect]`, in the
+  Docker image). Things that stand still stop counting. Labels are defined once (labels.py);
+  every source's own names map onto them.
+- Still streams: a camera as a slow stream of stills (keyframes only, or every frame), shared
+  by detection and the web app, idle when nobody watches. The Live page can show stills
+  instead of video; the player shows the newest still at once while the video starts.
 - Schedules for triggers (time windows per day, also past midnight), globally, per circle or
   per camera; and away mode for holidays, switched in the header or planned, with its own
   triggers and pictures.

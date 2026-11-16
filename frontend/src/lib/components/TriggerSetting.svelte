@@ -1,7 +1,8 @@
 <script lang="ts">
 	// Which detections start a clip: chips to pick from. With `inherit`, null means "as set
 	// above" (the global or circle value, `inherit`).
-	import { EVENT_KINDS, triggerLabel } from '../format';
+	import { triggerLabel } from '../format';
+	import { store } from '../state.svelte';
 
 	let {
 		label,
@@ -13,14 +14,16 @@
 		label: string;
 		hint?: string;
 		value: string[] | null;
-		/** What the cameras can detect; others are shown greyed out if they are picked. */
-		kinds: string[];
+		/** What can be picked: a camera's own kinds; all labels when left out (generic triggers). */
+		kinds?: string[];
 		inherit?: string[];
 	} = $props();
 
 	const own = $derived(value !== null);
 	const shown = $derived(value ?? inherit ?? []);
-	const choices = $derived(EVENT_KINDS.filter((k) => kinds.includes(k) || shown.includes(k)));
+	const all = $derived(store.labels.map((l) => l.id));
+	const offered = $derived(kinds ?? all);
+	const choices = $derived(all.filter((k) => offered.includes(k) || shown.includes(k)));
 
 	function toggle(kind: string) {
 		const current = value ?? [...(inherit ?? [])];
@@ -34,7 +37,7 @@
 		<span class="mt-0.5 block text-xs text-muted">
 			{hint}
 			{#if inherit !== undefined && !own}As set above.{/if}
-			{#if !choices.length}None of these cameras reports detections.{/if}
+			{#if !choices.length}This camera reports no detections.{/if}
 		</span>
 	</div>
 	<div class="flex w-full shrink-0 flex-wrap items-center justify-end gap-1.5 sm:w-60">
@@ -45,7 +48,9 @@
 				role="switch"
 				aria-checked={on}
 				class="chip {on ? 'chip-active' : ''} {own || inherit === undefined ? '' : 'opacity-60'}"
-				title={kinds.includes(kind) ? '' : 'Not reported by these cameras'}
+				title={offered.includes(kind)
+					? (store.labels.find((l) => l.id === kind)?.description ?? '')
+					: "This camera doesn't report it"}
 				onclick={() => toggle(kind)}>{triggerLabel(kind)}</button
 			>
 		{/each}
