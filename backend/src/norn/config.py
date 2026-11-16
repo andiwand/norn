@@ -17,7 +17,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from ruamel.yaml import YAML
-from ruamel.yaml.comments import CommentedMap
+from ruamel.yaml.comments import CommentedMap, CommentedSeq
 from ruamel.yaml.error import CommentMark
 from ruamel.yaml.tokens import CommentToken
 
@@ -384,14 +384,40 @@ def _plain(value: Any) -> Any:
     return value
 
 
-def _tail(node: Any) -> tuple[CommentedMap, Any] | None:
-    """The mapping and key whose line ends the block of `node`: the last key, as deep as it goes."""
+def _tail(node: Any) -> tuple[Any, Any] | None:
+    """The mapping or list, and key or index, whose line ends the block of `node`: the last
+    entry, as deep as it goes."""
     found = None
-    while isinstance(node, CommentedMap) and len(node):
-        key = next(reversed(node))
+    while True:
+        if isinstance(node, CommentedMap) and len(node):
+            key: Any = next(reversed(node))
+        elif isinstance(node, CommentedSeq) and len(node):
+            key = len(node) - 1
+        else:
+            return found
         found = (node, key)
         node = node[key]
-    return found
+
+
+def _tail_token(node: Any, key: Any, create: bool = False) -> tuple[list[Any] | None, int]:
+    """ruamel's comment slots of an entry, and which one holds the comment after its line (a
+    mapping's entries keep it third, a list's first)."""
+    slot = 2 if isinstance(node, CommentedMap) else 0
+    item = node.ca.items.get(key)
+    if item is None and create:
+        item = node.ca.items.setdefault(key, [None, None, None, None] if slot == 2 else [None, None])
+    if item is not None and len(item) <= slot:
+        item.extend([None] * (slot + 1 - len(item)))
+    return item, slot
+
+
+def _commented(value: Any) -> Any:
+    """Plain dicts and lists as ruamel's own, so comments can attach to their last line."""
+    if isinstance(value, dict) and not isinstance(value, CommentedMap):
+        return CommentedMap((k, _commented(v)) for k, v in value.items())
+    if isinstance(value, list) and not isinstance(value, CommentedSeq):
+        return CommentedSeq(_commented(v) for v in value)
+    return value
 
 
 def _take_tail_comment(doc: CommentedMap) -> str | None:
@@ -404,10 +430,10 @@ def _take_tail_comment(doc: CommentedMap) -> str | None:
     if tail is None:
         return None
     node, key = tail
-    item = node.ca.items.get(key)
-    if not item or len(item) < 3 or item[2] is None:
+    item, slot = _tail_token(node, key)
+    if not item or item[slot] is None:
         return None
-    text: str = item[2].value
+    text: str = item[slot].value
     newline = text.find("\n")
     if newline < 0:
         return None
@@ -415,22 +441,24 @@ def _take_tail_comment(doc: CommentedMap) -> str | None:
     if not rest.strip():
         return None
     if keep.startswith("#"):
-        item[2].value = keep
+        item[slot].value = keep
     else:
-        item[2] = None
+        item[slot] = None
     return rest
 
 
-def _put_tail_comment(doc: CommentedMap, text: str) -> None:
+def _put_tail_comment(doc: Any, text: str) -> None:
+    """Attach comment lines after the last line of the block of `doc`."""
     tail = _tail(doc)
     if tail is None:
         return
     node, key = tail
-    item = node.ca.items.setdefault(key, [None, None, None, None])
-    if item[2] is None:
-        item[2] = CommentToken("\n" + text, CommentMark(0), None)
+    item, slot = _tail_token(node, key, create=True)
+    assert item is not None
+    if item[slot] is None:
+        item[slot] = CommentToken("\n" + text, CommentMark(0), None)
     else:
-        item[2].value += text
+        item[slot].value += text
 
 
 def _split_tail(node: Any) -> str:
@@ -438,19 +466,18 @@ def _split_tail(node: Any) -> str:
     tail = _tail(node)
     if tail is None:
         return ""
-    mapping, key = tail
-    item = mapping.ca.items.get(key)
-    if not item or len(item) < 3 or item[2] is None:
+    item, slot = _tail_token(*tail)
+    if not item or item[slot] is None:
         return ""
-    text: str = item[2].value
+    text: str = item[slot].value
     newline = text.find("\n")
     if newline < 0:
         return ""
     keep, rest = text[: newline + 1], text[newline + 1 :]
     if keep.startswith("#"):
-        item[2].value = keep
+        item[slot].value = keep
     else:
-        item[2] = None
+        item[slot] = None
     return rest
 
 
@@ -495,13 +522,7 @@ def _reorder(doc: CommentedMap, mapping: CommentedMap, order: list[Any]) -> None
             item = mapping.ca.items.setdefault(key, [None, None, None, None])
             item[1] = [CommentToken(text, CommentMark(0), None)]
     if after:
-        last = _tail(mapping[order[-1]]) or (mapping, order[-1])
-        node, key = last
-        item = node.ca.items.setdefault(key, [None, None, None, None])
-        if item[2] is None:
-            item[2] = CommentToken("\n" + after, CommentMark(0), None)
-        else:
-            item[2].value += after
+        _put_tail_comment(mapping, after)
 
 
 class ConfigStore:
@@ -589,9 +610,9 @@ class ConfigStore:
                 del existing[key]
             for key, value in data.items():
                 if existing.get(key) != value:
-                    existing[key] = value
+                    existing[key] = _commented(value)
         else:
-            entries[entry_id] = CommentedMap(data)
+            entries[entry_id] = _commented(data)
         if tail:
             _put_tail_comment(self._doc, tail)
         return self._commit()
@@ -608,7 +629,7 @@ class ConfigStore:
             if value == defaults[key] and key not in section:
                 continue
             if section.get(key) != value:
-                section[key] = value
+                section[key] = _commented(value)
         for key in [k for k in section if k not in data]:
             del section[key]
         if not section:

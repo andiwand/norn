@@ -4,6 +4,12 @@
 
 - A default preset whose slot the camera no longer has (deleted on the camera) isn't steered
   to any more; the log says to save the view again.
+- Replace a Norn preset with what the camera shows now (and the preset's settings as they are
+  now): a button beside the star, with a second tap to confirm. Same name, same camera slot.
+- Reolink: the camera's preset list is read anew each time; deleted or renamed presets no
+  longer linger under their old names.
+- config.yaml: a camera's presets or lists written by the app land in its block, not below
+  the example comments at the end of the file.
 
 ## 0.2.0 — 2026-11-16
 

@@ -415,7 +415,20 @@ class ReolinkDriver(Driver):
             await self._call(self.api.get_states)
         except DriverError:
             return []
-        found = self.api.ptz_presets(CHANNEL) if self._supported("ptz_presets") else {}
+        if not self._supported("ptz_presets"):
+            return []
+
+        async def fresh() -> None:
+            # reolink_aio adds names to its list but never removes them: a deleted or renamed
+            # preset would stay. Read the camera's list anew.
+            self.api._ptz_presets.pop(CHANNEL, None)
+            await self.api.baichuan.get_ptz_preset(CHANNEL)
+
+        try:
+            await self._call(fresh)
+        except DriverError:
+            return []
+        found = self.api.ptz_presets(CHANNEL)
         return [Preset(id=str(number), name=name) for name, number in found.items()]
 
     async def ptz(self, command: PtzCommand) -> None:

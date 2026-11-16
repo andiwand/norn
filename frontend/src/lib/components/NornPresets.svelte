@@ -1,7 +1,8 @@
 <script lang="ts">
 	// Norn's presets of a pan/tilt camera: a picture each, a click goes there. "Save this view"
 	// stores what the camera shows now (and, if wanted, its current settings) as a preset. The
-	// star marks the default: where the camera returns when nothing else steers it. Star and
+	// star marks the default: where the camera returns when nothing else steers it. "Replace"
+	// saves what the camera shows now into the preset (its settings too). Star, replace and
 	// delete show on hover; touch screens, which can't hover, always show them.
 	import { api, urls, type Camera, type Control } from '../api';
 	import { slugify } from '../format';
@@ -9,6 +10,7 @@
 	import Plus from '@lucide/svelte/icons/plus';
 	import X from '@lucide/svelte/icons/x';
 	import Star from '@lucide/svelte/icons/star';
+	import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 
 	let { camera, controls }: { camera: Camera; controls: Control[] } = $props();
 
@@ -21,9 +23,36 @@
 	let keep = $state<string[]>([]);
 	let saving = $state(false);
 	let version = $state(Date.now()); // pictures change when a preset is saved again
-	// Deleting takes a second tap within a few seconds.
-	let confirming = $state<string | null>(null);
+	// Replacing and deleting take a second tap within a few seconds.
+	let confirming = $state<string | null>(null); // "<action>:<preset id>"
 	let confirmTimer: ReturnType<typeof setTimeout> | undefined;
+	function confirmed(key: string): boolean {
+		clearTimeout(confirmTimer);
+		if (confirming === key) {
+			confirming = null;
+			return true;
+		}
+		confirming = key;
+		confirmTimer = setTimeout(() => (confirming = null), 3000);
+		return false;
+	}
+
+	async function replace(id: string) {
+		if (!confirmed(`replace:${id}`)) return;
+		const preset = camera.presets_norn[id];
+		const ok = await store.attempt(
+			() =>
+				api.savePreset(camera.id, id, {
+					name: preset.name,
+					controls: Object.keys(preset.controls)
+				}),
+			`“${preset.name}” now shows this view`
+		);
+		if (ok) {
+			version = Date.now();
+			store.refresh();
+		}
+	}
 
 	async function save(e: SubmitEvent) {
 		e.preventDefault();
@@ -53,13 +82,7 @@
 	}
 
 	async function remove(id: string) {
-		clearTimeout(confirmTimer);
-		if (confirming !== id) {
-			confirming = id;
-			confirmTimer = setTimeout(() => (confirming = null), 3000);
-			return;
-		}
-		confirming = null;
+		if (!confirmed(`delete:${id}`)) return;
 		const ok = await store.attempt(async () => {
 			await api.deletePreset(camera.id, id);
 			return true;
@@ -108,16 +131,33 @@
 						onclick={() => setDefault(id)}
 						><Star class="size-4 {isDefault ? 'fill-current' : ''}" /></button
 					>
-					<button
-						class="absolute top-1 right-1 tile-action transition hover:bg-danger {confirming === id
-							? 'w-auto! bg-danger px-2 text-xs font-medium'
-							: 'pointer-fine:opacity-0 pointer-fine:group-hover/preset:opacity-100 pointer-fine:focus-visible:opacity-100'}"
-						aria-label={confirming === id
-							? `Really delete ${preset.name}`
-							: `Delete ${preset.name}`}
-						onclick={() => remove(id)}
-						>{#if confirming === id}Delete?{:else}<X class="size-4" />{/if}</button
-					>
+					<span class="absolute top-1 right-1 flex gap-1">
+						{#if canSave}
+							<button
+								class="tile-action transition {confirming === `replace:${id}`
+									? 'w-auto! bg-accent px-2 text-xs font-medium'
+									: 'pointer-fine:opacity-0 pointer-fine:group-hover/preset:opacity-100 pointer-fine:focus-visible:opacity-100'}"
+								aria-label={confirming === `replace:${id}`
+									? `Really replace ${preset.name} with this view`
+									: `Replace ${preset.name} with this view`}
+								title="Save what the camera shows now (and the preset's settings as they are now) into this preset"
+								onclick={() => replace(id)}
+								>{#if confirming === `replace:${id}`}Replace?{:else}<RefreshCw
+										class="size-4"
+									/>{/if}</button
+							>
+						{/if}
+						<button
+							class="tile-action transition hover:bg-danger {confirming === `delete:${id}`
+								? 'w-auto! bg-danger px-2 text-xs font-medium'
+								: 'pointer-fine:opacity-0 pointer-fine:group-hover/preset:opacity-100 pointer-fine:focus-visible:opacity-100'}"
+							aria-label={confirming === `delete:${id}`
+								? `Really delete ${preset.name}`
+								: `Delete ${preset.name}`}
+							onclick={() => remove(id)}
+							>{#if confirming === `delete:${id}`}Delete?{:else}<X class="size-4" />{/if}</button
+						>
+					</span>
 				</div>
 			{/each}
 		</div>

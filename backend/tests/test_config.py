@@ -152,3 +152,21 @@ def test_order_cameras_moves_comments_above_cameras_with_them(tmp_path: Path) ->
         assert "driver: demo  # eol" in path.read_text()
         i = lines.index("# Recording settings")
         assert lines[i + 1] == "recording:" and lines[i - 1] == ""
+
+
+def test_nested_values_stay_above_the_comments_at_the_end(tmp_path: Path) -> None:
+    from norn.config import NornPreset
+
+    path = tmp_path / "config.yaml"
+    path.write_text(DEFAULT_CONFIG)
+    store = ConfigStore(path)
+    demo = store.load().cameras["demo"]
+    for update in (
+        {"triggers": ["motion", "person"]},
+        {"presets": {"porch": NornPreset(name="Porch", slot="norn-porch")}},
+    ):
+        store.put_camera("demo", demo.model_copy(update=update))
+        text = path.read_text()
+        last = "      - person" if "triggers" in update else "        slot: norn-porch"
+        assert last in text
+        assert text.index(last) < text.index("# A plain RTSP camera"), text
