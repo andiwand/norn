@@ -40,7 +40,8 @@ CATALOGUE: list[Entry] = [
         checked="2026-11-16",
         notes=(
             "Firmware before V5.4.5 has a known login bypass (CVE-2017-7921). Update soon.",
-            "Older firmware can't jump to the latest version: update in steps (V5.4.x, then V5.5.x).",
+            "Older firmware can't jump to the latest version. From V5.2.0 to V5.4.0, install "
+            "V5.4.41 build 170309 first, then V5.5.82 (both on Hikvision's EU portal, R6 platform).",
             "Cameras bought for the Chinese market can refuse or break with EU/US firmware.",
         ),
     ),
