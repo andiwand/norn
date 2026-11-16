@@ -204,11 +204,12 @@ class Pilot:
             return
         if not default or default not in cfg.presets or self.at_preset == default:
             return
-        # A slot the camera no longer has (deleted on the camera) would send it somewhere odd.
+        # A slot deleted on the camera would send it somewhere odd. (An empty list: the read
+        # failed, most likely; then go.)
         slot = cfg.presets[default].slot
         cached = self.hub.cameras.get(self.camera_id)
         listed = cached.presets if cached else None
-        if listed is not None and slot not in {p.id for p in listed}:
+        if listed and slot not in {p.id for p in listed}:
             if self._missing_warned != slot:
                 log.warning(
                     "%s: the default preset %s is in slot %s, which the camera doesn't have any more;"

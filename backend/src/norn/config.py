@@ -403,51 +403,22 @@ def _tail(node: Any) -> tuple[Any, Any] | None:
 
 
 def _tail_token(node: Any, key: Any, create: bool = False) -> tuple[list[Any] | None, int]:
-    """ruamel's comment slots of an entry, and which one holds the comment after its line (a
-    mapping's entries keep it third, a list's first)."""
+    """ruamel's comment slots of an entry, and the slot of the comment after its line (third
+    for a mapping's entry, first for a list's)."""
     slot = 2 if isinstance(node, CommentedMap) else 0
-    item = node.ca.items.get(key)
-    if item is None and create:
-        item = node.ca.items.setdefault(key, [None, None, None, None] if slot == 2 else [None, None])
+    item = node.ca.items.setdefault(key, [None] * (slot + 2)) if create else node.ca.items.get(key)
     if item is not None and len(item) <= slot:
         item.extend([None] * (slot + 1 - len(item)))
     return item, slot
 
 
 def _commented(value: Any) -> Any:
-    """Plain dicts and lists as ruamel's own, so comments can attach to their last line."""
+    """Plain dicts and lists as ruamel's, so comments can attach to their last line."""
     if isinstance(value, dict) and not isinstance(value, CommentedMap):
         return CommentedMap((k, _commented(v)) for k, v in value.items())
     if isinstance(value, list) and not isinstance(value, CommentedSeq):
         return CommentedSeq(_commented(v) for v in value)
     return value
-
-
-def _take_tail_comment(doc: CommentedMap) -> str | None:
-    """Detach the comment lines after the last line of the document.
-
-    ruamel keeps them on the last key, so a key added after it would land below the comment.
-    An end-of-line comment on that last line stays where it is.
-    """
-    tail = _tail(doc)
-    if tail is None:
-        return None
-    node, key = tail
-    item, slot = _tail_token(node, key)
-    if not item or item[slot] is None:
-        return None
-    text: str = item[slot].value
-    newline = text.find("\n")
-    if newline < 0:
-        return None
-    keep, rest = text[: newline + 1], text[newline + 1 :]
-    if not rest.strip():
-        return None
-    if keep.startswith("#"):
-        item[slot].value = keep
-    else:
-        item[slot] = None
-    return rest
 
 
 def _put_tail_comment(doc: Any, text: str) -> None:
@@ -604,7 +575,7 @@ class ConfigStore:
         if not CAMERA_ID.match(entry_id):
             raise ConfigError(f"id {entry_id!r} must be lowercase letters, digits and dashes")
         # Comments after the last camera belong to the end of the block, not to its last key.
-        tail = _take_tail_comment(self._doc)
+        tail = _split_tail(self._doc) or None
         entries = self._section(section)
         entries.fa.set_block_style()
         existing = entries.get(entry_id)
@@ -626,7 +597,7 @@ class ConfigStore:
             raise ConfigError(f"no settings section {name!r}")
         data = values.model_dump(by_alias=True)
         defaults = type(values)().model_dump(by_alias=True)
-        tail = _take_tail_comment(self._doc)
+        tail = _split_tail(self._doc) or None
         section = self._section(name)
         for key, value in data.items():
             if value == defaults[key] and key not in section:
@@ -648,7 +619,7 @@ class ConfigStore:
         entries = self._doc.get(section)
         if not isinstance(entries, CommentedMap) or entry_id not in entries:
             raise KeyError(entry_id)
-        tail = _take_tail_comment(self._doc)
+        tail = _split_tail(self._doc) or None
         del entries[entry_id]
         if not entries and section != "cameras":
             del self._doc[section]  # an empty circles block is just noise

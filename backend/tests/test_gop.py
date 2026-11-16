@@ -52,17 +52,31 @@ async def test_viewers_start_at_the_newest_keyframe() -> None:
     assert cache.ready and cache.gop == [first, p1, audio]
     assert cache.keyframe() == (INIT, first)
 
-    async with cache.watch() as (codec, start, queue):
-        assert codec.startswith("video/mp4") and start == INIT + first + p1 + audio
-        later = fragment(1, False)
-        cache._take(later)
-        assert await asyncio.wait_for(queue.get(), 1) == later
-        newer = fragment(1, True)
-        cache._take(newer)  # a new keyframe starts a new GOP
-        assert cache.gop == [newer] and await queue.get() == newer
-        cache._take(INIT)  # a new init segment: viewers start over
-        assert await queue.get() is None
+    codec, start, queue = cache.subscribe()
+    assert codec.startswith("video/mp4") and start == INIT + first + p1 + audio
+    later = fragment(1, False)
+    cache._take(later)
+    assert await asyncio.wait_for(queue.get(), 1) == later
+    newer = fragment(1, True)
+    cache._take(newer)  # a new keyframe starts a new GOP
+    assert cache.gop == [newer] and await queue.get() == newer
+    cache._take(INIT)  # a new init segment: viewers start over
+    assert await queue.get() is None
     assert cache.viewers == 0
+
+
+async def test_a_slow_viewer_is_ended_even_with_a_full_queue() -> None:
+    from norn.gop import QUEUE
+
+    cache = GopCache("ws://unused", "cam_sub", connect=False)
+    cache.codec = 'video/mp4; codecs="avc1.640029"'
+    cache._take(INIT)
+    cache._take(fragment(1, True))
+    _, _, queue = cache.subscribe()
+    for _ in range(QUEUE + 1):  # it never reads: the last one doesn't fit
+        cache._take(fragment(1, False))
+    items = [queue.get_nowait() for _ in range(queue.qsize())]
+    assert items[-1] is None and cache.viewers == 0
 
 
 def _h264_fragments() -> bytes:
@@ -115,7 +129,7 @@ def test_ready_streams_setting(client) -> None:  # type: ignore[no-untyped-def]
     assert options["sub"]["ready"]
     # The demo's pattern is made by FFmpeg: keeping it ready would encode all the time.
     assert not options["sub"]["can_be_ready"]
-    assert hub._gop_streams() == ({}, set())
+    assert hub._gop_streams() == {}
 
     body = {"name": "Demo camera", "driver": "demo", "ready_streams": ["main", "sub"]}
     assert client.put("/api/cameras/demo", json=body).json()["ready_streams"] == ["main", "sub"]

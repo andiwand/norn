@@ -1,6 +1,6 @@
 // @ts-nocheck -- vendored JavaScript, checked upstream
 // Vendored from go2rtc v1.9.15 (https://github.com/AlexxIT/go2rtc, MIT License, Copyright (c) 2022 Alex X).
-// Changed: this header, and one jump in onmse() marked "Norn". Norn's player (norn-video.js)
+// Changed: this header, and onmse()'s trim and seek, marked "Norn". Norn's player (norn-video.js)
 // extends it.
 /**
  * VideoRTC v1.6.0 - Video player for go2rtc streaming application.
@@ -472,16 +472,16 @@ export class VideoRTC extends HTMLElement {
                     const end = sb.buffered.end(sb.buffered.length - 1);
                     const start = end - 5;
                     const start0 = sb.buffered.start(0);
-                    if (start > start0) {
+                    // Norn: a GOP-cache stream starts at its keyframe, with old timestamps, and
+                    // may span over 5 s. Show the keyframe first; trim only near the live end.
+                    if (start > start0 && this.video.currentTime >= start) {
                         sb.remove(start0, start);
                         ms.setLiveSeekableRange(start, end);
                     }
-                    // Norn: never before the start of what's buffered. A stream from Norn's GOP
-                    // cache starts at its newest keyframe, with the timestamps of a stream that
-                    // runs since long ago, and may hold less than 5 seconds.
-                    const target = Math.max(start, start0);
-                    if (this.video.currentTime < target) {
-                        this.video.currentTime = target;
+                    if (this.video.currentTime < start0) {
+                        this.video.currentTime = start0;
+                    } else if (this.video.currentTime < start) {
+                        this.video.currentTime = start;
                     }
                     const gap = end - this.video.currentTime;
                     this.video.playbackRate = gap > 0.1 ? gap : 0.1;

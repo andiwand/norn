@@ -18,8 +18,8 @@ image or the PyPI package `norn-hub`. The name may change later.
   - `hub.py` ties everything together. It builds a `Camera` (config + driver instance) for each
     entry of the config, keeps unchanged ones, and pushes the streams to go2rtc and the recorder.
   - `config.py`: `config.yaml` is the only state. `ConfigStore` edits it with ruamel.yaml's
-    round-trip mode so hand-written comments survive; `_take_tail_comment` keeps a trailing
-    comment block at the end when keys are added. The hub polls the file's mtime and reloads.
+    round-trip mode so hand-written comments survive; `_split_tail`/`_put_tail_comment` keep
+    the comment block at the end of a block when keys are added or moved. The hub polls the file's mtime and reloads.
     There is no database, on purpose.
   - `drivers/`: one module per kind of camera, registered with `@register`. A driver declares its
     `Options` (a pydantic model: the extra keys of the camera in config.yaml, and the add-camera

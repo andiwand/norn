@@ -743,32 +743,38 @@ async def _drain(ws: WebSocket) -> None:
 
 
 async def _pipe(ws: WebSocket, upstream: websockets.ClientConnection, gop: GopCache | None = None) -> None:
-    """Between the browser and go2rtc. An MSE request is answered from the stream's GOP cache
-    when it's ready and the browser can play its codecs: the picture starts at once. All else
-    (WebRTC, ...) goes to go2rtc as it is."""
+    """Between the browser and go2rtc. An MSE request is answered from the GOP cache when it's
+    ready and the browser plays its codecs; all else (WebRTC, ...) goes to go2rtc."""
     sending = asyncio.Lock()  # go2rtc's messages and the cache's fragments share the socket
 
     async def send(message: str | bytes) -> None:
         async with sending:
-            if isinstance(message, bytes):
-                await ws.send_bytes(message)
-            else:
-                await ws.send_text(message)
+            await (ws.send_bytes(message) if isinstance(message, bytes) else ws.send_text(message))
 
     async def down() -> None:
         async for message in upstream:
             await send(message)
 
-    async def from_cache(cache: GopCache) -> None:
-        async with cache.watch() as (codec, start, queue):
+    async def from_cache(
+        cache: GopCache, codec: str, start: bytes, queue: asyncio.Queue[bytes | None]
+    ) -> None:
+        try:
             await send(json.dumps({"type": "mse", "value": codec}))
             await send(start)
             while (fragment := await queue.get()) is not None:
                 await send(fragment)
-        # The stream restarted (a new timeline): end, the player connects again.
+        finally:
+            cache.unsubscribe(queue)  # None: it restarted; ending makes the player connect again
+
+    def mse_request(text: str) -> str | None:
+        with contextlib.suppress(ValueError, AttributeError):
+            msg = json.loads(text)
+            if msg.get("type") == "mse":
+                return str(msg.get("value", ""))
+        return None
 
     tasks: list[asyncio.Task[None]] = []
-    finished = asyncio.Event()  # any of them ended: the browser or go2rtc left, the cache restarted
+    finished = asyncio.Event()  # the browser or go2rtc left, or the cache restarted
 
     def spawn(coroutine: Coroutine[Any, Any, None]) -> None:
         task = asyncio.create_task(coroutine)
@@ -776,25 +782,17 @@ async def _pipe(ws: WebSocket, upstream: websockets.ClientConnection, gop: GopCa
         tasks.append(task)
 
     async def up() -> None:
-        while True:
-            message = await ws.receive()
-            if message["type"] == "websocket.disconnect":
-                return
-            text = message.get("text")
-            if text is not None:
-                if gop is not None and gop.ready and '"mse"' in text:
-                    with contextlib.suppress(ValueError):
-                        msg = json.loads(text)
-                        if (
-                            msg.get("type") == "mse"
-                            and gop.codec
-                            and codecs_fit(str(msg.get("value", "")), gop.codec)
-                        ):
-                            spawn(from_cache(gop))
-                            continue
-                await upstream.send(text)
-            elif message.get("bytes") is not None:
-                await upstream.send(message["bytes"])
+        while (message := await ws.receive())["type"] != "websocket.disconnect":
+            if (text := message.get("text")) is None:
+                if message.get("bytes") is not None:
+                    await upstream.send(message["bytes"])
+                continue
+            offered = mse_request(text) if gop and gop.ready else None
+            if gop and gop.codec and offered is not None and codecs_fit(offered, gop.codec):
+                with contextlib.suppress(LookupError):
+                    spawn(from_cache(gop, *gop.subscribe()))
+                    continue
+            await upstream.send(text)
 
     spawn(down())
     spawn(up())

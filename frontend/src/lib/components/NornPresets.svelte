@@ -1,9 +1,8 @@
 <script lang="ts">
 	// Norn's presets of a pan/tilt camera: a picture each, a click goes there. "Save this view"
 	// stores what the camera shows now (and, if wanted, its current settings) as a preset. The
-	// star marks the default: where the camera returns when nothing else steers it. "Replace"
-	// saves what the camera shows now into the preset (its settings too). Star, replace and
-	// delete show on hover; touch screens, which can't hover, always show them.
+	// star marks the default, where the camera returns when nothing else steers it; "Replace"
+	// saves the current view into a preset.
 	import { api, urls, type Camera, type Control } from '../api';
 	import { slugify } from '../format';
 	import { store } from '../state.svelte';
@@ -23,6 +22,9 @@
 	let keep = $state<string[]>([]);
 	let saving = $state(false);
 	let version = $state(Date.now()); // pictures change when a preset is saved again
+	// With a mouse, the buttons show on hover; touch screens can't hover, so they always show.
+	const hover =
+		'pointer-fine:opacity-0 pointer-fine:group-hover/preset:opacity-100 pointer-fine:focus-visible:opacity-100';
 	// Replacing and deleting take a second tap within a few seconds.
 	let confirming = $state<string | null>(null); // "<action>:<preset id>"
 	let confirmTimer: ReturnType<typeof setTimeout> | undefined;
@@ -118,11 +120,8 @@
 								>{/if}</span
 						>
 					</button>
-					<!-- With a mouse: on hover (the default's star always). Touch: always. -->
 					<button
-						class="absolute top-1 left-1 tile-action transition {isDefault
-							? 'text-accent'
-							: 'pointer-fine:opacity-0 pointer-fine:group-hover/preset:opacity-100 pointer-fine:focus-visible:opacity-100'}"
+						class="absolute top-1 left-1 tile-action transition {isDefault ? 'text-accent' : hover}"
 						aria-label={isDefault ? 'No default preset' : `Make “${preset.name}” the default`}
 						aria-pressed={isDefault}
 						title={isDefault
@@ -136,7 +135,7 @@
 							<button
 								class="tile-action transition {confirming === `replace:${id}`
 									? 'w-auto! bg-accent px-2 text-xs font-medium'
-									: 'pointer-fine:opacity-0 pointer-fine:group-hover/preset:opacity-100 pointer-fine:focus-visible:opacity-100'}"
+									: hover}"
 								aria-label={confirming === `replace:${id}`
 									? `Really replace ${preset.name} with this view`
 									: `Replace ${preset.name} with this view`}
@@ -150,7 +149,7 @@
 						<button
 							class="tile-action transition hover:bg-danger {confirming === `delete:${id}`
 								? 'w-auto! bg-danger px-2 text-xs font-medium'
-								: 'pointer-fine:opacity-0 pointer-fine:group-hover/preset:opacity-100 pointer-fine:focus-visible:opacity-100'}"
+								: hover}"
 							aria-label={confirming === `delete:${id}`
 								? `Really delete ${preset.name}`
 								: `Delete ${preset.name}`}

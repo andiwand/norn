@@ -926,8 +926,7 @@ class Hub:
         if cached and time.monotonic() - cached[1] < min(max_age, 5):
             return cached[0]
         jpeg = None
-        # The newest keyframe of a stream kept ready: no waiting for the next one.
-        cache = self._gop_of(camera_id)
+        cache = self._gop_of(camera_id)  # the newest keyframe, without waiting for the next
         if cache is not None and time.monotonic() - cache.keyframe_at <= max(max_age, 2):
             jpeg = await self._gop_jpeg(cache)
             if jpeg:
@@ -945,77 +944,83 @@ class Hub:
 
     # Instant live video
 
-    def _gop_streams(self) -> tuple[dict[str, str], set[str]]:
-        """(go2rtc name -> web app id of every stream a GOP cache may serve, the names kept
-        ready all the time: each camera's tile stream). Not MJPEG (MSE can't play it), not the
-        transcoded low stream (it would transcode all the time)."""
-        usable: dict[str, str] = {}
-        always: set[str] = set()
-        for camera in self.cameras.values():
-            for sid, s in self.go2rtc_streams(camera):
-                name = stream_name(camera.id, sid)
-                if self._instant_capable(camera, s):
-                    usable[name] = sid
-                    if s.id in self.ready_streams(camera):
-                        always.add(name)
-        return usable, always
-
     def _instant_capable(self, camera: Camera, s: Stream) -> bool:
-        """Not MJPEG (MSE can't play it), and from the camera itself: a stream FFmpeg makes
-        (a test pattern, a transcode) would encode all the time."""
+        """Not MJPEG (MSE can't play it), not made by FFmpeg (it would encode all the time)."""
         p = (camera.probe or {}).get(s.id)
         return (s.codec or (p.codec if p else None)) != "mjpeg" and not s.source.startswith("ffmpeg:")
 
     def ready_streams(self, camera: Camera) -> set[str]:
-        """The streams (by the camera's stream ids) kept ready: as set, else the one the Live
-        page shows (the small one, "sub" in the web app)."""
+        """The camera's stream ids kept ready: as set, else the Live page's (sub, else main)."""
         if camera.config.ready_streams is not None:
             return set(camera.config.ready_streams)
-        streams = self.go2rtc_streams(camera)
-        ids = dict(streams)
+        ids = dict(self.go2rtc_streams(camera))
         tile = ids.get("sub") or ids.get("main")
         return {tile.id} if tile else set()
 
+    def _gop_streams(self) -> dict[str, tuple[Stream, bool]]:
+        """go2rtc name -> (stream, kept ready) of each stream a cache may serve."""
+        found = {}
+        for camera in self.cameras.values():
+            ready = self.ready_streams(camera)
+            for sid, s in self.go2rtc_streams(camera):
+                if self._instant_capable(camera, s):
+                    found[stream_name(camera.id, sid)] = (s, s.id in ready)
+        return found
+
+    def _new_gop(self, name: str, s: Stream) -> GopCache:
+        cache = self.gops[name] = GopCache(self.go2rtc.ws_url(name), name, s.source)
+        return cache
+
     def gop(self, camera_id: str, stream_id: str) -> GopCache | None:
-        """The GOP cache of a stream, started now if it isn't running (None: not for this one)."""
-        if not self.go2rtc.enabled or stream_id == LOW:
+        """The stream's cache, started now if needed (None: not for this stream)."""
+        camera = self.cameras.get(camera_id)
+        if camera is None or not self.go2rtc.enabled:
+            return None
+        s = dict(self.go2rtc_streams(camera)).get(stream_id)
+        if s is None or not self._instant_capable(camera, s):
             return None
         name = stream_name(camera_id, stream_id)
-        usable, _ = self._gop_streams()
-        if name not in usable:
-            return None
-        cache = self.gops.get(name)
-        if cache is None:
-            cache = self.gops[name] = GopCache(self.go2rtc.ws_url(name), name)
+        cache = self.gops.get(name) or self._new_gop(name, s)
         cache.last_used = time.monotonic()
         return cache
 
     async def _keep_gops(self) -> None:
+        """Ready streams always, others while watched and GOP_LINGER after; a new source restarts."""
         while True:
             await self.go2rtc.ready.wait()
-            usable, always = self._gop_streams()
-            for name, cache in list(self.gops.items()):
-                idle = cache.viewers == 0 and time.monotonic() - cache.last_used > GOP_LINGER
-                if name not in usable or (name not in always and idle):
-                    del self.gops[name]
-                    await cache.stop()
-            for name in always - self.gops.keys():
-                self.gops[name] = GopCache(self.go2rtc.ws_url(name), name)
+            try:
+                wanted, now = self._gop_streams(), time.monotonic()
+                for name, cache in list(self.gops.items()):
+                    s, ready = wanted.get(name, (None, False))
+                    idle = cache.viewers == 0 and now - cache.last_used > GOP_LINGER
+                    if s is None or s.source != cache.source or (not ready and idle):
+                        del self.gops[name]
+                        await cache.stop()
+                for name, (s, ready) in wanted.items():
+                    if ready and name not in self.gops:
+                        self._new_gop(name, s)
+            except Exception:
+                log.exception("instant live video")
             await asyncio.sleep(5)
 
     def _gop_of(self, camera_id: str) -> GopCache | None:
-        """A running GOP cache of the camera with a keyframe: the tile stream's first."""
-        caches = [c for n, c in self.gops.items() if n == camera_id or n.startswith(f"{camera_id}_")]
-        caches = [c for c in caches if c.keyframe() and not c.name.endswith(f"_{LOW}")]
-        return min(caches, key=lambda c: c.gop_bytes, default=None)
+        """A cache of the camera with a keyframe: the sub stream's, else a ready one's."""
+        camera = self.cameras.get(camera_id)
+        if camera is None:
+            return None
+        ready = self.ready_streams(camera)
+        found = [
+            (sid != "sub", s.id not in ready, cache)
+            for sid, s in self.go2rtc_streams(camera)
+            if (cache := self.gops.get(stream_name(camera_id, sid))) and cache.keyframe()
+        ]
+        return min(found, key=lambda f: f[:2])[2] if found else None
 
     async def _gop_jpeg(self, cache: GopCache) -> bytes | None:
-        """A still of the cache's newest keyframe (decoded once per keyframe)."""
-        jpeg = cache.cached_jpeg()
-        if jpeg is not None:
+        """A still of the cache's newest keyframe, decoded once per keyframe."""
+        if (jpeg := cache.cached_jpeg()) is not None:
             return jpeg
-        key, frames = cache.still_key(), cache.keyframe()
-        if key is None or frames is None:
+        if (frames := cache.keyframe()) is None:
             return None
         process = await asyncio.create_subprocess_exec(
             self.settings.ffmpeg_bin, "-hide_banner", "-loglevel", "error", "-f", "mp4", "-i", "pipe:0",
@@ -1026,10 +1031,11 @@ class Hub:
             out, _ = await asyncio.wait_for(process.communicate(frames[0] + frames[1]), 10)
         except TimeoutError:
             process.kill()
+            await process.wait()
             return None
         if process.returncode != 0 or not out:
             return None
-        cache.keep_jpeg(key, out)
+        cache.keep_jpeg(frames[1], out)
         return out
 
     def _lease_stills(self, camera_id: str, seconds: float = 30) -> None:
