@@ -121,7 +121,7 @@
 					<!-- With a mouse: on hover (the default's star always). Touch: always. -->
 					<button
 						class="absolute top-1 left-1 tile-action transition {isDefault
-							? 'text-warning'
+							? 'text-accent'
 							: 'pointer-fine:opacity-0 pointer-fine:group-hover/preset:opacity-100 pointer-fine:focus-visible:opacity-100'}"
 						aria-label={isDefault ? 'No default preset' : `Make “${preset.name}” the default`}
 						aria-pressed={isDefault}

@@ -24,7 +24,7 @@
 
 	const status = {
 		current: { label: 'Up to date', class: 'bg-success/15 text-success' },
-		update: { label: 'Update available', class: 'bg-warning/15 text-warning' },
+		update: { label: 'Update available', class: 'bg-accent/15 text-accent' },
 		'end-of-life': { label: 'No more updates', class: 'bg-surface-3 text-muted' },
 		unknown: { label: 'Unknown', class: 'bg-surface-3 text-muted' }
 	};
@@ -67,7 +67,7 @@
 		{:else if running}
 			Installing firmware…
 		{:else if firmware}
-			<span class={firmware.status === 'update' ? 'text-warning' : ''}
+			<span class={firmware.status === 'update' ? 'text-accent' : ''}
 				>{status[firmware.status].label}</span
 			>
 		{:else if device}

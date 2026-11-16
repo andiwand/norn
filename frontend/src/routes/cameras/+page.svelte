@@ -13,7 +13,7 @@
 		if (!c.enabled) return ['Disabled', 'text-muted'];
 		if (c.error) return ['Error', 'text-danger'];
 		if (c.device && !c.device.online) return ['Offline', 'text-danger'];
-		if (c.firmware?.status === 'update') return ['Update available', 'text-warning'];
+		if (c.firmware?.status === 'update') return ['Update available', 'text-accent'];
 		if (c.device) return ['OK', 'text-success'];
 		return ['…', 'text-muted'];
 	}

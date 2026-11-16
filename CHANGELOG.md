@@ -8,6 +8,9 @@
   now): a button beside the star, with a second tap to confirm. Same name, same camera slot.
 - Reolink: the camera's preset list is read anew each time; deleted or renamed presets no
   longer linger under their old names.
+- Colours: the detection badge on the video is dark glass with a teal dot, like the REC
+  badge; "Update available" and the default preset's star use the accent. Orange is left
+  for warnings.
 - config.yaml: a camera's presets or lists written by the app land in its block, not below
   the example comments at the end of the file.
 
