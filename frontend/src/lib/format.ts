@@ -91,3 +91,32 @@ export function triggerLabel(trigger: string): string {
 export function setLabels(labels: { id: string; name: string }[]) {
 	for (const label of labels) triggerLabels[label.id] = label.name;
 }
+
+/** A number field's value, or null when it's empty (the setting from above). */
+export function numberOrNull(value: number | null | undefined): number | null {
+	return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+/** What a circle, camera or preset sets itself, in a few words each. */
+export function ownSettings(x: {
+	triggers?: string[] | null;
+	schedule?: { from: string; to: string }[] | null;
+	clip_seconds?: number | null;
+	prebuffer_seconds?: number | null;
+	picture_seconds?: number | null;
+	detection?: object | null;
+}): string[] {
+	const parts: string[] = [];
+	if (x.triggers != null)
+		parts.push(x.triggers.length ? x.triggers.map(triggerLabel).join(', ') : 'no detections');
+	if (x.schedule != null)
+		parts.push(
+			x.schedule.length ? x.schedule.map((w) => `${w.from}–${w.to}`).join(', ') : 'any time'
+		);
+	if (x.clip_seconds != null) parts.push(`${x.clip_seconds} s clips`);
+	if (x.prebuffer_seconds != null) parts.push(`${x.prebuffer_seconds} s before`);
+	if (x.picture_seconds != null)
+		parts.push(x.picture_seconds ? `pictures ${formatInterval(x.picture_seconds)}` : 'no pictures');
+	if (x.detection && Object.keys(x.detection).length) parts.push('own detection');
+	return parts;
+}

@@ -132,85 +132,78 @@
 				{members.length === 1 ? 'camera' : 'cameras'}
 			</p>
 		</div>
+		{#if store.info?.recording_available && members.length}
+			<button
+				class="btn {recording
+					? 'bg-danger text-white'
+					: 'bg-danger/12 text-danger hover:bg-danger/20'}"
+				onclick={toggleRecord}
+				title="One trigger for every camera here. Webhook: POST /api/circles/{circle.id}/record"
+			>
+				{#if recording}
+					<Square class="size-3.5 fill-current" />Stop all
+				{:else}
+					<CircleDot class="size-4" />Record all
+				{/if}
+			</button>
+		{/if}
 	</div>
 
-	<div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
-		<div class="grid min-w-0 content-start gap-4 sm:grid-cols-2">
-			{#each members as camera (camera.id)}
-				<CameraTile {camera} />
-			{:else}
-				<p class="card px-4 py-6 text-center text-sm text-muted sm:col-span-2">
-					No cameras in this circle yet.
-				</p>
-			{/each}
-		</div>
+	<!-- The cameras first; the settings fold up below them. -->
+	<div class="grid gap-4 sm:grid-cols-2">
+		{#each members as camera (camera.id)}
+			<CameraTile {camera} />
+		{:else}
+			<p class="card px-4 py-6 text-center text-sm text-muted sm:col-span-2">
+				No cameras in this circle yet.
+			</p>
+		{/each}
+	</div>
 
-		<aside class="space-y-4">
-			<section class="card p-4">
-				<button
-					class="btn h-12 w-full text-base {recording
-						? 'bg-danger text-white'
-						: 'bg-danger/12 text-danger hover:bg-danger/20'}"
-					onclick={toggleRecord}
-					disabled={!store.info?.recording_available || !members.length}
-				>
-					{#if recording}
-						<Square class="size-4 fill-current" />Stop all
-					{:else}
-						<CircleDot class="size-5" />Record all
-					{/if}
-				</button>
-				<p class="mt-2 text-center text-xs text-muted">
-					One trigger for every camera here. Webhook: <code class="font-mono"
-						>POST /api/circles/{circle.id}/record</code
-					>
-				</p>
-			</section>
-
-			{#each groups as [group, items], i (group)}
-				<Panel title="{group} · all cameras" name="circle:{group}" open={i === 0}>
-					{#snippet summary()}{items.length} shared{/snippet}
-					<div class="-mt-1 divide-y divide-line">
-						{#each items as control (control.id)}
-							<div class="py-2">
-								<ControlField
-									{control}
-									mixed={control.mixed}
-									onchange={(v) => setControl(control, v)}
-								/>
-								{#if control.mixed}
-									<p class="mt-1 pl-12 text-xs text-warning">The cameras differ here.</p>
-								{/if}
-							</div>
-						{/each}
-					</div>
-				</Panel>
-			{:else}
-				{#if members.length > 1}
-					<p class="card px-4 py-4 text-sm text-muted">
-						These cameras share no settings that could be set together.
-					</p>
-				{/if}
-			{/each}
-
-			<Panel title="Circle settings" name="circle-settings">
-				{#key circle.id}
-					<CircleForm {circle} onsaved={() => store.toast('Saved', 'success')} />
-				{/key}
-				<div class="mt-6 flex items-center justify-between gap-3 border-t border-line pt-4">
-					<span class="text-xs text-muted">The cameras stay; only the circle goes.</span>
-					{#if confirming}
-						<span class="flex gap-2">
-							<button class="btn-ghost h-9" onclick={() => (confirming = false)}>Keep</button>
-							<button class="btn h-9 bg-danger text-white" onclick={remove}>Remove</button>
-						</span>
-					{:else}
-						<button class="btn-danger h-9" onclick={() => (confirming = true)}
-							><Trash2 class="size-4" />Remove</button
-						>
-					{/if}
+	<div class="mt-6 space-y-4">
+		{#each groups as [group, items] (group)}
+			<Panel title="{group} · all cameras" name="circle:{group}">
+				{#snippet summary()}{items.length} shared{/snippet}
+				<div class="-mt-1 divide-y divide-line">
+					{#each items as control (control.id)}
+						<div class="py-2">
+							<ControlField
+								{control}
+								mixed={control.mixed}
+								onchange={(v) => setControl(control, v)}
+							/>
+							{#if control.mixed}
+								<p class="mt-1 pl-12 text-xs text-warning">The cameras differ here.</p>
+							{/if}
+						</div>
+					{/each}
 				</div>
 			</Panel>
-		</aside>
+		{/each}
+
+		<Panel title="Circle settings" name="circle-settings">
+			{#snippet summary()}Cameras, recording & triggers{/snippet}
+			<p class="mb-4 text-xs text-muted">
+				Record all from elsewhere: <code class="font-mono"
+					>POST /api/circles/{circle.id}/record</code
+				>
+			</p>
+			{#key circle.id}
+				<CircleForm {circle} onsaved={() => store.toast('Saved', 'success')} />
+			{/key}
+			<div class="mt-6 flex items-center justify-between gap-3 border-t border-line pt-4">
+				<span class="text-xs text-muted">The cameras stay; only the circle goes.</span>
+				{#if confirming}
+					<span class="flex gap-2">
+						<button class="btn-ghost h-9" onclick={() => (confirming = false)}>Keep</button>
+						<button class="btn h-9 bg-danger text-white" onclick={remove}>Remove</button>
+					</span>
+				{:else}
+					<button class="btn-danger h-9" onclick={() => (confirming = true)}
+						><Trash2 class="size-4" />Remove</button
+					>
+				{/if}
+			</div>
+		</Panel>
 	</div>
 {/if}

@@ -150,6 +150,7 @@ class Camera:
             "auto_update": self.config.auto_update,
             "picture_seconds": self.config.picture_seconds,
             "prebuffer_seconds": self.config.prebuffer_seconds,
+            "clip_seconds": self.config.clip_seconds,
             "triggers": self.config.triggers,
             "stream_selection": self.config.streams,
             "ready_streams": self.config.ready_streams,
@@ -179,6 +180,7 @@ class Hub:
         self.library = Library(settings.recordings_path)
         self.go2rtc = Go2rtc(settings, self.bus)
         self.recorder = Recorder(settings, self.go2rtc, self.library, self.bus)
+        self.recorder.preset_of = self.preset_of
         self.cameras: dict[str, Camera] = {}
         self.config_error: str | None = None
         self._watcher: asyncio.Task[None] | None = None
@@ -547,7 +549,7 @@ class Hub:
         data["concurrent"] = camera.concurrent
         data["web_url"] = camera.web_url
         data["events"] = camera.events_json(self.norn_kinds(camera_id) if camera.config.enabled else [])
-        data["buffered"] = self.recorder.buffered(camera_id)
+        data["buffered"] = self.recorder.prebuffer_now(camera_id)
         return data
 
     async def resources(self) -> dict[str, Any]:
@@ -621,7 +623,9 @@ class Hub:
         await driver.save_preset(slot, name)
         current, _ = await self.get_controls(camera_id, max_age=0)
         values = {c.id: c.value for c in current if c.id in controls and c.kind != "button"}
-        preset = NornPreset(name=name, slot=slot, controls=values)
+        # A new view and settings; what it records at the preset stays.
+        update = {"name": name, "slot": slot, "controls": values}
+        preset = existing.model_copy(update=update) if existing else NornPreset(**update)
         jpeg = await self.still_jpeg(camera_id, max_age=2)
         pilot = self.pilots[camera_id]
         if jpeg:
@@ -645,6 +649,23 @@ class Hub:
         update = {"presets": presets, "patrol": patrol, "default_preset": default}
         await self.put_camera(camera_id, cfg.model_copy(update=update))
         self.pilots[camera_id].picture(preset_id).unlink(missing_ok=True)
+
+    async def set_preset_recording(
+        self, camera_id: str, preset_id: str, values: dict[str, Any]
+    ) -> NornPreset:
+        """What records while the camera is at a preset: triggers, clip_seconds and
+        prebuffer_seconds (None: the camera's)."""
+        cfg = self.cameras[camera_id].config
+        if preset_id not in cfg.presets:
+            raise KeyError(preset_id)
+        try:
+            preset = NornPreset.model_validate({**cfg.presets[preset_id].model_dump(), **values})
+        except ValidationError as e:
+            raise ConfigError(_short_error(e)) from e
+        await self.put_camera(
+            camera_id, cfg.model_copy(update={"presets": {**cfg.presets, preset_id: preset}})
+        )
+        return preset
 
     async def set_default_preset(self, camera_id: str, preset_id: str | None) -> None:
         cfg = self.cameras[camera_id].config
@@ -852,7 +873,12 @@ class Hub:
 
     def triggers_of(self, camera_id: str) -> set[str]:
         """What starts a clip on the camera now (its schedule and away mode included)."""
-        return self.config.triggers(camera_id)
+        return self.config.triggers(camera_id, preset=self.preset_of(camera_id))
+
+    def preset_of(self, camera_id: str) -> str | None:
+        """The Norn preset the camera is at, if it's a pan/tilt camera that sits at one."""
+        pilot = self.pilots.get(camera_id)
+        return pilot.at_preset if pilot is not None else None
 
     async def _watch_away(self) -> None:
         """Planned away times start and end by the clock: notice it, and apply the change."""

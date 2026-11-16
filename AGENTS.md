@@ -52,8 +52,12 @@ image or the PyPI package `norn-hub`. The name may change later.
     clips, continuous files and pictures are written into `NORN_TEMP` (a `Library` with the same
     layout) and moved into the recordings when finished (video first, then .jpg and .json).
     Pictures (`interval`) come from the buffer's newest piece, else from go2rtc.
-  - Circles (`config.circles`) group cameras. `Config.setting(camera, name)` resolves
-    `picture_seconds`/`prebuffer_seconds`: the camera's own, its first circle's, the global one.
+  - Circles (`config.circles`) group cameras. `Config.setting(camera, name, preset)` resolves
+    `picture_seconds`/`prebuffer_seconds`/`clip_seconds`/`triggers`/`schedule`: the preset's
+    (only triggers, clip and pre-recording; `hub.preset_of` = the pilot's `at_preset`), the
+    camera's own, its first circle's, the global one. A buffer holds `longest_prebuffer` (the
+    camera's or any preset's); a clip takes as much of it as its preset wants. A trigger during
+    a clip extends it (`record_clip`) rather than starting a second one.
     The hub computes the controls all members share (`circle_controls`) and sets them on all.
   - Events: drivers with `Capability.EVENTS` yield `Event(kind, active)` from `events()`
     (Reolink: Baichuan push; Hikvision: ISAPI alertStream; foscam: polls get_status.cgi). The

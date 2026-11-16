@@ -3,6 +3,7 @@
 	import { untrack } from 'svelte';
 	import { api, type Circle, type Window } from '../api';
 	import { slugify } from '../format';
+	import { numberOrNull } from '../format';
 	import { store } from '../state.svelte';
 	import IntervalSetting from './IntervalSetting.svelte';
 	import TriggerSetting from './TriggerSetting.svelte';
@@ -19,6 +20,7 @@
 	let together = $state(initial?.together ?? false);
 	let schedule = $state<Window[] | null>(initial?.schedule ?? null);
 	let prebuffer = $state<number | null | undefined>(initial?.prebuffer_seconds ?? null);
+	let clip = $state<number | null | undefined>(initial?.clip_seconds ?? null);
 	let saving = $state(false);
 	let error = $state('');
 	const globals = $derived(store.info?.recording);
@@ -38,8 +40,8 @@
 			together,
 			schedule,
 			detection: initial?.detection ?? null,
-			prebuffer_seconds:
-				typeof prebuffer === 'number' && Number.isFinite(prebuffer) ? prebuffer : null
+			prebuffer_seconds: numberOrNull(prebuffer),
+			clip_seconds: numberOrNull(clip)
 		};
 		try {
 			const saved = circle
@@ -129,6 +131,15 @@
 			</span>
 			<input type="checkbox" role="switch" class="switch" bind:checked={together} />
 		</label>
+		<NumberSetting
+			label="Clip length"
+			hint="After a button, a webhook, or the end of a detection. Empty: as set above."
+			bind:value={clip}
+			min={5}
+			max={3600}
+			unit="sec"
+			placeholder={globals ? String(globals.clip_seconds) : ''}
+		/>
 		<NumberSetting
 			label="Record before the trigger"
 			hint="Seconds a clip includes from before what started it. Empty: as set above; 0: off."

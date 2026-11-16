@@ -174,3 +174,49 @@ def test_time_fixes() -> None:
     assert away.now(datetime(2030, 1, 1)) in (True, False)
     day = Window.model_validate({"from": "00:00", "to": "00:00", "days": ["mon"]})
     assert day.contains(datetime(2026, 11, 16, 13, 0))  # a Monday: all of it
+
+
+def test_presets_record_their_own_way() -> None:
+    from norn.config import Config
+
+    preset = {"slot": "1", "triggers": ["person"], "clip_seconds": 90, "prebuffer_seconds": 30}
+    config = Config.model_validate(
+        {
+            "recording": {"triggers": ["motion"], "clip_seconds": 20, "prebuffer_seconds": 5},
+            "cameras": {
+                "yard": {
+                    "name": "Yard",
+                    "driver": "demo",
+                    "clip_seconds": 40,
+                    "presets": {"gate": {"name": "Gate", **preset}, "lawn": {"name": "Lawn", "slot": "2"}},
+                }
+            },
+        }
+    )
+    assert config.triggers("yard") == {"motion"}
+    assert config.triggers("yard", preset="gate") == {"person"}
+    assert config.triggers("yard", preset="lawn") == {"motion"}  # nothing of its own: the camera's
+    assert config.setting("yard", "clip_seconds") == (40, True)
+    assert config.setting("yard", "clip_seconds", "gate") == (90, True)
+    assert config.setting("yard", "prebuffer_seconds", "lawn") == (5, False)
+    assert config.longest_prebuffer("yard") == (30, True)  # the buffer holds what any preset wants
+
+
+async def test_a_trigger_during_a_clip_extends_it(settings: Settings) -> None:
+    import time
+    from datetime import datetime
+
+    from norn.config import Config
+    from norn.recorder import Clip
+
+    recorder = Hub(settings).recorder
+    recorder.available = True
+    recorder._config = Config.model_validate(
+        {"cameras": {"c": {"name": "C", "driver": "demo", "clip_seconds": 60}}}
+    )
+    now = datetime.now()
+    clip = Clip("c", settings.temp_path / "c.mp4", "manual", now, now, 10, time.time() + 10, {"manual"})
+    recorder.clips["c"] = clip
+    assert await recorder.record_clip("c", "person") is clip  # the same video, not a second
+    assert clip.events == {"manual", "person"}
+    assert clip.end >= time.time() + 59  # the camera's clip length from now on

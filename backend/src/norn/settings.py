@@ -12,6 +12,7 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 Go2rtcMode = Literal["managed", "external", "off"]
 
@@ -57,11 +58,17 @@ class Settings:
     go2rtc_bin: str = "go2rtc"
     go2rtc_api: str = "http://127.0.0.1:1984"
     go2rtc_rtsp: str = "rtsp://127.0.0.1:8554"
+    # Serve the RTSP streams on every network interface, for Home Assistant and other players.
+    rtsp_share: bool = False
     webrtc_port: int = 8555
     ffmpeg_bin: str = "ffmpeg"
     log_level: str = "info"
     log_file: Path | None = None  # None: no file
     access_log: bool = False  # one line per HTTP request
+
+    @property
+    def rtsp_port(self) -> int:
+        return urlsplit(self.go2rtc_rtsp).port or 554
 
     @property
     def runtime_dir(self) -> Path:
@@ -86,6 +93,7 @@ class Settings:
             go2rtc_bin=_env("NORN_GO2RTC_BIN", "go2rtc"),
             go2rtc_api=_env("NORN_GO2RTC_API", "http://127.0.0.1:1984").rstrip("/"),
             go2rtc_rtsp=_env("NORN_GO2RTC_RTSP", "rtsp://127.0.0.1:8554").rstrip("/"),
+            rtsp_share=_env("NORN_RTSP_SHARE", "0").lower() in ("1", "true", "yes"),
             webrtc_port=int(_env("NORN_WEBRTC_PORT", "8555")),
             ffmpeg_bin=_env("NORN_FFMPEG", "ffmpeg"),
             log_level=_env("NORN_LOG_LEVEL", "info").lower(),

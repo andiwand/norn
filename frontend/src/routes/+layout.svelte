@@ -8,6 +8,7 @@
 	import Film from '@lucide/svelte/icons/film';
 	import Settings from '@lucide/svelte/icons/settings';
 	import Plane from '@lucide/svelte/icons/plane';
+	import Zap from '@lucide/svelte/icons/zap';
 	import House from '@lucide/svelte/icons/house';
 	import Video from '@lucide/svelte/icons/video';
 	import Activity from '@lucide/svelte/icons/activity';
@@ -59,6 +60,12 @@
 			match: (p: string) => (p.startsWith('/cameras') && !cameraPage(p)) || p.startsWith('/circles')
 		},
 		{ href: '/away', label: 'Away', icon: Plane, match: (p: string) => p.startsWith('/away') },
+		{
+			href: '/triggers',
+			label: 'Triggers',
+			icon: Zap,
+			match: (p: string) => p.startsWith('/triggers')
+		},
 		{
 			href: '/settings',
 			label: 'Settings',

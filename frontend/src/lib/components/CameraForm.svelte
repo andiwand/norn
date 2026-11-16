@@ -1,15 +1,10 @@
 <script lang="ts">
 	// Add or edit a camera. The driver's option fields come from its JSON schema.
-	import { api, type Camera, type Driver, type JsonSchemaProperty, type Window } from '../api';
+	import { api, type Camera, type Driver, type JsonSchemaProperty } from '../api';
 	import { slugify } from '../format';
 	import { store } from '../state.svelte';
 	import { untrack } from 'svelte';
-	import IntervalSetting from './IntervalSetting.svelte';
-	import ChoiceSetting from './ChoiceSetting.svelte';
 	import StreamSettings from './StreamSettings.svelte';
-	import TriggerSetting from './TriggerSetting.svelte';
-	import ScheduleSetting from './ScheduleSetting.svelte';
-	import NumberSetting from './NumberSetting.svelte';
 
 	interface Props {
 		camera?: Camera;
@@ -26,49 +21,11 @@
 	let id = $state(initial?.id ?? '');
 	let idEdited = $state(false);
 	let enabled = $state(initial?.enabled ?? true);
-	let record = $state<'off' | 'continuous'>(initial?.record ?? 'off');
 	let options = $state<Record<string, string>>(
 		Object.fromEntries(Object.entries(initial?.options ?? {}).map(([k, v]) => [k, String(v ?? '')]))
 	);
-	let pictureSeconds = $state<number | null>(initial?.picture_seconds ?? null);
-	let triggers = $state<string[] | null>(initial?.triggers ?? null);
-	let schedule = $state<Window[] | null>(initial?.schedule ?? null);
 	let streams = $state<string[] | null>(initial?.stream_selection ?? null);
 	let ready = $state<string[] | null>(initial?.ready_streams ?? null);
-	// Norn's detection on this camera; null fields: as set above.
-	let detectMotion = $state<boolean | null>(initial?.detection?.motion ?? null);
-	let detectObjects = $state<boolean | null>(initial?.detection?.objects ?? null);
-	let detectStills = $state<'keyframe' | 'live' | 'auto' | null>(
-		initial?.detection?.stills ?? null
-	);
-	let detectEvery = $state<number | null | undefined>(initial?.detection?.every_seconds ?? null);
-	const detection = $derived.by(() => {
-		// Fields the form doesn't show (sensitivity, certainty, ...) stay as they are.
-		const d: Record<string, unknown> = {
-			...initial?.detection,
-			motion: detectMotion,
-			objects: detectObjects,
-			stills: detectStills,
-			every_seconds:
-				typeof detectEvery === 'number' && Number.isFinite(detectEvery) ? detectEvery : null
-		};
-		const set = Object.fromEntries(Object.entries(d).filter(([, v]) => v !== null));
-		return Object.keys(set).length ? set : null;
-	});
-	// Empty (null): the global setting.
-	let prebuffer = $state<number | null | undefined>(initial?.prebuffer_seconds ?? null);
-	const globals = $derived(store.info?.recording);
-	// What this camera gets without its own value: its first circle's, else the global one,
-	// as the server resolves it.
-	const circle = $derived(
-		initial ? store.circles.find((c) => c.cameras.includes(initial.id)) : undefined
-	);
-	const inherited = $derived({
-		triggers: circle?.triggers ?? globals?.triggers ?? [],
-		schedule: circle?.schedule ?? globals?.schedule ?? [],
-		picture_seconds: circle?.picture_seconds ?? globals?.picture_seconds ?? 0,
-		prebuffer_seconds: circle?.prebuffer_seconds ?? globals?.prebuffer_seconds ?? 0
-	});
 	let saving = $state(false);
 	let error = $state('');
 
@@ -112,16 +69,17 @@
 			name,
 			driver: driverName,
 			enabled,
-			record,
+			// What it records is set on its page; it stays as it is.
+			record: initial?.record ?? 'off',
 			auto_update: initial?.auto_update ?? false,
-			picture_seconds: pictureSeconds,
-			triggers,
-			schedule,
-			detection,
+			picture_seconds: initial?.picture_seconds ?? null,
+			triggers: initial?.triggers ?? null,
+			schedule: initial?.schedule ?? null,
+			detection: initial?.detection ?? null,
+			clip_seconds: initial?.clip_seconds ?? null,
+			prebuffer_seconds: initial?.prebuffer_seconds ?? null,
 			streams,
-			ready_streams: ready,
-			prebuffer_seconds:
-				typeof prebuffer === 'number' && Number.isFinite(prebuffer) ? prebuffer : null
+			ready_streams: ready
 		};
 		for (const [key] of fields) {
 			const value = options[key]?.trim();
@@ -216,96 +174,9 @@
 	{/each}
 
 	<div class="divide-y divide-line card">
-		<label class="flex cursor-pointer items-center justify-between gap-4 px-5 py-3.5">
-			<span>
-				<span class="block text-sm font-medium">Record continuously</span>
-				<span class="block text-xs text-muted"
-					>Keep everything, in files of a few minutes. Clips work either way.</span
-				>
-			</span>
-			<input
-				type="checkbox"
-				role="switch"
-				class="switch"
-				checked={record === 'continuous'}
-				onchange={(e) => (record = e.currentTarget.checked ? 'continuous' : 'off')}
-			/>
-		</label>
 		{#if initial && initial.stream_options.length}
 			<StreamSettings camera={initial} bind:value={streams} bind:ready />
 		{/if}
-		<IntervalSetting
-			label="Pictures"
-			hint="Take a picture on a timer. They show in Recordings and expire like other automatic recordings."
-			bind:value={pictureSeconds}
-			inherit={inherited.picture_seconds}
-		/>
-		{#if initial?.events}
-			<TriggerSetting
-				label="Record on detections"
-				hint="What this camera detects that starts a clip."
-				bind:value={triggers}
-				kinds={initial.events.kinds}
-				inherit={inherited.triggers}
-			/>
-			<ScheduleSetting
-				label="When detections record"
-				bind:value={schedule}
-				inherit={inherited.schedule}
-			/>
-		{/if}
-		<ChoiceSetting
-			label="Motion by Norn"
-			hint="Norn compares stills of this camera."
-			bind:value={detectMotion}
-			choices={[
-				[null, 'Default'],
-				[true, 'On'],
-				[false, 'Off']
-			]}
-		/>
-		<ChoiceSetting
-			label="Objects by Norn"
-			hint={store.info?.detection.objects_unavailable
-				? `Not available: ${store.info.detection.objects_unavailable}.`
-				: "People, vehicles and animals, by Norn's AI."}
-			bind:value={detectObjects}
-			disabled={!!store.info?.detection.objects_unavailable}
-			choices={[
-				[null, 'Default'],
-				[true, 'On'],
-				[false, 'Off']
-			]}
-		/>
-		<ChoiceSetting
-			label="Stills"
-			hint="For pictures and Norn's detection."
-			bind:value={detectStills}
-			choices={[
-				[null, 'Default'],
-				['auto', 'Auto'],
-				['keyframe', 'Keyframes'],
-				['live', 'Every frame']
-			]}
-		/>
-		<NumberSetting
-			label="Look every"
-			hint="How often Norn checks a still. Empty: as set above."
-			bind:value={detectEvery}
-			min={0.5}
-			max={60}
-			step={0.5}
-			unit="sec"
-			placeholder={String(store.info?.detection.every_seconds ?? '')}
-		/>
-		<NumberSetting
-			label="Record before the trigger"
-			hint="Seconds a clip includes from before what started it. Empty: as set above; 0: off."
-			bind:value={prebuffer}
-			max={300}
-			unit="sec"
-			placeholder={String(inherited.prebuffer_seconds)}
-		/>
 		<label class="flex cursor-pointer items-center justify-between gap-4 px-5 py-3.5">
 			<span>
 				<span class="block text-sm font-medium">Enabled</span>

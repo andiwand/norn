@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- Triggers: a page of its own for what makes Norn record (detections and their schedule, clip
+  length, pre-recording, pictures) and Norn's detection, with a list of the circles, cameras and
+  presets that set their own. Settings keeps storage, continuous files and firmware.
+- Cameras can set their own clip length; pan/tilt presets their own triggers, clip length and
+  pre-recording, which count while the camera is at the preset
+  (`PUT /api/cameras/<id>/presets/<preset>/recording`).
+- Camera page: the pan/tilt pad stays beside the video; recent recordings, recording &
+  triggers, controls and the device fold up below it. A camera's recording settings moved there
+  from its edit page.
+- Circle page: the cameras first, Record all in the title line, the settings folded below.
+- A record button on every camera's video: on Live, in circles and on its page.
+- Home Assistant: a Connect panel on each camera's page with its stream and picture addresses,
+  the API calls to record, turn and set controls, and a `configuration.yaml` to copy.
+  `NORN_RTSP_SHARE=1` serves the RTSP streams to the network.
+
 ## 0.4.0 — 2026-11-16
 
 - Timeline: every camera at one moment, above the tracks. Move along the tracks: each tile

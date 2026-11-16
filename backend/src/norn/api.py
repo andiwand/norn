@@ -61,6 +61,7 @@ class CameraBody(BaseModel):
     auto_update: bool = False
     picture_seconds: int | None = None
     prebuffer_seconds: int | None = None
+    clip_seconds: int | None = None
     triggers: list[str] | None = None
     schedule: list[dict[str, Any]] | None = None
     detection: dict[str, Any] | None = None
@@ -96,6 +97,16 @@ class PresetBody(BaseModel):
     name: str = Field(min_length=1, max_length=40)
     slot: str | None = None  # the camera's preset slot; None: the preset's, or a free one
     controls: list[str] = []  # controls whose current values the preset applies
+
+
+class PresetRecordingBody(BaseModel):
+    """What records at a preset; null: the camera's setting."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    triggers: list[str] | None = None
+    clip_seconds: int | None = None
+    prebuffer_seconds: int | None = None
 
 
 class DefaultPresetBody(BaseModel):
@@ -190,6 +201,8 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
             },
             "config_path": str(settings.config_path),
             "go2rtc": await hub.go2rtc.info(),
+            # Whether other devices on the network can play the RTSP streams, and on which port.
+            "rtsp": {"port": settings.rtsp_port, "shared": settings.rtsp_share},
             "recording_available": hub.recorder.available,
             "recording": hub.config.recording.model_dump(by_alias=True),
             "detection": {
@@ -431,6 +444,20 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
             raise HTTPException(404, f"no preset {preset_id!r}") from e
         return Response(status_code=204)
 
+    @api.put("/cameras/{camera_id}/presets/{preset_id}/recording")
+    async def set_preset_recording(
+        camera_id: str, preset_id: str, body: PresetRecordingBody
+    ) -> dict[str, Any]:
+        """What records while the camera is at this preset: triggers, clip and pre-recording."""
+        camera_or_404(camera_id)
+        try:
+            preset = await hub.set_preset_recording(camera_id, preset_id, body.model_dump())
+        except KeyError as e:
+            raise HTTPException(404, f"no preset {preset_id!r}") from e
+        except ConfigError as e:
+            raise HTTPException(422, str(e)) from e
+        return {"id": preset_id, **preset.model_dump()}
+
     @api.put("/cameras/{camera_id}/default-preset")
     async def set_default_preset(camera_id: str, body: DefaultPresetBody) -> dict[str, Any]:
         """The Norn preset the camera returns to when nothing else steers it (null: none)."""
@@ -450,6 +477,10 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
             await pilot.goto(preset_id)
         except KeyError as e:
             raise HTTPException(404, f"no preset {preset_id!r}") from e
+        except NotSupportedError as e:
+            raise HTTPException(409, str(e)) from e
+        except ValueError as e:  # the camera doesn't know the preset's slot (any more)
+            raise HTTPException(422, str(e)) from e
         pilot.manual()
         return {"ok": True}
 

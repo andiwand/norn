@@ -50,7 +50,8 @@ whether newer firmware exists.
 - **Detection**: the cameras' own motion and AI events, and Norn's own on stills (motion; people,
   vehicles and animals with a small AI model). Triggers on a schedule, and an away mode.
 - **Pan/tilt**: Norn presets with a picture and their own settings, a default preset to return
-  to, patrol, reactions to detections, following people.
+  to, patrol, reactions to detections, following people. A preset can record its own way
+  (`triggers`, `clip_seconds`, `prebuffer_seconds` under the preset) while the camera is there.
 - **No re-encoding.** [go2rtc](https://github.com/AlexxIT/go2rtc) reads each camera once and
   repackages the stream for every viewer and the recorder. FFmpeg transcodes only a stream a
   browser can't play.
@@ -149,7 +150,7 @@ cameras:
     record: continuous # off (default) or continuous
     enabled: true # default
     auto_update: false # install new firmware by itself, where the driver can
-    picture_seconds: 60 # this camera's own pictures interval (also prebuffer_seconds)
+    picture_seconds: 60 # this camera's own (also clip_seconds, prebuffer_seconds, triggers, schedule)
     ready_streams: [sub] # streams kept ready, so live video starts at once; default: the small one
 
   garden:
@@ -174,6 +175,7 @@ The settings of the process come from environment variables:
 | `NORN_LOG_LEVEL`   | `info`                    | `debug`, `info`, `warning` or `error`.                        |
 | `NORN_GO2RTC`      | `managed`                 | `managed` (Norn runs go2rtc), `external`, or `off`.           |
 | `NORN_GO2RTC_API`  | `http://127.0.0.1:1984`   | The API of go2rtc; set it for an `external` go2rtc.           |
+| `NORN_RTSP_SHARE`  | `0`                       | `1`: serve the RTSP streams to the network (Home Assistant).  |
 | `NORN_GO2RTC_BIN`  | `go2rtc`                  | The go2rtc binary.                                            |
 | `NORN_FFMPEG`      | `ffmpeg`                  | The FFmpeg binary.                                            |
 | `TZ`               |                           | The time zone of the recordings' file names.                  |
@@ -203,7 +205,20 @@ curl -X POST http://norn.local:8000/api/cameras/front-door/record \
 A circle has its own webhook, `POST /api/circles/<id>/record`, which records all its cameras.
 The whole API is documented at `/api/docs`.
 
-> Norn has no sign-in yet. Run it in your home network only, not open to the internet.
+### Home Assistant
+
+Home Assistant can use the cameras through Norn instead of directly: each camera keeps one
+connection, to Norn, and its password stays in Norn. A camera's page has a **Connect** panel
+with its addresses and a `configuration.yaml` to copy (buttons to record and turn to presets,
+sensors for recording and detections).
+
+- Video: start Norn with `NORN_RTSP_SHARE=1`, then add a **Generic Camera** with the stream
+  `rtsp://<norn>:<rtsp port>/<camera id>` (`<camera id>_sub` for the small stream) and the
+  still image `http://<norn>/api/cameras/<camera id>/still.jpg`.
+- Without RTSP: an **MJPEG IP Camera** with `http://<norn>/api/cameras/<camera id>/stills`.
+
+> Norn has no sign-in yet. Run it in your home network only, not open to the internet. The same
+> goes for the shared RTSP streams.
 
 ## Development
 

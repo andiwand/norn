@@ -39,7 +39,13 @@ export interface NornPreset {
 	name: string;
 	slot: string;
 	controls: Record<string, unknown>;
+	/** What records while the camera is here; null: the camera's setting. */
+	triggers: string[] | null;
+	clip_seconds: number | null;
+	prebuffer_seconds: number | null;
 }
+
+export type PresetRecording = Pick<NornPreset, 'triggers' | 'clip_seconds' | 'prebuffer_seconds'>;
 
 export interface Patrol {
 	enabled: boolean;
@@ -123,6 +129,7 @@ export interface Camera {
 	/** Overrides of the global recording settings; null: the global value. */
 	picture_seconds: number | null;
 	prebuffer_seconds: number | null;
+	clip_seconds: number | null;
 	/** What the camera detects that starts a clip; null: as its circle or the settings say. */
 	triggers: string[] | null;
 	schedule: Window[] | null;
@@ -163,6 +170,7 @@ export interface Circle {
 	cameras: string[];
 	picture_seconds: number | null;
 	prebuffer_seconds: number | null;
+	clip_seconds: number | null;
 	triggers: string[] | null;
 	schedule: Window[] | null;
 	/** When one camera detects a trigger, all cameras of the circle record. */
@@ -242,6 +250,8 @@ export interface Info {
 	/** The server's clock: schedules and away times follow it. */
 	time: { zone: string; offset_minutes: number };
 	go2rtc: { running: boolean; version?: string };
+	/** Norn's RTSP server; `shared`: other devices on the network can play it. */
+	rtsp: { port: number; shared: boolean };
 	recording_available: boolean;
 	recording: RecordingSettings;
 	/** Away mode: `now` is whether it is on at the moment (switched on, or planned). */
@@ -524,6 +534,8 @@ export const api = {
 	stopCircle: (id: string) => request<unknown>('DELETE', `/circles/${enc(id)}/record`),
 	savePreset: (id: string, preset: string, body: { name: string; controls: string[] }) =>
 		request<NornPreset>('PUT', `/cameras/${enc(id)}/presets/${enc(preset)}`, body),
+	setPresetRecording: (id: string, preset: string, body: PresetRecording) =>
+		request<NornPreset>('PUT', `/cameras/${enc(id)}/presets/${enc(preset)}/recording`, body),
 	setDefaultPreset: (id: string, preset: string | null) =>
 		request<Camera>('PUT', `/cameras/${enc(id)}/default-preset`, { preset }),
 	deletePreset: (id: string, preset: string) =>
@@ -556,6 +568,7 @@ export function cameraBody(camera: Camera, change: Record<string, unknown> = {})
 		auto_update: camera.auto_update,
 		picture_seconds: camera.picture_seconds,
 		prebuffer_seconds: camera.prebuffer_seconds,
+		clip_seconds: camera.clip_seconds,
 		triggers: camera.triggers,
 		schedule: camera.schedule,
 		detection: camera.detection,

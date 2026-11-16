@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import time
 from pathlib import Path
 
@@ -170,6 +171,9 @@ def test_go2rtc_config(settings: Settings) -> None:
     assert config["webrtc"]["listen"] == ":8555"
     assert config["streams"] == {"door": "rtsp://cam/1"}
     assert go2rtc.ws_url("door") == "ws://127.0.0.1:1984/api/ws?src=door"
+    shared = Go2rtc(dataclasses.replace(settings, rtsp_share=True), EventBus())
+    assert shared.config({})["rtsp"]["listen"] == ":8554"  # to the network
+    assert shared.rtsp_url("door") == "rtsp://127.0.0.1:8554/door"  # Norn itself: as before
 
 
 def test_go2rtc_config_is_block_yaml(settings: Settings) -> None:
@@ -326,3 +330,23 @@ def test_streams_from_probing(client: TestClient) -> None:
     assert hub.streams()["door"] == "rtsp://c/2"
     options = {o["id"]: o["active"] for o in client.get("/api/cameras/door").json()["stream_options"]}
     assert options == {"main": False, "sub": True}
+
+
+def test_preset_recording_survives_other_saves(client: TestClient) -> None:
+    assert client.put("/api/cameras/demo/presets/gate", json={"name": "Gate"}).status_code == 200
+    body = {"triggers": ["person"], "clip_seconds": 90, "prebuffer_seconds": None}
+    assert client.put("/api/cameras/demo/presets/gate/recording", json=body).status_code == 200
+    assert client.put("/api/cameras/demo/presets/nope/recording", json=body).status_code == 404
+    bad = client.put("/api/cameras/demo/presets/gate/recording", json={"triggers": ["ufo"]})
+    assert bad.status_code == 422
+
+    def gate() -> dict:
+        return client.get("/api/cameras/demo").json()["presets_norn"]["gate"]
+
+    client.put("/api/cameras/demo/presets/gate", json={"name": "Gate 2"})  # a new view
+    assert (gate()["name"], gate()["triggers"], gate()["clip_seconds"]) == ("Gate 2", ["person"], 90)
+    camera = client.get("/api/cameras/demo").json()
+    body = {"name": camera["name"], "driver": "demo", "clip_seconds": 40}  # no presets: kept
+    assert client.put("/api/cameras/demo", json=body).status_code == 200
+    assert gate()["clip_seconds"] == 90
+    assert client.get("/api/cameras/demo").json()["clip_seconds"] == 40

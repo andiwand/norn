@@ -3,13 +3,16 @@
 	import { page } from '$app/state';
 	import { api, urls, type Control, type Recording } from '#lib/api.js';
 	import { store } from '#lib/state.svelte.js';
-	import { formatDuration } from '#lib/format.js';
+	import { ownSettings } from '#lib/format.js';
 	import LiveVideo from '#lib/components/LiveVideo.svelte';
 	import PtzPad from '#lib/components/PtzPad.svelte';
 	import ControlField from '#lib/components/ControlField.svelte';
 	import RecordingTile from '#lib/components/RecordingTile.svelte';
 	import RecordingDialog from '#lib/components/RecordingDialog.svelte';
 	import RecBadge from '#lib/components/RecBadge.svelte';
+	import RecordButton from '#lib/components/RecordButton.svelte';
+	import CameraRecording from '#lib/components/CameraRecording.svelte';
+	import CameraConnect from '#lib/components/CameraConnect.svelte';
 	import DeviceCard from '#lib/components/DeviceCard.svelte';
 	import Panel from '#lib/components/Panel.svelte';
 	import NornPresets from '#lib/components/NornPresets.svelte';
@@ -21,8 +24,6 @@
 	import VolumeX from '@lucide/svelte/icons/volume-x';
 	import Maximize from '@lucide/svelte/icons/maximize';
 	import Camera from '@lucide/svelte/icons/camera';
-	import CircleDot from '@lucide/svelte/icons/circle-dot';
-	import Square from '@lucide/svelte/icons/square';
 	import MapPin from '@lucide/svelte/icons/map-pin';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 
@@ -38,10 +39,12 @@
 	let frame = $state<HTMLElement | null>(null);
 	const controls = $derived(store.controls[id]?.controls ?? []);
 	const presets = $derived(store.controls[id]?.presets ?? []);
+	const presetsOwn = $derived(
+		Object.values(camera?.presets_norn ?? {}).filter((p) => ownSettings(p).length).length
+	);
 	const enabled = $derived(camera?.enabled ?? false);
 	let recent = $state<Recording[]>([]);
 	let open = $state<Recording | null>(null);
-	let now = $state(Date.now());
 
 	const groups = $derived(
 		Object.entries(
@@ -50,10 +53,6 @@
 				return acc;
 			}, {})
 		)
-	);
-	const clip = $derived(camera?.recording?.mode === 'clip' ? camera.recording : null);
-	const elapsed = $derived(
-		clip?.start ? Math.max(0, (now - new Date(clip.start).getTime()) / 1000) : 0
 	);
 
 	async function loadRecent(cameraId: string) {
@@ -80,13 +79,6 @@
 	let ringNow = $state(Date.now());
 	$effect(() => {
 		const timer = setInterval(() => (ringNow = Date.now()), 60_000);
-		return () => clearInterval(timer);
-	});
-
-	$effect(() => {
-		if (!clip) return;
-		now = Date.now();
-		const timer = setInterval(() => (now = Date.now()), 500);
 		return () => clearInterval(timer);
 	});
 
@@ -124,11 +116,6 @@
 			(
 				el.querySelector('video') as HTMLVideoElement & { webkitEnterFullscreen?: () => void }
 			)?.webkitEnterFullscreen?.();
-	}
-
-	function toggleRecord() {
-		if (clip) store.attempt(() => api.stopRecord(id));
-		else store.attempt(() => api.record(id), 'Recording started');
 	}
 
 	const modeLabel: Record<string, string> = {
@@ -180,8 +167,10 @@
 		</div>
 	{/if}
 
-	<div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
-		<div class="min-w-0 space-y-6">
+	<!-- The video with what steers it beside it (on phones, under it); everything else folds up
+	     below. -->
+	<div class="grid items-start gap-6 {caps.has('ptz') ? 'lg:grid-cols-[minmax(0,1fr)_22rem]' : ''}">
+		<div class="min-w-0">
 			<div
 				bind:this={frame}
 				data-ptz-keys
@@ -206,6 +195,7 @@
 					</div>
 				{/if}
 
+				<RecordButton {camera} class="absolute top-3 right-3" />
 				<div class="absolute top-3 left-3 flex items-center gap-2">
 					{#if camera.recording}<RecBadge mode={camera.recording.mode} />{/if}
 					{#if camera.events}<EventBadge active={camera.events.active} />{/if}
@@ -277,62 +267,12 @@
 					</div>
 				</div>
 			</div>
-
-			<section>
-				<div class="mb-3 flex items-center justify-between">
-					<h2 class="eyebrow">Recent recordings</h2>
-					<a href="/recordings?camera={camera.id}" class="text-sm text-accent hover:underline"
-						>All</a
-					>
-				</div>
-				{#if recent.length}
-					<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
-						{#each recent as r (r.id)}
-							<RecordingTile
-								recording={r}
-								cameraName={camera.name}
-								onopen={(x) => (open = x)}
-								ondelete={remove}
-								onpin={pin}
-								now={ringNow}
-							/>
-						{/each}
-					</div>
-				{:else}
-					<p class="card px-4 py-6 text-center text-sm text-muted">
-						No recordings of this camera yet.
-					</p>
-				{/if}
-			</section>
 		</div>
-
-		<aside class="space-y-4">
-			<section class="card p-4">
-				<button
-					class="btn h-12 w-full text-base {clip
-						? 'bg-danger text-white'
-						: 'bg-danger/12 text-danger hover:bg-danger/20'}"
-					onclick={toggleRecord}
-					disabled={!store.info?.recording_available || !camera.enabled}
-				>
-					{#if clip}
-						<Square class="size-4 fill-current" />Stop · {formatDuration(elapsed)}
-					{:else}
-						<CircleDot class="size-5" />Record clip
-					{/if}
-				</button>
-				<p class="mt-2 text-center text-xs text-muted">
-					{#if !store.info?.recording_available}
-						Recording needs go2rtc and FFmpeg.
-					{:else if camera.record === 'continuous'}
-						Also recording continuously.
-					{:else}
-						{store.info?.recording.clip_seconds}s, or until you stop it.
-					{/if}
-				</p>
-			</section>
-
-			{#if caps.has('ptz')}
+		{#if caps.has('ptz')}
+			<!-- The pad stays beside the video, also while scrolling through the panels. -->
+			<aside
+				class="lg:sticky lg:top-20 lg:row-span-2 lg:max-h-[calc(100dvh-6rem)] lg:overflow-y-auto"
+			>
 				<Panel title="Pan · Tilt · Zoom" name="ptz" open>
 					{#snippet summary()}{presets.length ? `${presets.length} presets` : ''}{/snippet}
 					<div class="pt-1"><PtzPad camera={camera.id} /></div>
@@ -352,6 +292,46 @@
 						</div>
 					{/if}
 				</Panel>
+			</aside>
+		{/if}
+		<div class="min-w-0 space-y-4">
+			<Panel title="Recent recordings" name="recent" open>
+				{#snippet summary()}{recent.length ? `${recent.length} videos` : 'None yet'}{/snippet}
+				{#snippet actions()}<a
+						href="/recordings?camera={camera.id}"
+						class="px-2 text-sm text-accent hover:underline">All</a
+					>{/snippet}
+				{#if recent.length}
+					<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
+						{#each recent as r (r.id)}
+							<RecordingTile
+								recording={r}
+								cameraName={camera.name}
+								onopen={(x) => (open = x)}
+								ondelete={remove}
+								onpin={pin}
+								now={ringNow}
+							/>
+						{/each}
+					</div>
+				{:else}
+					<p class="py-4 text-center text-sm text-muted">No recordings of this camera yet.</p>
+				{/if}
+			</Panel>
+			<Panel title="Recording & triggers" name="camera-recording">
+				{#snippet summary()}{[
+						camera.record === 'continuous' ? 'continuous' : '',
+						...ownSettings(camera),
+						presetsOwn ? `${presetsOwn} ${presetsOwn === 1 ? 'preset' : 'presets'} differ` : ''
+					]
+						.filter(Boolean)
+						.join(' · ') || 'As on Triggers'}{/snippet}
+				<!-- Anew for another camera, or when presets come or go. -->
+				{#key `${camera.id}:${Object.keys(camera.presets_norn ?? {}).join()}`}
+					<CameraRecording {camera} />
+				{/key}
+			</Panel>
+			{#if caps.has('ptz')}
 				<Panel title="Patrol & following" name="ptz-auto">
 					{#snippet summary()}{[
 							camera.patrol?.enabled ? 'Patrols' : '',
@@ -364,9 +344,8 @@
 				</Panel>
 			{/if}
 
-			{#each groups as [group, items], i (group)}
-				<!-- The pad is what people use most; without one, the first settings are open. -->
-				<Panel title={group} name="controls:{group}" open={!caps.has('ptz') && i === 0}>
+			{#each groups as [group, items] (group)}
+				<Panel title={group} name="controls:{group}">
 					{#snippet summary()}{items.length} {items.length === 1 ? 'setting' : 'settings'}{/snippet}
 					<div class="-mt-1 divide-y divide-line">
 						{#each items as control (control.id)}
@@ -378,7 +357,11 @@
 				</Panel>
 			{/each}
 			<DeviceCard {camera} />
-		</aside>
+			<Panel title="Connect" name="connect">
+				{#snippet summary()}Home Assistant, RTSP, API{/snippet}
+				<CameraConnect {camera} {controls} />
+			</Panel>
+		</div>
 	</div>
 
 	<RecordingDialog bind:recording={open} onchanged={replace} ondeleted={() => loadRecent(id)} />

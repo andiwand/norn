@@ -16,12 +16,13 @@ The stages:
 Kinds of recordings:
 
 - Continuous: one FFmpeg per camera writes a new file every `segment_minutes`, on the clock.
-- Clips: a triggered recording of `clip_seconds` (manual button, webhook, later motion events),
-  with a thumbnail and a JSON sidecar.
+- Clips: a triggered recording of `clip_seconds` (the button, a webhook, a detection), with a
+  thumbnail and a JSON sidecar. A trigger during a clip makes it longer. The clip length and
+  pre-recording are the camera's preset's, else its own, its circle's or the global one.
 - Pictures: a JPEG every `picture_seconds` (the `interval` trigger), straight from go2rtc.
 
 MJPEG cameras need encoding to H.264 to record; Norn buffers them only when the camera's own
-`prebuffer_seconds` (or its circle's) asks for it, since that encodes all the time.
+`prebuffer_seconds` (or its circle's or a preset's) asks for it, since that encodes all the time.
 """
 
 from __future__ import annotations
@@ -34,6 +35,7 @@ import logging
 import os
 import shutil
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -327,6 +329,7 @@ class Recorder:
         self._housekeeping: asyncio.Task[None] | None = None
         self._evict_paused_until = 0.0
         self._config = Config()
+        self.preset_of: Callable[[str], str | None] = lambda camera: None  # its Norn preset now
 
     async def start(
         self, config: Config, streams: dict[str, str], transcode: set[str] | None = None, away: bool = False
@@ -380,7 +383,7 @@ class Recorder:
 
         buffers = {}
         for cid in live:
-            length, explicit = config.setting(cid, "prebuffer_seconds")
+            length, explicit = config.longest_prebuffer(cid)
             # Encoding all the time costs CPU: only when the camera or its circle asks for it.
             if length > 0 and (cid not in self.transcode or explicit):
                 buffers[cid] = (length, cid in self.transcode)
@@ -433,6 +436,12 @@ class Recorder:
             return 0
         return min(buffer.seconds, max(0, round(time.time() - pieces[0].end)))
 
+    def prebuffer_now(self, camera: str) -> int:
+        """What a clip started now includes from before: the buffer holds the longest
+        pre-recording of the camera's presets; the one it is at may want less."""
+        wanted = self._config.setting(camera, "prebuffer_seconds", self.preset_of(camera))[0]
+        return min(self.buffered(camera), wanted)
+
     def bitrates(self) -> dict[str, float]:
         """Bytes per second of each camera with a running buffer."""
         rates = {cid: b.bitrate() for cid, b in self._buffers.items() if b.running}
@@ -452,17 +461,19 @@ class Recorder:
             raise ValueError(f"the trigger {trigger!r} is Norn's own")
         if not self.available:
             raise RuntimeError("recording needs go2rtc and ffmpeg")
+        preset = self.preset_of(camera)
+        seconds = seconds or self._config.setting(camera, "clip_seconds", preset)[0]
         if camera in self.clips:
             clip = self.clips[camera]
-            # A second trigger during a clip makes it last long enough for this one too.
-            clip.end = max(clip.end, time.time() + (seconds or self._config.recording.clip_seconds))
+            # A trigger during a clip (a detection, the button, a webhook) makes it last long
+            # enough for this one too: one longer video, not a second.
+            clip.end = max(clip.end, time.time() + seconds)
             clip.seconds = round(clip.end - clip.triggered.timestamp())
             clip.events.add(trigger)
             return clip
-        seconds = seconds or self._config.recording.clip_seconds
         now = datetime.now().replace(microsecond=0)
         buffer = self._buffers.get(camera)
-        before = self.buffered(camera)
+        before = self.prebuffer_now(camera)
         start = now - timedelta(seconds=before)
         path = self.temp.file_path(camera, start, trigger)
         path.parent.mkdir(parents=True, exist_ok=True)

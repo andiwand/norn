@@ -50,6 +50,8 @@ class Go2rtc:
     def config(self, streams: Streams) -> dict:
         api_host = self.settings.go2rtc_api.split("://", 1)[-1]
         rtsp_host = self.settings.go2rtc_rtsp.split("://", 1)[-1]
+        if self.settings.rtsp_share:  # Norn itself still connects as configured, the others on the network
+            rtsp_host = f":{self.settings.rtsp_port}"
         return {
             "api": {"listen": api_host},
             "rtsp": {"listen": rtsp_host},

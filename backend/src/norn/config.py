@@ -194,6 +194,10 @@ class NornPreset(BaseModel):
     name: str = Field(min_length=1)
     slot: str = Field(min_length=1)  # the camera's preset id
     controls: dict[str, Any] = Field(default_factory=dict)
+    # What records while the camera is at this preset; None: the camera's setting.
+    triggers: list[EventKind] | None = None
+    clip_seconds: int | None = Field(None, ge=5, le=3600)
+    prebuffer_seconds: int | None = Field(None, ge=0, le=300)
 
 
 class Patrol(BaseModel):
@@ -245,6 +249,7 @@ class CameraConfig(BaseModel):
     # Overrides of the global recording settings for this camera; None: the global value.
     picture_seconds: int | None = Field(None, ge=0, le=86400)
     prebuffer_seconds: int | None = Field(None, ge=0, le=300)
+    clip_seconds: int | None = Field(None, ge=5, le=3600)
     triggers: list[EventKind] | None = None
     schedule: list[Window] | None = None
     detection: DetectionOverride | None = None
@@ -288,6 +293,7 @@ class CircleConfig(BaseModel):
     # Settings for the cameras in the circle, between the global ones and a camera's own.
     picture_seconds: int | None = Field(None, ge=0, le=86400)
     prebuffer_seconds: int | None = Field(None, ge=0, le=300)
+    clip_seconds: int | None = Field(None, ge=5, le=3600)
     triggers: list[EventKind] | None = None
     schedule: list[Window] | None = None
     detection: DetectionOverride | None = None
@@ -305,7 +311,8 @@ class CircleConfig(BaseModel):
         return list(dict.fromkeys(value))
 
 
-Override = Literal["picture_seconds", "prebuffer_seconds", "triggers", "schedule"]
+Override = Literal["picture_seconds", "prebuffer_seconds", "clip_seconds", "triggers", "schedule"]
+PRESET_OVERRIDES = frozenset({"prebuffer_seconds", "clip_seconds", "triggers"})
 
 
 class Config(BaseModel):
@@ -334,15 +341,15 @@ class Config(BaseModel):
     def circles_of(self, camera_id: str) -> list[str]:
         return [cid for cid, circle in self.circles.items() if camera_id in circle.cameras]
 
-    def triggers(self, camera_id: str, moment: datetime | None = None) -> set[str]:
+    def triggers(self, camera_id: str, moment: datetime | None = None, preset: str | None = None) -> set[str]:
         """What starts a clip on the camera now: the away triggers while away, else its triggers
-        within its schedule."""
+        (at `preset`, the preset's) within its schedule."""
         moment = moment or datetime.now()
         if self.away.now(moment):
             return set(self.away.triggers)
         if not in_schedule(self.setting(camera_id, "schedule")[0] or [], moment):
             return set()
-        return set(self.setting(camera_id, "triggers")[0] or [])
+        return set(self.setting(camera_id, "triggers", preset)[0] or [])
 
     def detection_for(self, camera_id: str) -> DetectionSettings:
         """The camera's detection settings: the global ones, changed by its first circle that
@@ -361,10 +368,13 @@ class Config(BaseModel):
             return self.away.picture_seconds
         return self.setting(camera_id, "picture_seconds")[0]
 
-    def setting(self, camera_id: str, name: Override) -> tuple[Any, bool]:
-        """A recording setting of a camera: its own, else its first circle's, else the global one.
-        The flag says whether the camera or a circle set it explicitly."""
+    def setting(self, camera_id: str, name: Override, preset: str | None = None) -> tuple[Any, bool]:
+        """A recording setting of a camera: its preset's (at `preset`), else its own, else its
+        first circle's, else the global one. The flag says whether it was set explicitly."""
         camera = self.cameras.get(camera_id)
+        at = camera.presets.get(preset) if camera is not None and preset else None
+        if at is not None and name in PRESET_OVERRIDES and getattr(at, name) is not None:
+            return getattr(at, name), True
         if camera is not None and getattr(camera, name) is not None:
             return getattr(camera, name), True
         for circle_id in self.circles_of(camera_id):
@@ -372,6 +382,16 @@ class Config(BaseModel):
             if value is not None:
                 return value, True
         return getattr(self.recording, name), False
+
+    def longest_prebuffer(self, camera_id: str) -> tuple[int, bool]:
+        """The pre-recording time a camera's buffer must hold: the longest of its own and its
+        presets'. The flag: set explicitly."""
+        length, explicit = self.setting(camera_id, "prebuffer_seconds")
+        camera = self.cameras.get(camera_id)
+        for preset in camera.presets.values() if camera else []:
+            if preset.prebuffer_seconds is not None and preset.prebuffer_seconds > length:
+                length, explicit = preset.prebuffer_seconds, True
+        return length, explicit
 
 
 class ConfigError(Exception):
