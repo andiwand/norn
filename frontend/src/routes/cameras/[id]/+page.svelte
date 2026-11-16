@@ -10,6 +10,7 @@
 	import RecordingDialog from '#lib/components/RecordingDialog.svelte';
 	import RecBadge from '#lib/components/RecBadge.svelte';
 	import DeviceCard from '#lib/components/DeviceCard.svelte';
+	import Panel from '#lib/components/Panel.svelte';
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 	import Pencil from '@lucide/svelte/icons/pencil';
 	import Volume2 from '@lucide/svelte/icons/volume-2';
@@ -51,7 +52,9 @@
 
 	async function loadRecent(cameraId: string) {
 		recent =
-			(await api.recordings({ camera: cameraId, limit: 8 }).catch(() => null))?.recordings ?? [];
+			// Videos: with pictures on a timer, the newest eight would all be pictures.
+			(await api.recordings({ camera: cameraId, limit: 8, kind: 'video' }).catch(() => null))
+				?.recordings ?? [];
 	}
 
 	// Depends on the id and enabled only: the camera object is replaced on each refresh.
@@ -67,12 +70,27 @@
 		});
 	});
 
+	// The lifetime rings on the recent recordings count down.
+	let ringNow = $state(Date.now());
+	$effect(() => {
+		const timer = setInterval(() => (ringNow = Date.now()), 60_000);
+		return () => clearInterval(timer);
+	});
+
 	$effect(() => {
 		if (!clip) return;
 		now = Date.now();
 		const timer = setInterval(() => (now = Date.now()), 500);
 		return () => clearInterval(timer);
 	});
+
+	async function remove(r: Recording) {
+		const ok = await store.attempt(async () => {
+			await api.deleteRecording(r.id);
+			return true;
+		}, 'Recording deleted');
+		if (ok) recent = recent.filter((x) => x.id !== r.id);
+	}
 
 	async function setControl(control: Control, value: unknown) {
 		const previous = control.value;
@@ -224,7 +242,13 @@
 				{#if recent.length}
 					<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
 						{#each recent as r (r.id)}
-							<RecordingTile recording={r} cameraName={camera.name} onopen={(x) => (open = x)} />
+							<RecordingTile
+								recording={r}
+								cameraName={camera.name}
+								onopen={(x) => (open = x)}
+								ondelete={remove}
+								now={ringNow}
+							/>
 						{/each}
 					</div>
 				{:else}
@@ -262,9 +286,9 @@
 			</section>
 
 			{#if caps.has('ptz')}
-				<section class="card p-5">
-					<h2 class="mb-4 eyebrow">Pan · Tilt · Zoom</h2>
-					<PtzPad camera={camera.id} />
+				<Panel title="Pan · Tilt · Zoom" name="ptz" open>
+					{#snippet summary()}{presets.length ? `${presets.length} presets` : ''}{/snippet}
+					<div class="pt-1"><PtzPad camera={camera.id} /></div>
 					{#if presets.length}
 						<div class="mt-5 flex flex-wrap gap-2">
 							{#each presets as preset (preset.id)}
@@ -278,20 +302,21 @@
 							{/each}
 						</div>
 					{/if}
-				</section>
+				</Panel>
 			{/if}
 
-			{#each groups as [group, items] (group)}
-				<section class="card p-4">
-					<h2 class="mb-2 eyebrow">{group}</h2>
-					<div class="divide-y divide-line">
+			{#each groups as [group, items], i (group)}
+				<!-- The pad is what people use most; without one, the first settings are open. -->
+				<Panel title={group} name="controls:{group}" open={!caps.has('ptz') && i === 0}>
+					{#snippet summary()}{items.length} {items.length === 1 ? 'setting' : 'settings'}{/snippet}
+					<div class="-mt-1 divide-y divide-line">
 						{#each items as control (control.id)}
 							<div class="py-2">
 								<ControlField {control} onchange={(v) => setControl(control, v)} />
 							</div>
 						{/each}
 					</div>
-				</section>
+				</Panel>
 			{/each}
 			<DeviceCard {camera} />
 		</aside>

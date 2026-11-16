@@ -8,6 +8,7 @@ environment, which is what Docker and compose expect.
 from __future__ import annotations
 
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -20,10 +21,27 @@ def _env(name: str, default: str) -> str:
     return value or default
 
 
+def default_buffer() -> str:
+    """A folder in RAM: /dev/shm on Linux, if it is big enough (Docker gives 64 MB unless
+    `shm_size` says more). Else a folder beside the temporary storage, on disk."""
+    shm = Path("/dev/shm")
+    try:
+        big = shutil.disk_usage(shm).total >= 128_000_000 and os.access(shm, os.W_OK)
+    except OSError:
+        big = False
+    if big:
+        return str(shm / "norn")
+    return str(Path(_env("NORN_TEMP", "data/tmp")).with_name("buffer"))
+
+
 @dataclass(frozen=True)
 class Settings:
     config_path: Path = Path("data/config/config.yaml")
     recordings_path: Path = Path("data/recordings")
+    # The three storage stages: the pre-recording buffer in RAM (a tmpfs), the temporary storage
+    # that recordings are written to, and the recordings folder they move to when finished.
+    buffer_path: Path = Path("data/buffer")
+    temp_path: Path = Path("data/tmp")
     static_path: Path | None = None
     host: str = "0.0.0.0"
     port: int = 8000
@@ -50,6 +68,8 @@ class Settings:
         return cls(
             config_path=Path(_env("NORN_CONFIG", "data/config/config.yaml")),
             recordings_path=Path(_env("NORN_RECORDINGS", "data/recordings")),
+            buffer_path=Path(_env("NORN_BUFFER", default_buffer())),
+            temp_path=Path(_env("NORN_TEMP", "data/tmp")),
             static_path=Path(static) if static else None,
             host=_env("NORN_HOST", "0.0.0.0"),
             port=int(_env("NORN_PORT", "8000")),

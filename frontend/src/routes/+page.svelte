@@ -1,5 +1,8 @@
 <script lang="ts">
+	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
 	import { store } from '#lib/state.svelte.js';
+	import Settings2 from '@lucide/svelte/icons/settings-2';
 	import CameraTile from '#lib/components/CameraTile.svelte';
 	import Plus from '@lucide/svelte/icons/plus';
 	import Cctv from '@lucide/svelte/icons/cctv';
@@ -33,6 +36,17 @@
 		3: 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3'
 	};
 	const recording = $derived(store.cameras.filter((c) => c.recording).length);
+
+	// A circle shows only its cameras.
+	const circleId = $derived(page.url.searchParams.get('circle') ?? '');
+	const circle = $derived(store.circle(circleId));
+	const shown = $derived(
+		circle ? store.cameras.filter((c) => circle.cameras.includes(c.id)) : store.cameras
+	);
+
+	function showCircle(id: string) {
+		goto(id ? `/?circle=${encodeURIComponent(id)}` : '/', { replaceState: true });
+	}
 </script>
 
 <svelte:head><title>Live · Norn</title></svelte:head>
@@ -71,6 +85,25 @@
 	</div>
 </div>
 
+{#if store.cameras.length}
+	<div class="mb-5 flex flex-wrap items-center gap-2">
+		<button class="chip {!circle ? 'chip-active' : ''}" onclick={() => showCircle('')}
+			>All cameras</button
+		>
+		{#each store.circles as c (c.id)}
+			<button
+				class="chip {circle?.id === c.id ? 'chip-active' : ''}"
+				onclick={() => showCircle(c.id)}
+				>{c.name}<span class="text-muted/70">{c.cameras.length}</span></button
+			>
+		{/each}
+		{#if circle}
+			<a href="/circles/{circle.id}" class="chip"><Settings2 class="size-3.5" />Record, settings</a>
+		{/if}
+		<a href="/circles/new" class="chip border-dashed"><Plus class="size-3.5" />Circle</a>
+	</div>
+{/if}
+
 {#if !store.loaded}
 	<div class="grid gap-4 {columns[density]}">
 		{#each [0, 1] as i (i)}
@@ -93,7 +126,7 @@
 	</div>
 {:else}
 	<div class="grid gap-4 {columns[density]}">
-		{#each store.cameras as camera (camera.id)}
+		{#each shown as camera (camera.id)}
 			<CameraTile {camera} />
 		{/each}
 	</div>

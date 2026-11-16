@@ -47,12 +47,35 @@ cameras:
 """
 
 
+def _check_picture_interval(value: int | None) -> int | None:
+    if value is not None and 0 < value < 10:
+        raise ValueError("take a picture at most every 10 seconds")
+    return value
+
+
 class RecordingSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    # Recordings Norn makes by itself expire after this; clips recorded by hand stay. 0: never.
     retention_days: int = Field(14, ge=0)
     segment_minutes: int = Field(10, ge=1, le=60)
     clip_seconds: int = Field(30, ge=5, le=3600)
+    # The last seconds of each camera, kept in RAM, so a clip starts before its trigger. 0: off.
+    prebuffer_seconds: int = Field(10, ge=0, le=300)
+    # Take a picture every this many seconds (the `interval` trigger). 0: off.
+    picture_seconds: int = Field(0, ge=0, le=86400)
+
+    @field_validator("picture_seconds")
+    @classmethod
+    def _picture_interval(cls, value: int) -> int:
+        return _check_picture_interval(value) or 0
+
+
+class FirmwareSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # How often to ask the vendors for new firmware (and auto-update). 0: never.
+    check_hours: int = Field(24, ge=0, le=24 * 90)
 
 
 class CameraConfig(BaseModel):
@@ -66,30 +89,81 @@ class CameraConfig(BaseModel):
     record: Literal["off", "continuous"] = "off"
     # Install new firmware by itself, where the driver can fetch it from the vendor.
     auto_update: bool = False
+    # Overrides of the global recording settings for this camera; None: the global value.
+    picture_seconds: int | None = Field(None, ge=0, le=86400)
+    prebuffer_seconds: int | None = Field(None, ge=0, le=300)
+
+    @field_validator("picture_seconds")
+    @classmethod
+    def _picture_interval(cls, value: int | None) -> int | None:
+        return _check_picture_interval(value)
 
     @property
     def options(self) -> dict[str, Any]:
         return dict(self.model_extra or {})
 
 
+class CircleConfig(BaseModel):
+    """A group of cameras: one trigger records them all, settings apply to all, and controls
+    they have in common can be set on all at once."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1)
+    cameras: list[str] = Field(default_factory=list)
+    # Settings for the cameras in the circle, between the global ones and a camera's own.
+    picture_seconds: int | None = Field(None, ge=0, le=86400)
+    prebuffer_seconds: int | None = Field(None, ge=0, le=300)
+
+    @field_validator("picture_seconds")
+    @classmethod
+    def _picture_interval(cls, value: int | None) -> int | None:
+        return _check_picture_interval(value)
+
+    @field_validator("cameras")
+    @classmethod
+    def _once_each(cls, value: list[str]) -> list[str]:
+        return list(dict.fromkeys(value))
+
+
+Override = Literal["picture_seconds", "prebuffer_seconds"]
+
+
 class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     recording: RecordingSettings = Field(default_factory=RecordingSettings)
+    firmware: FirmwareSettings = Field(default_factory=FirmwareSettings)
+    circles: dict[str, CircleConfig] = Field(default_factory=dict)
     cameras: dict[str, CameraConfig] = Field(default_factory=dict)
 
-    @field_validator("cameras", mode="before")
+    @field_validator("recording", "firmware", "cameras", "circles", mode="before")
     @classmethod
     def _none_is_empty(cls, value: Any) -> Any:
         return {} if value is None else value
 
-    @field_validator("cameras")
+    @field_validator("cameras", "circles")
     @classmethod
-    def _valid_ids(cls, value: dict[str, CameraConfig]) -> dict[str, CameraConfig]:
-        for camera_id in value:
-            if not CAMERA_ID.match(camera_id):
-                raise ValueError(f"camera id {camera_id!r} must be lowercase letters, digits and dashes")
+    def _valid_ids(cls, value: dict[str, Any]) -> dict[str, Any]:
+        for key in value:
+            if not CAMERA_ID.match(key):
+                raise ValueError(f"id {key!r} must be lowercase letters, digits and dashes")
         return value
+
+    def circles_of(self, camera_id: str) -> list[str]:
+        return [cid for cid, circle in self.circles.items() if camera_id in circle.cameras]
+
+    def setting(self, camera_id: str, name: Override) -> tuple[int, bool]:
+        """A recording setting of a camera: its own, else its first circle's, else the global one.
+        The flag says whether the camera or a circle set it explicitly."""
+        camera = self.cameras.get(camera_id)
+        if camera is not None and getattr(camera, name) is not None:
+            return getattr(camera, name), True
+        for circle_id in self.circles_of(camera_id):
+            value = getattr(self.circles[circle_id], name)
+            if value is not None:
+                return value, True
+        return getattr(self.recording, name), False
 
 
 class ConfigError(Exception):
@@ -190,18 +264,38 @@ class ConfigStore:
         return self._stat() != self._mtime
 
     def put_camera(self, camera_id: str, camera: CameraConfig) -> Config:
-        if not CAMERA_ID.match(camera_id):
-            raise ConfigError(f"camera id {camera_id!r} must be lowercase letters, digits and dashes")
         data = camera.model_dump(exclude_defaults=True)
         data["name"], data["driver"] = camera.name, camera.driver
+        return self._put_entry("cameras", camera_id, data)
+
+    def put_circle(self, circle_id: str, circle: CircleConfig) -> Config:
+        data = circle.model_dump(exclude_defaults=True)
+        data["name"], data["cameras"] = circle.name, list(circle.cameras)
+        return self._put_entry("circles", circle_id, data)
+
+    def remove_circle(self, circle_id: str) -> Config:
+        return self._remove_entry("circles", circle_id)
+
+    def _section(self, name: str) -> CommentedMap:
+        """A top-level mapping, made if missing: before the cameras, the long part of the file."""
+        section = self._doc.get(name)
+        if not isinstance(section, CommentedMap):
+            section = CommentedMap()
+            keys = list(self._doc)
+            if name != "cameras" and "cameras" in keys:
+                self._doc.insert(keys.index("cameras"), name, section)
+            else:
+                self._doc[name] = section
+        return section
+
+    def _put_entry(self, section: str, entry_id: str, data: dict[str, Any]) -> Config:
+        if not CAMERA_ID.match(entry_id):
+            raise ConfigError(f"id {entry_id!r} must be lowercase letters, digits and dashes")
         # Comments after the last camera belong to the end of the block, not to its last key.
         tail = _take_tail_comment(self._doc)
-        cameras = self._doc.get("cameras")
-        if not isinstance(cameras, CommentedMap):
-            cameras = CommentedMap()
-            self._doc["cameras"] = cameras
-        cameras.fa.set_block_style()
-        existing = cameras.get(camera_id)
+        entries = self._section(section)
+        entries.fa.set_block_style()
+        existing = entries.get(entry_id)
         if isinstance(existing, CommentedMap):
             for key in [k for k in existing if k not in data]:
                 del existing[key]
@@ -209,22 +303,48 @@ class ConfigStore:
                 if existing.get(key) != value:
                     existing[key] = value
         else:
-            cameras[camera_id] = CommentedMap(data)
+            entries[entry_id] = CommentedMap(data)
+        if tail:
+            _put_tail_comment(self._doc, tail)
+        return self._commit()
+
+    def put_section(self, name: str, values: BaseModel) -> Config:
+        """Write a settings section (`recording`, ...). Keys at their default stay out of the file."""
+        if name not in Config.model_fields or name == "cameras":
+            raise ConfigError(f"no settings section {name!r}")
+        data = values.model_dump()
+        defaults = type(values)().model_dump()
+        tail = _take_tail_comment(self._doc)
+        section = self._section(name)
+        for key, value in data.items():
+            if value == defaults[key] and key not in section:
+                continue
+            if section.get(key) != value:
+                section[key] = value
+        for key in [k for k in section if k not in data]:
+            del section[key]
+        if not section:
+            del self._doc[name]
         if tail:
             _put_tail_comment(self._doc, tail)
         return self._commit()
 
     def remove_camera(self, camera_id: str) -> Config:
-        cameras = self._doc.get("cameras")
-        if not isinstance(cameras, CommentedMap) or camera_id not in cameras:
-            raise KeyError(camera_id)
+        return self._remove_entry("cameras", camera_id)
+
+    def _remove_entry(self, section: str, entry_id: str) -> Config:
+        entries = self._doc.get(section)
+        if not isinstance(entries, CommentedMap) or entry_id not in entries:
+            raise KeyError(entry_id)
         tail = _take_tail_comment(self._doc)
-        del cameras[camera_id]
-        if tail and cameras:
-            _put_tail_comment(self._doc, tail)
-        if not cameras:
+        del entries[entry_id]
+        if not entries and section != "cameras":
+            del self._doc[section]  # an empty circles block is just noise
+        elif not entries:
             # An empty block mapping after comments dumps as invalid YAML; `{}` is valid.
-            cameras.fa.set_flow_style()
+            entries.fa.set_flow_style()
+        if tail and _tail(self._doc) and (entries or section != "cameras"):
+            _put_tail_comment(self._doc, tail)
         return self._commit()
 
     def dump(self) -> str:

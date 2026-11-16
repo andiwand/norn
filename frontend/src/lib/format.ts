@@ -20,6 +20,30 @@ export function formatDuration(seconds: number | null): string {
 	return h ? `${h}:${String(m).padStart(2, '0')}:${rest}` : `${m}:${rest}`;
 }
 
+/** A time left, roughly: "3 days", "5 h", "20 min". */
+export function formatRemaining(ms: number): string {
+	const minutes = Math.max(0, Math.round(ms / 60_000));
+	if (minutes < 60) return `${minutes} min`;
+	const hours = Math.round(minutes / 60);
+	if (hours < 48) return `${hours} h`;
+	return `${Math.round(hours / 24)} days`;
+}
+
+/** "every 30 seconds", "every 5 minutes", "every hour"; "off" for 0. */
+export function formatInterval(seconds: number): string {
+	if (!seconds) return 'off';
+	for (const [unit, size] of [
+		['hour', 3600],
+		['minute', 60]
+	] as const) {
+		if (seconds % size === 0) {
+			const n = seconds / size;
+			return n === 1 ? `every ${unit}` : `every ${n} ${unit}s`;
+		}
+	}
+	return `every ${seconds} seconds`;
+}
+
 export function formatTime(iso: string): string {
 	return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
@@ -54,6 +78,7 @@ export function slugify(name: string): string {
 
 export const triggerLabels: Record<string, string> = {
 	continuous: 'Continuous',
+	interval: 'Picture',
 	manual: 'Manual',
 	motion: 'Motion',
 	webhook: 'Webhook'

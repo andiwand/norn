@@ -18,7 +18,11 @@ services:
       TZ: Etc/UTC # the time zone of the recording file names
     volumes:
       - ./config:/config # config.yaml
-      - ./recordings:/recordings
+      - ./recordings:/recordings # finished recordings; can be a NAS
+      - ./temp:/temp # what is being recorded; best a local disk
+    # The pre-recording buffer lives in /dev/shm (RAM): about 1-2 MB per camera and second.
+    shm_size: 256m
+    stop_grace_period: 30s # time to finish the files being recorded
     # Hardware video encoding (Intel/AMD), only used when a stream must be transcoded:
     # devices:
     #   - /dev/dri:/dev/dri

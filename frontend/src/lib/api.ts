@@ -65,10 +65,26 @@ export interface Camera {
 		seconds?: number;
 	} | null;
 	auto_update: boolean;
+	/** Overrides of the global recording settings; null: the global value. */
+	picture_seconds: number | null;
+	prebuffer_seconds: number | null;
+	/** Seconds of the past a clip started now would include (the RAM buffer). */
+	buffered: number;
 	device: DeviceInfo | null;
 	firmware: FirmwareStatus | null;
 	update: FirmwareUpdate | null;
 }
+
+export interface Circle {
+	id: string;
+	name: string;
+	cameras: string[];
+	picture_seconds: number | null;
+	prebuffer_seconds: number | null;
+}
+
+/** A control all cameras of a circle share. `mixed`: the cameras have different values. */
+export type CircleControl = Control & { mixed: boolean };
 
 export interface ControlOption {
 	value: string;
@@ -117,11 +133,16 @@ export interface Recording {
 	camera: string;
 	day: string;
 	name: string;
+	kind: 'video' | 'picture';
 	start: string;
 	trigger: string;
 	size: number;
 	duration: number | null;
 	thumbnail: boolean;
+	/** When Norn deletes it; null: kept until someone deletes it. */
+	expires: string | null;
+	/** Still being recorded (a continuous file in the temporary storage). */
+	live?: boolean;
 	meta: Record<string, unknown>;
 }
 
@@ -131,7 +152,84 @@ export interface Info {
 	config_path: string;
 	go2rtc: { running: boolean; version?: string };
 	recording_available: boolean;
-	recording: { retention_days: number; segment_minutes: number; clip_seconds: number };
+	recording: RecordingSettings;
+}
+
+export interface RecordingSettings {
+	retention_days: number;
+	segment_minutes: number;
+	clip_seconds: number;
+	prebuffer_seconds: number;
+	picture_seconds: number;
+}
+
+export interface SettingsValues {
+	recording: RecordingSettings;
+	firmware: { check_hours: number };
+}
+
+export interface StorageStage {
+	path: string;
+	used: number;
+	files: number;
+	total: number | null;
+	free: number | null;
+	/** On a tmpfs (RAM) rather than a disk. */
+	ram: boolean;
+}
+
+export interface ResourceProcess {
+	pid: number;
+	kind: string;
+	camera: string | null;
+	/** Percent of one core. */
+	cpu: number;
+	memory: number;
+}
+
+export interface Resources {
+	cpu: number;
+	memory: number;
+	processes: ResourceProcess[];
+	system: { cores: number; cpu: number; memory_total: number; memory_available: number };
+	gpu: { used: boolean; available: string[] };
+}
+
+export interface ForecastCamera {
+	camera: string;
+	per_day: number;
+	steady: number | null;
+	count_per_day: number;
+	basis: 'measured' | 'estimated';
+}
+
+export interface ForecastTrigger {
+	trigger: string;
+	per_day: number;
+	/** What it holds once it levels off; null: it only grows (kept, or no retention). */
+	steady: number | null;
+	kept: boolean;
+	cameras: ForecastCamera[];
+}
+
+export interface Forecast {
+	retention_days: number;
+	per_day: number;
+	steady: number;
+	growing_per_day: number;
+	days_until_full: number | null;
+	triggers: ForecastTrigger[];
+}
+
+export interface Storage {
+	buffer: StorageStage;
+	temp: StorageStage;
+	recordings: StorageStage;
+}
+
+export interface SettingsData {
+	values: SettingsValues;
+	defaults: SettingsValues;
 }
 
 export interface NornEvent {
@@ -195,6 +293,9 @@ const enc = encodeURIComponent;
 
 export const api = {
 	info: () => request<Info>('GET', '/info'),
+	settings: () => request<SettingsData>('GET', '/settings'),
+	saveSettings: (values: Partial<SettingsValues>) =>
+		request<SettingsData>('PUT', '/settings', values),
 	drivers: () => request<Driver[]>('GET', '/drivers'),
 	cameras: () => request<Camera[]>('GET', '/cameras'),
 	camera: (id: string) => request<Camera>('GET', `/cameras/${enc(id)}`),
@@ -214,13 +315,54 @@ export const api = {
 	record: (id: string, seconds?: number) =>
 		request<unknown>('POST', `/cameras/${enc(id)}/record`, { trigger: 'manual', seconds }),
 	stopRecord: (id: string) => request<unknown>('DELETE', `/cameras/${enc(id)}/record`),
-	recordings: (params: { camera?: string; day?: string; limit?: number } = {}) => {
+	storage: () => request<Storage>('GET', '/storage'),
+	resources: () => request<Resources>('GET', '/resources'),
+	forecast: () => request<Forecast>('GET', '/forecast'),
+	recordings: (
+		params: {
+			camera?: string;
+			day?: string;
+			limit?: number;
+			since?: string;
+			until?: string;
+			kind?: 'video' | 'picture';
+			/** A trigger, or `clips`: videos a trigger started. */
+			trigger?: string;
+			/** Thin the pictures to about this many per camera. */
+			pictures?: number;
+		} = {}
+	) => {
 		const query = new URLSearchParams(
-			Object.entries(params).filter(([, v]) => v !== undefined && v !== '') as [string, string][]
+			Object.entries(params)
+				.filter(([, v]) => v !== undefined && v !== '')
+				.map(([k, v]) => [k, String(v)])
 		);
-		return request<{ recordings: Recording[]; days: string[] }>('GET', `/recordings?${query}`);
+		return request<{ recordings: Recording[]; days: string[]; truncated: boolean }>(
+			'GET',
+			`/recordings?${query}`
+		);
 	},
 	deleteRecording: (id: string) => request<void>('DELETE', `/recordings/${id}`),
+	circles: () => request<Circle[]>('GET', '/circles'),
+	addCircle: (body: Circle) => request<Circle>('POST', '/circles', body),
+	updateCircle: (id: string, body: Omit<Circle, 'id'>) =>
+		request<Circle>('PUT', `/circles/${enc(id)}`, body),
+	deleteCircle: (id: string) => request<void>('DELETE', `/circles/${enc(id)}`),
+	circleControls: (id: string) =>
+		request<{ controls: CircleControl[] }>('GET', `/circles/${enc(id)}/controls`),
+	setCircleControl: (id: string, control: string, value: unknown) =>
+		request<{ ok: boolean; errors: Record<string, string> }>(
+			'POST',
+			`/circles/${enc(id)}/controls/${enc(control)}`,
+			{ value }
+		),
+	recordCircle: (id: string) =>
+		request<{ clips: unknown[]; errors: Record<string, string> }>(
+			'POST',
+			`/circles/${enc(id)}/record`,
+			{ trigger: 'manual' }
+		),
+	stopCircle: (id: string) => request<unknown>('DELETE', `/circles/${enc(id)}/record`),
 	refreshDevice: (id: string) => request<Camera>('POST', `/cameras/${enc(id)}/device`),
 	updateFirmware: async (id: string, file?: File): Promise<Camera> => {
 		const response = await fetch(`/api/cameras/${enc(id)}/firmware`, {
@@ -244,6 +386,8 @@ export function cameraBody(camera: Camera, change: Record<string, unknown> = {})
 		enabled: camera.enabled,
 		record: camera.record,
 		auto_update: camera.auto_update,
+		picture_seconds: camera.picture_seconds,
+		prebuffer_seconds: camera.prebuffer_seconds,
 		...camera.options,
 		...change
 	};
@@ -255,5 +399,15 @@ export const urls = {
 	snapshot: (camera: string, stream = 'main') =>
 		`/api/cameras/${enc(camera)}/snapshot?stream=${enc(stream)}&t=${Date.now()}`,
 	recording: (r: Recording) => `/api/recordings/${r.id}`,
-	thumbnail: (r: Recording) => `/api/recordings/${r.id.replace(/\.mp4$/, '.jpg')}`
+	thumbnail: (r: Recording) => `/api/recordings/${r.id.replace(/\.mp4$/, '.jpg')}`,
+	/** A small image for lists: a picture's small copy, or the video's thumbnail. */
+	small: (r: Recording) =>
+		r.kind === 'picture'
+			? `/api/recordings/${r.id}?small=true`
+			: `/api/recordings/${r.id.replace(/\.mp4$/, '.jpg')}`,
+	/** The picture itself, or the video's thumbnail. */
+	image: (r: Recording) =>
+		r.kind === 'picture'
+			? `/api/recordings/${r.id}`
+			: `/api/recordings/${r.id.replace(/\.mp4$/, '.jpg')}`
 };

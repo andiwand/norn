@@ -12,7 +12,16 @@
 	import Volume2 from '@lucide/svelte/icons/volume-2';
 	import Settings2 from '@lucide/svelte/icons/settings-2';
 
-	let { control, onchange }: { control: Control; onchange: (value: unknown) => void } = $props();
+	let {
+		control,
+		mixed = false,
+		onchange
+	}: {
+		control: Control;
+		/** Cameras of a circle disagree: show no value rather than a made-up one. */
+		mixed?: boolean;
+		onchange: (value: unknown) => void;
+	} = $props();
 
 	const icons: Record<string, Component> = {
 		moon: Moon,
@@ -29,6 +38,12 @@
 	// The slider shows its value while dragging and sends it once on release.
 	let draft = $state<number | null>(null);
 	const rangeValue = $derived(draft ?? Number(control.value ?? control.min ?? 0));
+
+	// Few short choices fit as buttons next to the label; more get a dropdown, so nothing overflows.
+	const segmented = $derived(
+		(control.options?.length ?? 0) <= 3 &&
+			(control.options ?? []).reduce((n, o) => n + o.label.length, 0) <= 16
+	);
 </script>
 
 <div class="flex min-h-12 items-center gap-3">
@@ -44,6 +59,7 @@
 				role="switch"
 				class="peer sr-only"
 				checked={Boolean(control.value)}
+				indeterminate={mixed}
 				onchange={(e) => onchange(e.currentTarget.checked)}
 			/>
 			<span
@@ -51,14 +67,32 @@
 				aria-hidden="true"
 			></span>
 		</label>
+	{:else if control.kind === 'select' && !segmented}
+		<label class="flex min-w-0 flex-1 items-center justify-between gap-3">
+			<span class="text-sm font-medium">{control.label}</span>
+			<select
+				class="input h-9 w-auto max-w-[60%] min-w-0 pr-8 text-xs font-medium"
+				value={mixed ? '' : control.value}
+				onchange={(e) => onchange(e.currentTarget.value)}
+			>
+				{#if mixed}<option value="" disabled>Mixed</option>{/if}
+				{#each control.options ?? [] as option (option.value)}
+					<option value={option.value}>{option.label}</option>
+				{/each}
+			</select>
+		</label>
 	{:else if control.kind === 'select'}
-		<span class="flex-1 text-sm font-medium">{control.label}</span>
-		<div class="flex rounded-xl bg-surface-3 p-1" role="radiogroup" aria-label={control.label}>
+		<span class="min-w-0 flex-1 text-sm font-medium">{control.label}</span>
+		<div
+			class="flex shrink-0 rounded-xl bg-surface-3 p-1"
+			role="radiogroup"
+			aria-label={control.label}
+		>
 			{#each control.options ?? [] as option (option.value)}
 				<button
 					role="radio"
 					aria-checked={control.value === option.value}
-					class="rounded-lg px-3 py-1.5 text-xs font-medium transition {control.value ===
+					class="rounded-lg px-2.5 py-1.5 text-xs font-medium whitespace-nowrap transition {control.value ===
 					option.value
 						? 'bg-surface text-text shadow'
 						: 'text-muted hover:text-text'}"

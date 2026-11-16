@@ -7,25 +7,28 @@ import contextlib
 import logging
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from . import __version__
-from .config import CameraConfig, Config, ConfigError, ConfigStore
+from .config import CameraConfig, CircleConfig, Config, ConfigError, ConfigStore
 from .drivers import DRIVERS
 from .drivers.base import Capability, Control, DeviceInfo, Driver, Preset
 from .events import EventBus
 from .firmware import FirmwareStatus, check
+from .forecast import forecast, history
 from .go2rtc import Go2rtc, Go2rtcUnavailableError
 from .recorder import Recorder
 from .recordings import Library
+from .resources import Resources
 from .settings import Settings
 
 log = logging.getLogger("norn")
 
 DEVICE_INTERVAL = 300  # seconds between two reads of each camera's state
-FIRMWARE_INTERVAL = 24 * 3600  # seconds between two firmware checks (and auto-updates)
+STORAGE_CACHE = 15  # seconds a storage report stays fresh; it walks the folders
 
 
 def stream_name(camera_id: str, stream_id: str) -> str:
@@ -69,6 +72,8 @@ class Camera:
             ],
             "recording": recording,
             "auto_update": self.config.auto_update,
+            "picture_seconds": self.config.picture_seconds,
+            "prebuffer_seconds": self.config.prebuffer_seconds,
             "device": self.device.model_dump() if self.device else None,
             "firmware": self.firmware.model_dump() if self.firmware else None,
             "update": self.update,
@@ -88,6 +93,9 @@ class Hub:
         self._watcher: asyncio.Task[None] | None = None
         self._poller: asyncio.Task[None] | None = None
         self._lock = asyncio.Lock()
+        self._storage: tuple[float, dict[str, Any]] | None = None
+        self._resources = Resources()
+        self._resources_lock = asyncio.Lock()
 
     @property
     def config(self) -> Config:
@@ -234,7 +242,8 @@ class Hub:
             )
             now = time.time()
             for cid, camera in list(self.cameras.items()):
-                if now - camera.firmware_time >= FIRMWARE_INTERVAL:
+                interval = self.config.firmware.check_hours * 3600
+                if interval and now - camera.firmware_time >= interval:
                     camera.firmware_time = now
                     await self._check_online_firmware(cid, camera)
             await asyncio.sleep(DEVICE_INTERVAL)
@@ -257,7 +266,36 @@ class Hub:
                 await self.update_firmware(camera_id)
 
     def camera_json(self, camera_id: str) -> dict[str, Any]:
-        return self.cameras[camera_id].to_json(self.recorder.status(camera_id))
+        data = self.cameras[camera_id].to_json(self.recorder.status(camera_id))
+        data["buffered"] = self.recorder.buffered(camera_id)
+        return data
+
+    async def resources(self) -> dict[str, Any]:
+        # One measurement at a time: CPU is counted between two calls.
+        async with self._resources_lock:
+            return await asyncio.to_thread(self._resources.report)
+
+    async def forecast(self) -> dict[str, Any]:
+        """How much each trigger records per day, and where that leads (forecast.py)."""
+        storage = await self.storage()
+        now = datetime.now()
+        retention = self.config.recording.retention_days
+
+        def compute() -> dict[str, Any]:
+            items = self.library.list(limit=1_000_000, since=now - history(retention))
+            # Bitrates of cameras without a buffer, from their recent continuous files.
+            bitrates = self.recorder.bitrates()
+            for r in items:
+                if r.trigger == "continuous" and r.duration and r.camera not in bitrates:
+                    bitrates[r.camera] = r.size / r.duration
+            return forecast(self.config, items, bitrates, storage["recordings"]["free"], now)
+
+        return await asyncio.to_thread(compute)
+
+    async def storage(self) -> dict[str, Any]:
+        if self._storage is None or time.time() - self._storage[0] > STORAGE_CACHE:
+            self._storage = (time.time(), await asyncio.to_thread(self.recorder.usage))
+        return self._storage[1]
 
     def get_driver(self, camera_id: str) -> Driver:
         camera = self.cameras.get(camera_id)
@@ -280,8 +318,78 @@ class Hub:
             self.store.put_camera(camera_id, camera)
             await self._apply()
 
+    async def put_settings(self, sections: dict[str, BaseModel]) -> None:
+        async with self._lock:
+            for name, values in sections.items():
+                self.store.put_section(name, values)
+            await self._apply()
+        self.bus.publish("settings.changed")
+
+    async def put_circle(self, circle_id: str, circle: CircleConfig) -> None:
+        unknown = [c for c in circle.cameras if c not in self.config.cameras]
+        if unknown:
+            raise ConfigError(f"no camera {', '.join(unknown)}")
+        async with self._lock:
+            self.store.put_circle(circle_id, circle)
+            await self._apply()
+
+    async def remove_circle(self, circle_id: str) -> None:
+        async with self._lock:
+            self.store.remove_circle(circle_id)
+            await self._apply()
+
+    def circle_members(self, circle_id: str) -> list[str]:
+        """The circle's cameras that exist and are enabled."""
+        circle = self.config.circles[circle_id]
+        return [c for c in circle.cameras if c in self.cameras and self.cameras[c].config.enabled]
+
+    async def circle_controls(self, circle_id: str) -> list[dict[str, Any]]:
+        """The controls every camera of the circle has, alike (same kind and choices), so one
+        change can go to all. `value` is null and `mixed` true where the cameras differ."""
+        members = self.circle_members(circle_id)
+        if not members:
+            return []
+        lists = await asyncio.gather(*(self.get_controls(c) for c in members), return_exceptions=True)
+        # A camera that can't be read now (no controls known) doesn't hide the others' controls.
+        per_camera = [
+            {c.id: c for c in result[0]}
+            for camera_id, result in zip(members, lists, strict=True)
+            if not isinstance(result, BaseException) and self.cameras[camera_id].controls is not None
+        ]
+        if not per_camera:
+            return []
+        first, *rest = per_camera
+        common = []
+        for control_id, control in first.items():
+            others = [other.get(control_id) for other in rest]
+            if any(o is None or not _alike(control, o) for o in others):
+                continue
+            values = [control.value, *(o.value for o in others if o is not None)]
+            mixed = any(v != values[0] for v in values)
+            data = control.model_dump(exclude_none=True)
+            data["value"] = None if mixed else control.value
+            data["mixed"] = mixed
+            common.append(data)
+        return common
+
+    async def set_circle_control(self, circle_id: str, control_id: str, value: Any) -> dict[str, str]:
+        """Set a control on every camera of the circle at once. Returns the errors by camera."""
+
+        async def one(camera_id: str) -> None:
+            await self.get_driver(camera_id).set_control(control_id, value)
+            self.remember_control(camera_id, control_id, value)
+
+        members = self.circle_members(circle_id)
+        results = await asyncio.gather(*(one(c) for c in members), return_exceptions=True)
+        return {c: str(r) for c, r in zip(members, results, strict=True) if isinstance(r, BaseException)}
+
     async def remove_camera(self, camera_id: str) -> None:
         async with self._lock:
+            # Out of its circles first, so they stay valid.
+            for circle_id in self.config.circles_of(camera_id):
+                circle = self.config.circles[circle_id]
+                cameras = [c for c in circle.cameras if c != camera_id]
+                self.store.put_circle(circle_id, circle.model_copy(update={"cameras": cameras}))
             self.store.remove_camera(camera_id)
             await self._apply()
 
@@ -346,6 +454,15 @@ class Hub:
             await asyncio.sleep(2)
             if self.store.changed_on_disk():
                 await self.reload()
+
+
+def _alike(a: Control, b: Control) -> bool:
+    """Two cameras' controls that one value fits: same kind, same choices or range."""
+    return (
+        a.kind == b.kind
+        and [o.value for o in a.options or []] == [o.value for o in b.options or []]
+        and (a.min, a.max) == (b.min, b.max)
+    )
 
 
 def validate_options(camera: CameraConfig) -> None:

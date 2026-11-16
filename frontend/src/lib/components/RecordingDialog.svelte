@@ -8,8 +8,18 @@
 
 	let {
 		recording = $bindable(null),
+		at = 0,
 		ondeleted
-	}: { recording: Recording | null; ondeleted?: (r: Recording) => void } = $props();
+	}: {
+		recording: Recording | null;
+		/** Where to start playing, in seconds from the start of the video. */
+		at?: number;
+		ondeleted?: (r: Recording) => void;
+	} = $props();
+
+	function seek(video: HTMLVideoElement) {
+		if (at > 0) video.currentTime = at;
+	}
 
 	let dialog: HTMLDialogElement;
 	let confirming = $state(false);
@@ -59,23 +69,48 @@
 				><X class="size-5" /></button
 			>
 		</div>
-		<!-- svelte-ignore a11y_media_has_caption -->
-		<video
-			src={urls.recording(recording)}
-			controls
-			autoplay
-			playsinline
-			class="aspect-video w-full bg-black"
-		></video>
-		<div class="flex items-center justify-end gap-2 px-5 py-3">
+		{#if recording.kind === 'picture'}
+			<img
+				src={urls.recording(recording)}
+				alt="{store.camera(recording.camera)?.name ?? recording.camera}, {formatTime(
+					recording.start
+				)}"
+				class="aspect-video w-full bg-black object-contain"
+			/>
+		{:else}
+			<!-- svelte-ignore a11y_media_has_caption -->
+			<video
+				src={urls.recording(recording)}
+				controls
+				autoplay
+				playsinline
+				onloadedmetadata={(e) => seek(e.currentTarget)}
+				class="aspect-video w-full bg-black"
+			></video>
+		{/if}
+		<div class="flex flex-wrap items-center justify-end gap-2 px-5 py-3">
 			{#if confirming}
-				<span class="mr-auto text-sm text-muted">Delete this recording for good?</span>
+				<span class="mr-auto text-sm text-muted">Delete this {recording.kind} for good?</span>
 				<button class="btn-ghost" onclick={() => (confirming = false)}>Keep</button>
 				<button class="btn bg-danger text-white" onclick={remove}>Delete</button>
 			{:else}
-				<button class="btn-danger" onclick={() => (confirming = true)}
-					><Trash2 class="size-4" />Delete</button
-				>
+				<span class="mr-auto text-xs text-muted">
+					{#if recording.live}
+						Still being recorded.
+					{:else if recording.expires}
+						Norn deletes it on {new Date(recording.expires).toLocaleDateString([], {
+							month: 'short',
+							day: 'numeric'
+						})}.
+					{:else}
+						Kept until you delete it.
+					{/if}
+				</span>
+				{#if !recording.live}
+					<button class="btn-danger" onclick={() => (confirming = true)}
+						><Trash2 class="size-4" />Delete</button
+					>
+				{/if}
 				<a class="btn-ghost" href={urls.recording(recording)} download
 					><Download class="size-4" />Download</a
 				>

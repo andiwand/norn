@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 
 import pytest
 
-from norn.recorder import clip_command, segment_command
-from norn.recordings import InvalidPathError, Library
+from norn.recorder import buffer_command, clip_command, segment_command
+from norn.recordings import InvalidPathError, Library, expires
 
 
 def touch(path: Path, data: bytes = b"x") -> Path:
@@ -56,9 +56,45 @@ def test_delete_removes_sidecars(library: Library) -> None:
     assert not library.delete("door", "2026-11-15", "14-32-07_manual.mp4")
 
 
-def test_prune(library: Library) -> None:
-    assert library.prune(1, today=date(2026, 11, 16)) == ["door/2026-11-14"]
-    assert library.prune(0, today=date(2030, 1, 1)) == []  # 0 keeps forever
+def test_prune_keeps_manual(library: Library) -> None:
+    assert library.prune(0, now=datetime(2030, 1, 1)) == []  # 0 keeps forever
+    assert library.prune(1, now=datetime(2026, 11, 16, 9, 30)) == [
+        "door/2026-11-14/08-00-00_continuous.mp4",
+        "yard/2026-11-15/09-00-00_motion.mp4",
+    ]
+    # A clip recorded by hand stays until someone deletes it.
+    assert library.prune(1, now=datetime(2030, 1, 1)) == []
+    assert [r.id for r in library.list()] == ["door/2026-11-15/14-32-07_manual.mp4"]
+
+
+def test_expires() -> None:
+    start = datetime(2026, 11, 15, 10)
+    assert expires(start, "continuous", 14) == datetime(2026, 11, 29, 10)
+    assert expires(start, "manual", 14) is None
+    assert expires(start, "interval", 0) is None
+
+
+def test_pictures(library: Library) -> None:
+    picture = touch(library.root / "yard" / "2026-11-15" / "10-00-00_interval.jpg", b"jpeg")
+    items = {r.id: r for r in library.list(camera="yard")}
+    assert items["yard/2026-11-15/10-00-00_interval.jpg"].kind == "picture"
+    assert items["yard/2026-11-15/09-00-00_motion.mp4"].kind == "video"
+    # The thumbnail of a video isn't a picture of its own.
+    assert "door/2026-11-15/14-32-07_manual.jpg" not in {r.id for r in library.list()}
+    assert [r.kind for r in library.list(kind="picture")] == ["picture"]
+    assert library.delete("yard", "2026-11-15", picture.name)
+    assert not picture.exists()
+
+
+def test_time_range(library: Library) -> None:
+    since, until = datetime(2026, 11, 15, 0), datetime(2026, 11, 15, 12)
+    assert [r.id for r in library.list(since=since, until=until)] == ["yard/2026-11-15/09-00-00_motion.mp4"]
+
+
+def test_usage(library: Library) -> None:
+    usage = library.usage()
+    assert usage["used"] > 0 and usage["files"] == 6
+    assert usage["free"] is not None
 
 
 @pytest.mark.parametrize(
@@ -82,3 +118,38 @@ def test_commands_copy_video() -> None:
     clip = clip_command("ffmpeg", "rtsp://x/door", Path("/rec/a.mp4"), 30)
     assert clip[clip.index("-c:v") + 1] == "copy"
     assert clip[clip.index("-t") + 1] == "30"
+
+
+def test_describe_ffmpeg() -> None:
+    from norn.resources import describe
+
+    class Fake:
+        pid = -1
+
+        def __init__(self, cmd: list[str]) -> None:
+            self.cmd = cmd
+
+        def cmdline(self) -> list[str]:
+            return self.cmd
+
+        def name(self) -> str:
+            return "x"
+
+    buffer = buffer_command("/usr/bin/ffmpeg", "rtsp://127.0.0.1:8554/door", Path("/b/door"), 0)
+    assert describe(Fake(buffer)) == ("Buffer", "door")  # type: ignore[arg-type]
+    seg = segment_command("ffmpeg", "rtsp://127.0.0.1:8554/door", Path("/t/door"), 600)
+    assert describe(Fake(seg)) == ("Continuous", "door")  # type: ignore[arg-type]
+    assert describe(Fake(["/usr/local/bin/go2rtc", "-c", "x"])) == ("go2rtc", None)  # type: ignore[arg-type]
+
+
+def test_filters_and_thinning(library: Library) -> None:
+    for minute in range(10):
+        touch(library.root / "yard" / "2026-11-15" / f"10-{minute:02d}-00_interval.jpg", b"j")
+    assert [r.trigger for r in library.list(trigger="clips")] == ["manual", "motion"]
+    assert len(library.list(trigger="interval")) == 10
+    thinned = library.list(pictures=3)
+    assert sum(r.kind == "picture" for r in thinned) == 3
+    assert sum(r.kind == "video" for r in thinned) == 3  # videos all stay
+    thumb = touch(library.thumb_path("yard", "2026-11-15", "10-00-00_interval.jpg"))
+    assert library.delete("yard", "2026-11-15", "10-00-00_interval.jpg") and not thumb.exists()
+    assert "yard" in library.cameras() and ".thumbs" not in library.cameras()

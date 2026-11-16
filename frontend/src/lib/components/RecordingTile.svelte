@@ -3,54 +3,112 @@
 	import { formatDuration, formatTime, triggerLabel } from '../format';
 	import Film from '@lucide/svelte/icons/film';
 	import Play from '@lucide/svelte/icons/play';
+	import Trash2 from '@lucide/svelte/icons/trash-2';
+	import LifetimeRing from './LifetimeRing.svelte';
 
 	let {
 		recording,
 		cameraName,
-		onopen
-	}: { recording: Recording; cameraName?: string; onopen: (r: Recording) => void } = $props();
+		onopen,
+		ondelete,
+		now
+	}: {
+		recording: Recording;
+		cameraName?: string;
+		onopen: (r: Recording) => void;
+		ondelete?: (r: Recording) => void;
+		/** The time the lifetime rings count from; the page ticks it. */
+		now?: number;
+	} = $props();
+
+	// Deleting takes two clicks: the first arms the button, the second deletes.
+	let armed = $state(false);
+	let disarm: ReturnType<typeof setTimeout> | undefined;
+
+	function clickDelete() {
+		if (!armed) {
+			armed = true;
+			clearTimeout(disarm);
+			disarm = setTimeout(() => (armed = false), 3000);
+			return;
+		}
+		clearTimeout(disarm);
+		armed = false;
+		ondelete?.(recording);
+	}
 </script>
 
-<button
-	class="group block w-full overflow-hidden rounded-2xl border border-line bg-surface text-left transition hover:border-line-strong hover:shadow-xl"
-	onclick={() => onopen(recording)}
+<div
+	class="group relative overflow-hidden rounded-2xl border border-line bg-surface transition hover:border-line-strong hover:shadow-xl"
 >
-	<div class="relative aspect-video bg-surface-2">
-		{#if recording.thumbnail}
-			<img
-				src={urls.thumbnail(recording)}
-				alt=""
-				loading="lazy"
-				class="h-full w-full object-cover"
-			/>
-		{:else}
-			<div class="grid h-full place-items-center text-muted/60"><Film class="size-7" /></div>
-		{/if}
-		<div
-			class="absolute inset-0 grid place-items-center opacity-0 transition group-hover:opacity-100"
-		>
-			<span class="glass-btn size-12"><Play class="size-5 translate-x-px fill-current" /></span>
+	<button class="block w-full text-left" onclick={() => onopen(recording)}>
+		<div class="relative aspect-video bg-surface-2">
+			{#if recording.thumbnail}
+				<img src={urls.small(recording)} alt="" loading="lazy" class="h-full w-full object-cover" />
+			{:else}
+				<div class="grid h-full place-items-center text-muted/60"><Film class="size-7" /></div>
+			{/if}
+			{#if recording.kind === 'video'}
+				<div
+					class="absolute inset-0 grid place-items-center opacity-0 transition group-hover:opacity-100"
+				>
+					<span class="glass-btn size-12"><Play class="size-5 translate-x-px fill-current" /></span>
+				</div>
+			{/if}
+			{#if recording.duration}
+				<span
+					class="absolute right-2 bottom-2 rounded-md bg-black/65 px-1.5 py-0.5 text-[11px] font-medium text-white tabular-nums"
+				>
+					{formatDuration(recording.duration)}
+				</span>
+			{/if}
 		</div>
-		{#if recording.duration}
+		<div class="flex items-center justify-between gap-2 px-3 py-2.5">
+			<div class="min-w-0">
+				<div class="truncate text-sm font-medium">{cameraName ?? recording.camera}</div>
+				<div class="text-xs text-muted tabular-nums">{formatTime(recording.start)}</div>
+			</div>
 			<span
-				class="absolute right-2 bottom-2 rounded-md bg-black/65 px-1.5 py-0.5 text-[11px] font-medium text-white tabular-nums"
+				class="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium {[
+					'continuous',
+					'interval'
+				].includes(recording.trigger)
+					? 'bg-surface-3 text-muted'
+					: 'bg-accent/15 text-accent'}"
 			>
-				{formatDuration(recording.duration)}
+				{triggerLabel(recording.trigger)}
 			</span>
-		{/if}
-	</div>
-	<div class="flex items-center justify-between gap-2 px-3 py-2.5">
-		<div class="min-w-0">
-			<div class="truncate text-sm font-medium">{cameraName ?? recording.camera}</div>
-			<div class="text-xs text-muted tabular-nums">{formatTime(recording.start)}</div>
 		</div>
+	</button>
+	{#if recording.live}
 		<span
-			class="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium {recording.trigger ===
-			'continuous'
-				? 'bg-surface-3 text-muted'
-				: 'bg-accent/15 text-accent'}"
+			class="absolute top-2 right-2 flex items-center gap-1.5 rounded-full bg-black/55 px-2 py-1 text-[11px] font-medium text-white backdrop-blur-md"
+			><span class="size-1.5 animate-pulse rounded-full bg-danger"></span>Recording</span
 		>
-			{triggerLabel(recording.trigger)}
-		</span>
-	</div>
-</button>
+	{/if}
+	{#if recording.expires}
+		<LifetimeRing
+			start={recording.start}
+			expires={recording.expires}
+			{now}
+			class="pointer-events-auto absolute top-2 left-2"
+		/>
+	{/if}
+	{#if ondelete && !recording.live}
+		<button
+			class="absolute top-2 right-2 flex h-8 items-center gap-1.5 rounded-full px-2 text-xs font-medium backdrop-blur-md transition focus-visible:opacity-100 {armed
+				? 'bg-danger text-white opacity-100'
+				: 'bg-black/50 text-white opacity-100 hover:bg-danger [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100'}"
+			onclick={clickDelete}
+			onmouseleave={() => {
+				clearTimeout(disarm);
+				disarm = setTimeout(() => (armed = false), 800);
+			}}
+			aria-label={armed ? 'Click again to delete' : 'Delete recording'}
+			title={armed ? 'Click again to delete' : 'Delete'}
+		>
+			<Trash2 class="size-4" />
+			{#if armed}<span class="pr-0.5">Delete?</span>{/if}
+		</button>
+	{/if}
+</div>

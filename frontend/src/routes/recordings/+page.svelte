@@ -6,37 +6,73 @@
 	import { formatDay } from '#lib/format.js';
 	import RecordingTile from '#lib/components/RecordingTile.svelte';
 	import RecordingDialog from '#lib/components/RecordingDialog.svelte';
+	import StorageStages from '#lib/components/StorageStages.svelte';
+	import Timeline from '#lib/components/Timeline.svelte';
+	import LayoutGrid from '@lucide/svelte/icons/layout-grid';
+	import ChartGantt from '@lucide/svelte/icons/chart-gantt';
 	import Film from '@lucide/svelte/icons/film';
 
 	const camera = $derived(page.url.searchParams.get('camera') ?? '');
 	const trigger = $derived(page.url.searchParams.get('trigger') ?? '');
+	// The timeline is the default; the grid is one click away.
+	const view = $derived(page.url.searchParams.get('view') === 'grid' ? 'grid' : 'timeline');
+	let at = $state(0);
 
+	const LIMIT = 1000;
 	let recordings = $state<Recording[]>([]);
+	let truncated = $state(false);
 	let loading = $state(true);
 	let open = $state<Recording | null>(null);
 
-	async function load(cameraId: string) {
+	// The server filters, so a flood of pictures can't push the clips out of the newest LIMIT.
+	let sequence = 0;
+	async function load(cameraId: string, filter: string) {
+		const mine = ++sequence;
 		loading = true;
 		const data = await api
-			.recordings({ camera: cameraId || undefined, limit: 1000 })
+			.recordings({
+				camera: cameraId || undefined,
+				limit: LIMIT,
+				kind: filter === 'pictures' ? 'picture' : undefined,
+				trigger: filter && filter !== 'pictures' ? filter : undefined
+			})
 			.catch(() => null);
+		if (mine !== sequence) return; // the filter changed meanwhile
 		recordings = data?.recordings ?? [];
+		truncated = data?.truncated ?? false;
 		loading = false;
 	}
 
+	// Only the grid loads here; the timeline loads its own window.
 	$effect(() => {
+		if (view !== 'grid') return;
 		const cameraId = camera;
-		load(cameraId);
-		return store.on((e) => {
-			if (e.type === 'recording.finished' || e.type === 'recording.deleted') load(cameraId);
+		const filter = trigger;
+		load(cameraId, filter);
+		// Pictures can come every few seconds: reload at most every 10 seconds.
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const off = store.on((e) => {
+			if (!['recording.finished', 'recording.deleted', 'recording.picture'].includes(e.type))
+				return;
+			timer ??= setTimeout(() => {
+				timer = undefined;
+				load(cameraId, filter);
+			}, 10_000);
 		});
+		return () => {
+			off();
+			clearTimeout(timer);
+		};
 	});
 
-	const filtered = $derived(
-		recordings.filter(
-			(r) => !trigger || (trigger === 'clips' ? r.trigger !== 'continuous' : r.trigger === trigger)
-		)
-	);
+	// The lifetime rings count down.
+	let now = $state(Date.now());
+	$effect(() => {
+		const timer = setInterval(() => (now = Date.now()), 60_000);
+		return () => clearInterval(timer);
+	});
+
+	const filtered = $derived(recordings);
 	const byDay = $derived(
 		Object.entries(
 			filtered.reduce<Record<string, Recording[]>>((acc, r) => {
@@ -45,6 +81,14 @@
 			}, {})
 		)
 	);
+
+	async function remove(r: Recording) {
+		const ok = await store.attempt(async () => {
+			await api.deleteRecording(r.id);
+			return true;
+		}, 'Recording deleted');
+		if (ok) recordings = recordings.filter((x) => x.id !== r.id);
+	}
 
 	function setFilter(key: string, value: string) {
 		const url = new URL(page.url.href);
@@ -56,10 +100,31 @@
 
 <svelte:head><title>Recordings · Norn</title></svelte:head>
 
-<div class="mb-6">
-	<h1 class="text-2xl font-semibold tracking-tight">Recordings</h1>
-	<p class="mt-1 text-sm text-muted">Stored as plain MP4 files in the recordings folder.</p>
+<div class="mb-6 flex flex-wrap items-start gap-4">
+	<div class="min-w-0 flex-1 basis-80">
+		<h1 class="text-2xl font-semibold tracking-tight">Recordings</h1>
+		<p class="mt-1 text-sm text-muted">
+			Plain MP4 and JPEG files in the recordings folder. The ring on a recording shows how long
+			until Norn deletes it; clips you record by hand stay.
+		</p>
+	</div>
+	<div class="flex rounded-xl bg-surface-3 p-1" role="radiogroup" aria-label="View">
+		{#each [{ id: 'timeline', label: 'Timeline', icon: ChartGantt }, { id: 'grid', label: 'Grid', icon: LayoutGrid }] as v (v.id)}
+			<button
+				role="radio"
+				aria-checked={view === v.id}
+				class="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition {view ===
+				v.id
+					? 'bg-surface text-text shadow'
+					: 'text-muted hover:text-text'}"
+				onclick={() => setFilter('view', v.id === 'timeline' ? '' : v.id)}
+				><v.icon class="size-4" />{v.label}</button
+			>
+		{/each}
+	</div>
 </div>
+
+<div class="mb-6"><StorageStages compact /></div>
 
 <div class="mb-6 flex flex-wrap gap-2">
 	<button class="chip {camera === '' ? 'chip-active' : ''}" onclick={() => setFilter('camera', '')}
@@ -71,24 +136,38 @@
 			onclick={() => setFilter('camera', c.id)}>{c.name}</button
 		>
 	{/each}
-	<span class="mx-1 w-px self-stretch bg-line"></span>
-	<button
-		class="chip {trigger === '' ? 'chip-active' : ''}"
-		onclick={() => setFilter('trigger', '')}>Everything</button
-	>
-	<button
-		class="chip {trigger === 'clips' ? 'chip-active' : ''}"
-		onclick={() => setFilter('trigger', 'clips')}>Clips</button
-	>
-	<button
-		class="chip {trigger === 'continuous' ? 'chip-active' : ''}"
-		onclick={() => setFilter('trigger', 'continuous')}
-	>
-		Continuous
-	</button>
+	{#if view === 'grid'}
+		<span class="mx-1 w-px self-stretch bg-line"></span>
+		<button
+			class="chip {trigger === '' ? 'chip-active' : ''}"
+			onclick={() => setFilter('trigger', '')}>Everything</button
+		>
+		<button
+			class="chip {trigger === 'clips' ? 'chip-active' : ''}"
+			onclick={() => setFilter('trigger', 'clips')}>Clips</button
+		>
+		<button
+			class="chip {trigger === 'continuous' ? 'chip-active' : ''}"
+			onclick={() => setFilter('trigger', 'continuous')}
+		>
+			Continuous
+		</button>
+		<button
+			class="chip {trigger === 'pictures' ? 'chip-active' : ''}"
+			onclick={() => setFilter('trigger', 'pictures')}>Pictures</button
+		>
+	{/if}
 </div>
 
-{#if loading && !recordings.length}
+{#if view === 'timeline'}
+	<Timeline
+		cameras={camera ? store.cameras.filter((c) => c.id === camera) : store.cameras}
+		onopen={(r, seconds) => {
+			at = seconds;
+			open = r;
+		}}
+	/>
+{:else if loading && !recordings.length}
 	<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
 		{#each Array(8) as _, i (i)}
 			<div class="aspect-[4/3] animate-pulse rounded-2xl bg-surface-2"></div>
@@ -107,6 +186,12 @@
 	</div>
 {:else}
 	<div class="space-y-8">
+		{#if truncated}
+			<p class="rounded-xl bg-warning/10 px-4 py-3 text-sm text-warning">
+				Showing the newest {LIMIT}. Pick a camera or a kind above, or use the timeline, to see older
+				ones.
+			</p>
+		{/if}
 		{#each byDay as [day, items] (day)}
 			<section>
 				<h2 class="mb-3 flex items-baseline gap-2">
@@ -118,7 +203,12 @@
 						<RecordingTile
 							recording={r}
 							cameraName={store.camera(r.camera)?.name}
-							onopen={(x) => (open = x)}
+							onopen={(x) => {
+								at = 0;
+								open = x;
+							}}
+							ondelete={remove}
+							{now}
 						/>
 					{/each}
 				</div>
@@ -129,5 +219,6 @@
 
 <RecordingDialog
 	bind:recording={open}
+	{at}
 	ondeleted={(r) => (recordings = recordings.filter((x) => x.id !== r.id))}
 />

@@ -9,6 +9,7 @@ license = "MIT"
 dependencies = [
     "fastapi>=0.163.1",
     "httpx>=0.28.1",
+    "psutil>=7",
     "pydantic>=2.14.3",
     "pytapo>=3.4.31",
     "reolink-aio>=0.23.1",

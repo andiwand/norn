@@ -33,9 +33,10 @@ COPY --from=app /app/.venv /app/.venv
 ENV PATH=/app/.venv/bin:$PATH \
     NORN_CONFIG=/config/config.yaml \
     NORN_RECORDINGS=/recordings \
+    NORN_TEMP=/temp \
     PYTHONUNBUFFERED=1
 
-VOLUME ["/config", "/recordings"]
+VOLUME ["/config", "/recordings", "/temp"]
 # 8000: web UI and API. 8555: WebRTC media (TCP and UDP).
 EXPOSE 8000 8555/tcp 8555/udp
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \

@@ -7,6 +7,7 @@
 	import ExternalLink from '@lucide/svelte/icons/external-link';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import LoaderCircle from '@lucide/svelte/icons/loader-circle';
+	import Panel from './Panel.svelte';
 
 	let { camera }: { camera: Camera } = $props();
 
@@ -59,9 +60,21 @@
 	);
 </script>
 
-<section class="card p-4">
-	<div class="mb-3 flex items-center justify-between">
-		<h2 class="eyebrow">Device</h2>
+<Panel title="Device">
+	{#snippet summary()}
+		{#if device && !device.online}
+			<span class="text-danger">Offline</span>
+		{:else if running}
+			Installing firmware…
+		{:else if firmware}
+			<span class={firmware.status === 'update' ? 'text-warning' : ''}
+				>{status[firmware.status].label}</span
+			>
+		{:else if device}
+			{device.model ?? 'Online'}
+		{/if}
+	{/snippet}
+	{#snippet actions()}
 		<button
 			class="icon-btn size-8"
 			onclick={refresh}
@@ -70,7 +83,7 @@
 		>
 			<RefreshCw class="size-4 {refreshing ? 'animate-spin' : ''}" />
 		</button>
-	</div>
+	{/snippet}
 
 	{#if !device}
 		<p class="text-sm text-muted">Reading the camera…</p>
@@ -208,4 +221,4 @@
 			{/each}
 		</div>
 	{/if}
-</section>
+</Panel>

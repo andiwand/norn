@@ -41,7 +41,11 @@ whether newer firmware exists.
 - **No re-encoding.** [go2rtc](https://github.com/AlexxIT/go2rtc) reads each camera once and
   repackages the stream for every viewer and the recorder. FFmpeg transcodes only a stream a
   browser can't play.
-- **Recordings** as plain MP4 files in day folders: continuous, or clips from a button or webhook.
+- **Recordings** as plain MP4 and JPEG files in day folders: continuous, clips from a button or
+  webhook that start a few seconds *before* the trigger, and pictures on a timer. A timeline
+  shows them all. Automatic recordings expire; clips you record by hand stay.
+- **Circles**: groups of cameras with one trigger, shared settings, and controls set on all at
+  once.
 - **A YAML file, no database.** Edit `config.yaml` by hand or in the app; both keep the other's
   changes, comments included.
 - **Local.** No account, no cloud, no telemetry.
@@ -62,6 +66,8 @@ services:
     volumes:
       - ./config:/config
       - ./recordings:/recordings
+      - ./temp:/temp
+    shm_size: 256m # the pre-recording buffer, in RAM
 ```
 
 ```sh
@@ -86,9 +92,20 @@ uvx --from norn-hub norn
 
 ```yaml
 recording:
-  retention_days: 14 # delete recordings older than this; 0 keeps them forever
+  retention_days: 14 # automatic recordings expire after this; 0 keeps them forever
   segment_minutes: 10 # length of one file of a continuous recording
   clip_seconds: 30 # length of a triggered clip
+  prebuffer_seconds: 10 # a clip starts this long before its trigger; 0 turns it off
+  picture_seconds: 0 # a picture of every camera this often; 0 turns it off
+
+firmware:
+  check_hours: 24 # how often to ask the vendors for new firmware; 0 never
+
+circles: # groups of cameras
+  outside:
+    name: Outside
+    cameras: [front-door, garden]
+    picture_seconds: 300 # settings for these cameras; a camera's own setting wins
 
 cameras:
   front-door: # the id: the key here and the folder of its recordings
@@ -99,6 +116,7 @@ cameras:
     record: continuous # off (default) or continuous
     enabled: true # default
     auto_update: false # install new firmware by itself, where the driver can
+    picture_seconds: 60 # this camera's own pictures interval (also prebuffer_seconds)
 
   garden:
     name: Garden
@@ -114,6 +132,8 @@ The settings of the process come from environment variables:
 | ------------------ | ------------------------- | ------------------------------------------------------------- |
 | `NORN_CONFIG`      | `data/config/config.yaml` | The config file (`/config/config.yaml` in the image).         |
 | `NORN_RECORDINGS`  | `data/recordings`         | The recordings folder (`/recordings` in the image).           |
+| `NORN_TEMP`        | `data/tmp`                | What is being recorded (`/temp`); best a local disk.          |
+| `NORN_BUFFER`      | `/dev/shm/norn`           | The pre-recording buffer; RAM if /dev/shm has 128 MB or more. |
 | `NORN_PORT`        | `8000`                    | The port of the web app and the API.                          |
 | `NORN_WEBRTC_PORT` | `8555`                    | The port of WebRTC media, TCP and UDP.                        |
 | `NORN_GO2RTC`      | `managed`                 | `managed` (Norn runs go2rtc), `external`, or `off`.           |
@@ -125,10 +145,17 @@ The settings of the process come from environment variables:
 ### Recordings
 
 ```
-recordings/front-door/2026-11-15/14-32-07_manual.mp4   the video
-                                 14-32-07_manual.json  details of a clip
-                                 14-32-07_manual.jpg   its thumbnail
+recordings/front-door/2026-11-15/14-32-07_manual.mp4     the video
+                                 14-32-07_manual.json    details of a clip
+                                 14-32-07_manual.jpg     its thumbnail
+                                 14-35-00_interval.jpg   a picture on the timer
 ```
+
+Recordings go through three stages: each camera's last seconds wait in RAM (`NORN_BUFFER`), what
+is being recorded is written to `NORN_TEMP`, and finished files move to `NORN_RECORDINGS`, which
+can be a NAS. Settings shows what each stage holds, a forecast per trigger (measured from the
+last week, or estimated from the settings and each camera's bitrate), and what Norn costs in CPU
+and memory.
 
 Start a clip from anything that sends HTTP, like Home Assistant or a doorbell:
 
@@ -137,6 +164,7 @@ curl -X POST http://norn.local:8000/api/cameras/front-door/record \
   -H 'Content-Type: application/json' -d '{"trigger": "doorbell", "seconds": 30}'
 ```
 
+A circle has its own webhook, `POST /api/circles/<id>/record`, which records all its cameras.
 The whole API is documented at `/api/docs`.
 
 > Norn has no sign-in yet. Run it in your home network only, not open to the internet.

@@ -16,6 +16,8 @@ def settings(tmp_path: Path) -> Settings:
     return Settings(
         config_path=tmp_path / "config" / "config.yaml",
         recordings_path=tmp_path / "recordings",
+        buffer_path=tmp_path / "buffer",
+        temp_path=tmp_path / "tmp",
         go2rtc_mode="off",
     )
 

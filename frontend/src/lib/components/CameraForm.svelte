@@ -4,6 +4,8 @@
 	import { slugify } from '../format';
 	import { store } from '../state.svelte';
 	import { untrack } from 'svelte';
+	import IntervalSetting from './IntervalSetting.svelte';
+	import NumberSetting from './NumberSetting.svelte';
 
 	interface Props {
 		camera?: Camera;
@@ -24,6 +26,19 @@
 	let options = $state<Record<string, string>>(
 		Object.fromEntries(Object.entries(initial?.options ?? {}).map(([k, v]) => [k, String(v ?? '')]))
 	);
+	let pictureSeconds = $state<number | null>(initial?.picture_seconds ?? null);
+	// Empty (null): the global setting.
+	let prebuffer = $state<number | null | undefined>(initial?.prebuffer_seconds ?? null);
+	const globals = $derived(store.info?.recording);
+	// What this camera gets without its own value: its first circle's, else the global one,
+	// as the server resolves it.
+	const circle = $derived(
+		initial ? store.circles.find((c) => c.cameras.includes(initial.id)) : undefined
+	);
+	const inherited = $derived({
+		picture_seconds: circle?.picture_seconds ?? globals?.picture_seconds ?? 0,
+		prebuffer_seconds: circle?.prebuffer_seconds ?? globals?.prebuffer_seconds ?? 0
+	});
 	let saving = $state(false);
 	let error = $state('');
 
@@ -63,7 +78,10 @@
 			driver: driverName,
 			enabled,
 			record,
-			auto_update: initial?.auto_update ?? false
+			auto_update: initial?.auto_update ?? false,
+			picture_seconds: pictureSeconds,
+			prebuffer_seconds:
+				typeof prebuffer === 'number' && Number.isFinite(prebuffer) ? prebuffer : null
 		};
 		for (const [key] of fields) {
 			const value = options[key]?.trim();
@@ -154,7 +172,7 @@
 	{/each}
 
 	<div class="divide-y divide-line card">
-		<label class="flex cursor-pointer items-center justify-between gap-4 p-4">
+		<label class="flex cursor-pointer items-center justify-between gap-4 px-5 py-3.5">
 			<span>
 				<span class="block text-sm font-medium">Record continuously</span>
 				<span class="block text-xs text-muted"
@@ -163,19 +181,34 @@
 			</span>
 			<input
 				type="checkbox"
-				class="size-5 accent-[var(--accent)]"
+				role="switch"
+				class="switch"
 				checked={record === 'continuous'}
 				onchange={(e) => (record = e.currentTarget.checked ? 'continuous' : 'off')}
 			/>
 		</label>
-		<label class="flex cursor-pointer items-center justify-between gap-4 p-4">
+		<IntervalSetting
+			label="Pictures"
+			hint="Take a picture on a timer. They show in Recordings and expire like other automatic recordings."
+			bind:value={pictureSeconds}
+			inherit={inherited.picture_seconds}
+		/>
+		<NumberSetting
+			label="Record before the trigger"
+			hint="Seconds a clip includes from before what started it. Empty: as set above; 0: off."
+			bind:value={prebuffer}
+			max={300}
+			unit="sec"
+			placeholder={String(inherited.prebuffer_seconds)}
+		/>
+		<label class="flex cursor-pointer items-center justify-between gap-4 px-5 py-3.5">
 			<span>
 				<span class="block text-sm font-medium">Enabled</span>
 				<span class="block text-xs text-muted"
 					>A disabled camera stays in the config but doesn't connect.</span
 				>
 			</span>
-			<input type="checkbox" class="size-5 accent-[var(--accent)]" bind:checked={enabled} />
+			<input type="checkbox" role="switch" class="switch" bind:checked={enabled} />
 		</label>
 	</div>
 

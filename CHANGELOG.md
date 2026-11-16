@@ -25,5 +25,18 @@ The first version.
   sensitivity, HTTP/HTTPS switches, and firmware download and upload.
 - New drivers `dahua` (Amcrest, Lorex), `axis`, `foscam-hd`, `tapo` and `unifi`, written from
   the vendors' APIs and not yet tested on real cameras.
+- Settings are editable in the app: recording, pre-recording, pictures, firmware check interval.
+- Three storage stages: a RAM buffer per camera, so clips start before their trigger; temporary
+  storage for what is being recorded; the recordings folder for finished files. Settings shows
+  what each holds, and the CPU and memory of Norn, go2rtc and each FFmpeg.
+- A storage forecast per trigger and camera: bytes per day, the size it levels off at, and when
+  the disk is full; measured from recordings, estimated from the bitrate before.
+- Pictures on a timer (trigger `interval`), globally, per circle or per camera.
+- Automatic recordings expire after the retention time, shown as a ring on each; clips recorded
+  by hand stay. Recordings have a delete button.
+- A timeline of all recordings with thumbnails, at 1 hour, 6 hours, a day or a week.
+- Circles: groups of cameras with one trigger (and webhook), shared settings, and the controls
+  they have in common set on all at once.
+- Camera pages fold their panels; long choices become dropdowns.
 - Controls are cached: the server keeps them warm, the browser remembers them, so a camera page
   opens complete.

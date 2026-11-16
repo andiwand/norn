@@ -89,7 +89,7 @@ def test_events_websocket(client: TestClient) -> None:
 
 def test_recording_unavailable_without_go2rtc(client: TestClient) -> None:
     assert client.post("/api/cameras/demo/record", json={}).status_code == 503
-    assert client.get("/api/recordings").json() == {"recordings": [], "days": []}
+    assert client.get("/api/recordings").json() == {"recordings": [], "days": [], "truncated": False}
 
 
 def test_recording_files(client: TestClient, settings: Settings) -> None:
@@ -106,6 +106,23 @@ def test_recording_files(client: TestClient, settings: Settings) -> None:
     assert client.get("/api/recordings/demo/2026-11-15/..%2F..%2Fx.mp4").status_code in (400, 404)
     assert client.delete(url).status_code == 204
     assert client.get(url).status_code == 404
+
+
+def test_settings_round_trip(client: TestClient, settings: Settings) -> None:
+    data = client.get("/api/settings").json()
+    assert data["values"]["recording"]["retention_days"] == 14
+    assert data["defaults"]["recording"]["clip_seconds"] == 30
+    recording = {**data["values"]["recording"], "retention_days": 30, "clip_seconds": 45}
+    response = client.put("/api/settings", json={"recording": recording})
+    assert response.status_code == 200, response.text
+    assert response.json()["values"]["recording"]["retention_days"] == 30
+    text = settings.config_path.read_text()
+    assert "retention_days: 30" in text and "# delete recordings" in text  # the comment survives
+    assert "clip_seconds: 45" in text
+    assert client.get("/api/info").json()["recording"]["clip_seconds"] == 45
+    bad = client.put("/api/settings", json={"recording": {**recording, "segment_minutes": 0}})
+    assert bad.status_code == 422
+    assert client.put("/api/settings", json={"nope": {}}).status_code == 422
 
 
 def test_config_reload_from_disk(client: TestClient, settings: Settings) -> None:
@@ -157,3 +174,97 @@ def test_go2rtc_config_is_block_yaml(settings: Settings) -> None:
     text = go2rtc.config_path.read_text()
     assert "{" not in text  # go2rtc's own editor can't handle flow style
     assert "door: rtsp://u:p%23w@cam/1" in text
+
+
+def test_storage_and_pictures(client: TestClient, settings: Settings) -> None:
+    picture = settings.recordings_path / "demo" / "2026-11-15" / "10-00-00_interval.jpg"
+    picture.parent.mkdir(parents=True)
+    picture.write_bytes(b"jpeg")
+    (settings.temp_path / "demo").mkdir(parents=True)
+    (settings.temp_path / "demo" / "x.bin").write_bytes(b"12")
+    storage = client.get("/api/storage").json()
+    assert storage["recordings"]["used"] == 4 and storage["temp"]["used"] == 2
+    assert storage["buffer"]["used"] == 0
+    data = client.get("/api/recordings", params={"kind": "picture"}).json()
+    [item] = data["recordings"]
+    assert item["kind"] == "picture" and item["expires"].startswith("2026-11-29T10:00:00")
+    since = "2026-11-15T09:00:00+00:00"
+    assert client.get("/api/recordings", params={"since": since}).json()["recordings"]
+    assert client.delete(f"/api/recordings/{item['id']}").status_code == 204
+    assert not picture.exists()
+
+
+def test_firmware_settings_and_camera_overrides(client: TestClient, settings: Settings) -> None:
+    response = client.put("/api/settings", json={"firmware": {"check_hours": 6}})
+    assert response.json()["values"]["firmware"] == {"check_hours": 6}
+    text = settings.config_path.read_text()
+    assert text.index("firmware:") < text.index("cameras:")
+    body = {"name": "Demo camera", "driver": "demo", "picture_seconds": 60}
+    camera = client.put("/api/cameras/demo", json=body).json()
+    assert camera["picture_seconds"] == 60 and camera["prebuffer_seconds"] is None
+    assert "picture_seconds: 60" in settings.config_path.read_text()
+    bad = client.put("/api/cameras/demo", json={**body, "picture_seconds": 3})
+    assert bad.status_code == 422
+
+
+def test_resources(client: TestClient) -> None:
+    data = client.get("/api/resources").json()
+    assert data["processes"][0]["kind"] == "Norn" or any(p["kind"] == "Norn" for p in data["processes"])
+    assert data["system"]["cores"] >= 1 and data["memory"] > 0
+    assert data["gpu"]["used"] is False
+
+
+def test_circles(client: TestClient, settings: Settings) -> None:
+    client.post("/api/cameras", json={"id": "yard", "name": "Yard", "driver": "demo"})
+    body = {"id": "outside", "name": "Outside", "cameras": ["demo", "yard"], "picture_seconds": 300}
+    response = client.post("/api/circles", json=body)
+    assert response.status_code == 201, response.text
+    text = settings.config_path.read_text()
+    assert text.index("circles:") < text.index("cameras:")
+    assert client.post("/api/circles", json={**body, "id": "x", "cameras": ["nope"]}).status_code == 422
+    assert client.get("/api/circles").json()[0]["cameras"] == ["demo", "yard"]
+    hub = client.app.state.hub  # type: ignore[attr-defined]
+    assert hub.config.setting("yard", "picture_seconds") == (300, True)
+    assert hub.config.setting("yard", "prebuffer_seconds") == (10, False)
+
+    # The two demo cameras share their controls; one change sets both.
+    controls = {c["id"]: c for c in client.get("/api/circles/outside/controls").json()["controls"]}
+    assert controls["spotlight"]["mixed"] is False
+    assert client.post("/api/circles/outside/controls/spotlight", json={"value": True}).json()["ok"]
+    for camera in ("demo", "yard"):
+        values = {
+            c["id"]: c.get("value") for c in client.get(f"/api/cameras/{camera}/controls").json()["controls"]
+        }
+        assert values["spotlight"] is True
+    client.post("/api/cameras/yard/controls/spotlight", json={"value": False})
+    controls = {c["id"]: c for c in client.get("/api/circles/outside/controls").json()["controls"]}
+    assert controls["spotlight"]["mixed"] is True and controls["spotlight"]["value"] is None
+
+    assert client.post("/api/circles/outside/record", json={}).status_code == 503  # no go2rtc in tests
+    assert client.delete("/api/circles/outside").status_code == 204
+    assert "circles" not in settings.config_path.read_text()
+
+
+def test_review_fixes(client: TestClient, settings: Settings) -> None:
+    # Norn's own triggers can't come from outside.
+    assert client.post("/api/cameras/demo/record", json={"trigger": "continuous"}).status_code == 422
+    # A partial settings change keeps the other fields.
+    client.put("/api/settings", json={"recording": {"clip_seconds": 60}})
+    client.put("/api/settings", json={"recording": {"retention_days": 3}})
+    recording = client.get("/api/settings").json()["values"]["recording"]
+    assert (recording["clip_seconds"], recording["retention_days"]) == (60, 3)
+    # Removing a camera takes it out of its circles.
+    client.post("/api/cameras", json={"id": "yard", "name": "Yard", "driver": "demo"})
+    body = {"id": "all", "name": "All", "cameras": ["demo", "yard", "yard"]}
+    assert client.post("/api/circles", json=body).json()["cameras"] == ["demo", "yard"]
+    assert client.delete("/api/cameras/yard").status_code == 204
+    assert client.get("/api/circles").json()[0]["cameras"] == ["demo"]
+
+
+def test_live_continuous_file_is_listed(client: TestClient, settings: Settings) -> None:
+    live = settings.temp_path / "demo" / "2026-11-16" / "09-00-00_continuous.mp4"
+    live.parent.mkdir(parents=True)
+    live.write_bytes(b"frag")
+    [item] = client.get("/api/recordings").json()["recordings"]
+    assert item["live"] is True and item["id"] == "demo/2026-11-16/09-00-00_continuous.mp4"
+    assert client.get(f"/api/recordings/{item['id']}").content == b"frag"

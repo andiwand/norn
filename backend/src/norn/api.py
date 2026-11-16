@@ -12,6 +12,7 @@ import contextlib
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import datetime
 from importlib import resources
 from pathlib import Path
 from typing import Any, Literal
@@ -19,15 +20,16 @@ from typing import Any, Literal
 import websockets
 from fastapi import APIRouter, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, Response
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from starlette.websockets import WebSocketState
 
 from . import __version__
-from .config import CAMERA_ID, CameraConfig, ConfigError
+from .config import CAMERA_ID, CameraConfig, CircleConfig, ConfigError, FirmwareSettings, RecordingSettings
 from .drivers import DRIVERS, describe
 from .drivers.base import Capability, DriverError, NotSupportedError, PtzCommand
 from .go2rtc import Go2rtcUnavailableError
 from .hub import Hub, stream_name
+from .recorder import RESERVED
 from .recordings import InvalidPathError
 from .settings import Settings
 
@@ -42,10 +44,25 @@ class CameraBody(BaseModel):
     enabled: bool = True
     record: Literal["off", "continuous"] = "off"
     auto_update: bool = False
+    picture_seconds: int | None = None
+    prebuffer_seconds: int | None = None
 
 
 class NewCamera(CameraBody):
     id: str = Field(pattern=CAMERA_ID.pattern)
+
+
+class NewCircle(CircleConfig):
+    id: str = Field(pattern=CAMERA_ID.pattern)
+
+
+class SettingsBody(BaseModel):
+    """The global settings the web app edits. Sections left out stay as they are."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    recording: RecordingSettings | None = None
+    firmware: FirmwareSettings | None = None
 
 
 class ControlBody(BaseModel):
@@ -55,6 +72,23 @@ class ControlBody(BaseModel):
 class RecordBody(BaseModel):
     trigger: str = Field("manual", pattern=r"^[a-z0-9-]{1,32}$")
     seconds: int | None = Field(None, ge=5, le=3600)
+
+    @field_validator("trigger")
+    @classmethod
+    def _not_reserved(cls, value: str) -> str:
+        if value in RESERVED:
+            raise ValueError(f"{value!r} is a trigger Norn uses itself")
+        return value
+
+
+def camera_config(data: dict[str, Any]) -> CameraConfig:
+    """A camera from an API body; the config's own checks fail as a 422 (ConfigError)."""
+    try:
+        return CameraConfig.model_validate(data)
+    except ValidationError as e:
+        raise ConfigError(
+            "; ".join(f"{'.'.join(map(str, err['loc']))}: {err['msg']}" for err in e.errors())
+        ) from e
 
 
 def default_static() -> Path | None:
@@ -105,6 +139,30 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
             "recording": hub.config.recording.model_dump(),
         }
 
+    def settings_json() -> dict[str, Any]:
+        sections = {name: getattr(hub.config, name) for name in SettingsBody.model_fields}
+        return {
+            "values": {name: value.model_dump() for name, value in sections.items()},
+            "defaults": {name: type(value)().model_dump() for name, value in sections.items()},
+        }
+
+    @api.get("/settings")
+    async def get_settings() -> dict[str, Any]:
+        return settings_json()
+
+    @api.put("/settings")
+    async def put_settings(body: SettingsBody) -> dict[str, Any]:
+        # Fields left out keep their value, instead of falling back to the default.
+        sections = {
+            name: type(value).model_validate(
+                {**getattr(hub.config, name).model_dump(), **value.model_dump(exclude_unset=True)}
+            )
+            for name, value in body
+            if value is not None
+        }
+        await hub.put_settings(sections)
+        return settings_json()
+
     @api.get("/drivers")
     async def drivers() -> list[dict[str, Any]]:
         return [describe(cls) for cls in DRIVERS.values()]
@@ -120,7 +178,7 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
         data = body.model_dump()
         camera_id = data.pop("id")
         try:
-            await hub.put_camera(camera_id, CameraConfig.model_validate(data))
+            await hub.put_camera(camera_id, camera_config(data))
         except ConfigError as e:
             raise HTTPException(422, str(e)) from e
         return hub.camera_json(camera_id)
@@ -134,7 +192,7 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
     async def update_camera(camera_id: str, body: CameraBody) -> dict[str, Any]:
         camera_or_404(camera_id)
         try:
-            await hub.put_camera(camera_id, CameraConfig.model_validate(body.model_dump()))
+            await hub.put_camera(camera_id, camera_config(body.model_dump()))
         except ConfigError as e:
             raise HTTPException(422, str(e)) from e
         return hub.camera_json(camera_id)
@@ -234,19 +292,127 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
 
     @api.get("/recordings")
     async def recordings(
-        camera: str | None = None, day: str | None = None, limit: int = Query(500, ge=1, le=5000)
+        camera: str | None = None,
+        day: str | None = None,
+        limit: int = Query(500, ge=1, le=20000),
+        since: datetime | None = None,
+        until: datetime | None = None,
+        kind: Literal["video", "picture"] | None = None,
+        trigger: str | None = Query(None, pattern=r"^[a-z0-9-]{1,32}$"),
+        pictures: int | None = Query(None, ge=1, le=5000),
     ) -> dict[str, Any]:
+        """Recordings, newest first. `since`/`until` (ISO times) keep the ones that overlap the
+        range; `trigger` filters (`clips`: videos a trigger started); `pictures` thins pictures to
+        about that many per camera. `truncated` says that `limit` cut the list."""
+        args = (camera, day, limit + 1, _local(since), _local(until), kind, trigger, pictures)
         try:
-            items = await asyncio.to_thread(hub.library.list, camera, day, limit)
+            items = await asyncio.to_thread(hub.library.list, *args)
+            # What is being recorded right now: the continuous files in the temporary storage.
+            live = [
+                r for r in await asyncio.to_thread(hub.recorder.temp.list, *args) if r.trigger == "continuous"
+            ]
             days = hub.library.days(camera) if camera else []
         except InvalidPathError as e:
             raise HTTPException(400, str(e)) from e
-        return {"recordings": [r.to_json() for r in items], "days": days}
+        retention = hub.config.recording.retention_days
+        found = [{**r.to_json(retention), "live": True} for r in live]
+        found += [r.to_json(retention) for r in items]
+        found.sort(key=lambda r: r["start"], reverse=True)
+        return {"recordings": found[:limit], "days": days, "truncated": len(found) > limit}
+
+    def circle_or_404(circle_id: str) -> None:
+        if circle_id not in hub.config.circles:
+            raise HTTPException(404, f"no circle {circle_id!r}")
+
+    def circle_json(circle_id: str) -> dict[str, Any]:
+        return {"id": circle_id, **hub.config.circles[circle_id].model_dump()}
+
+    @api.get("/circles")
+    async def circles() -> list[dict[str, Any]]:
+        return [circle_json(cid) for cid in hub.config.circles]
+
+    @api.post("/circles", status_code=201)
+    async def add_circle(body: NewCircle) -> dict[str, Any]:
+        if body.id in hub.config.circles:
+            raise HTTPException(409, f"circle {body.id!r} exists")
+        await hub.put_circle(body.id, CircleConfig.model_validate(body.model_dump(exclude={"id"})))
+        return circle_json(body.id)
+
+    @api.put("/circles/{circle_id}")
+    async def update_circle(circle_id: str, body: CircleConfig) -> dict[str, Any]:
+        circle_or_404(circle_id)
+        await hub.put_circle(circle_id, body)
+        return circle_json(circle_id)
+
+    @api.delete("/circles/{circle_id}", status_code=204)
+    async def delete_circle(circle_id: str) -> Response:
+        circle_or_404(circle_id)
+        await hub.remove_circle(circle_id)
+        return Response(status_code=204)
+
+    @api.get("/circles/{circle_id}/controls")
+    async def circle_controls(circle_id: str) -> dict[str, Any]:
+        """The controls all cameras of the circle share, to set them on all at once."""
+        circle_or_404(circle_id)
+        return {"controls": await hub.circle_controls(circle_id)}
+
+    @api.post("/circles/{circle_id}/controls/{control_id}")
+    async def set_circle_control(circle_id: str, control_id: str, body: ControlBody) -> dict[str, Any]:
+        circle_or_404(circle_id)
+        errors = await hub.set_circle_control(circle_id, control_id, body.value)
+        if errors and len(errors) == len(hub.circle_members(circle_id)):
+            raise HTTPException(502, "; ".join(f"{c}: {e}" for c, e in errors.items()))
+        return {"ok": not errors, "errors": errors}
+
+    @api.post("/circles/{circle_id}/record")
+    async def record_circle(circle_id: str, body: RecordBody | None = None) -> dict[str, Any]:
+        """Start a clip on every camera of the circle. Also a webhook, like a camera's."""
+        circle_or_404(circle_id)
+        body = body or RecordBody()
+        clips, errors = [], {}
+        for camera_id in hub.circle_members(circle_id):
+            try:
+                clips.append(
+                    (await hub.recorder.record_clip(camera_id, body.trigger, body.seconds)).to_json()
+                )
+            except RuntimeError as e:
+                errors[camera_id] = str(e)
+        if errors and not clips:
+            raise HTTPException(503, "; ".join(errors.values()))
+        return {"clips": clips, "errors": errors}
+
+    @api.delete("/circles/{circle_id}/record")
+    async def stop_circle(circle_id: str) -> dict[str, Any]:
+        circle_or_404(circle_id)
+        stopped = [c for c in hub.circle_members(circle_id) if await hub.recorder.stop_clip(c)]
+        return {"stopped": stopped}
+
+    @api.get("/resources")
+    async def resources() -> dict[str, Any]:
+        """CPU and memory of Norn, go2rtc and each FFmpeg; and the GPU."""
+        return await hub.resources()
+
+    @api.get("/forecast")
+    async def forecast() -> dict[str, Any]:
+        """Bytes per day of each trigger, measured or estimated, and where that leads."""
+        return await hub.forecast()
+
+    @api.get("/storage")
+    async def storage() -> dict[str, Any]:
+        """What the buffer (RAM), the temporary storage and the recordings hold."""
+        return await hub.storage()
 
     @api.get("/recordings/{camera}/{day}/{name}")
-    async def recording_file(camera: str, day: str, name: str) -> FileResponse:
+    async def recording_file(camera: str, day: str, name: str, small: bool = False) -> FileResponse:
+        """A recording's file. `small`: a picture's small copy, for lists and timelines."""
         try:
+            if small and name.endswith(".jpg"):
+                thumb = hub.library.thumb_path(camera, day, name)
+                if thumb.is_file():
+                    return FileResponse(thumb, headers={"Cache-Control": "max-age=86400"})
             path = hub.library.path(camera, day, name)
+            if not path.is_file():
+                path = hub.recorder.temp.path(camera, day, name)  # still being recorded
         except InvalidPathError as e:
             raise HTTPException(400, str(e)) from e
         if not path.is_file():
@@ -337,6 +503,13 @@ def mount_web(app: FastAPI, root: Path) -> None:
             cache = "public, max-age=31536000, immutable" if immutable else "no-cache"
             return FileResponse(file, headers={"Cache-Control": cache})
         return FileResponse(index, headers={"Cache-Control": "no-cache"})
+
+
+def _local(value: datetime | None) -> datetime | None:
+    """A time from the browser as the server's naive local time, which the folders use."""
+    if value is None or value.tzinfo is None:
+        return value
+    return value.astimezone().replace(tzinfo=None)
 
 
 async def _drain(ws: WebSocket) -> None:

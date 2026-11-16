@@ -1,5 +1,13 @@
 // The app's shared state: the cameras, the server info, the live event stream, and toasts.
-import { api, type Camera, type Control, type Info, type NornEvent, type Preset } from './api';
+import {
+	api,
+	type Camera,
+	type Circle,
+	type Control,
+	type Info,
+	type NornEvent,
+	type Preset
+} from './api';
 
 export interface Toast {
 	id: number;
@@ -16,7 +24,8 @@ const REFRESH = new Set([
 	'recording.finished',
 	'recording.continuous',
 	'go2rtc.ready',
-	'camera.device'
+	'camera.device',
+	'settings.changed'
 ]);
 
 export interface CameraControls {
@@ -36,6 +45,7 @@ function loadCachedControls(): Record<string, CameraControls> {
 
 class Store {
 	cameras = $state<Camera[]>([]);
+	circles = $state<Circle[]>([]);
 	// The controls of each camera, kept between visits (and reloads), so a camera page opens
 	// complete and then updates in place.
 	controls = $state<Record<string, CameraControls>>(loadCachedControls());
@@ -55,6 +65,10 @@ class Store {
 		return this.cameras.find((c) => c.id === id);
 	}
 
+	circle(id: string): Circle | undefined {
+		return this.circles.find((c) => c.id === id);
+	}
+
 	start() {
 		if (this.#started) return;
 		this.#started = true;
@@ -64,8 +78,13 @@ class Store {
 
 	async refresh() {
 		try {
-			const [cameras, info] = await Promise.all([api.cameras(), api.info()]);
+			const [cameras, info, circles] = await Promise.all([
+				api.cameras(),
+				api.info(),
+				api.circles()
+			]);
 			this.cameras = cameras;
+			this.circles = circles;
 			this.info = info;
 			// Fetch the controls of cameras not seen before, so their pages open complete too.
 			for (const camera of cameras) {

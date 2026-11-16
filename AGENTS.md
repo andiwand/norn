@@ -47,7 +47,18 @@ image or the PyPI package `norn-hub`. The name may change later.
   - `recorder.py`: FFmpeg with `-c:v copy` from go2rtc's RTSP. Continuous: the segment muxer,
     into day folders made in advance (it can't make folders). Clips: one FFmpeg per clip, plus a
     thumbnail and a JSON sidecar.
+    Three storage stages: a `Buffer` per camera writes ~2 s MPEG-TS pieces into `NORN_BUFFER`
+    (RAM) so a clip can start before its trigger (a clip "claims" pieces so pruning keeps them);
+    clips, continuous files and pictures are written into `NORN_TEMP` (a `Library` with the same
+    layout) and moved into the recordings when finished (video first, then .jpg and .json).
+    Pictures (`interval`) come from the buffer's newest piece, else from go2rtc.
+  - Circles (`config.circles`) group cameras. `Config.setting(camera, name)` resolves
+    `picture_seconds`/`prebuffer_seconds`: the camera's own, its first circle's, the global one.
+    The hub computes the controls all members share (`circle_controls`) and sets them on all.
+  - `resources.py`: CPU and memory of Norn and its child processes (psutil), and the GPU.
   - `recordings.py`: the folder layout is the index (`<camera>/<YYYY-MM-DD>/<HH-MM-SS>_<trigger>.mp4`).
+    A `.jpg` without a video next to it is a picture. Everything but `manual` expires after
+    `retention_days`; `prune` deletes per file.
     `Library.path` validates every part; never build a recordings path another way.
   - `api.py`: the API under `/api`, the WebSocket `/api/stream` that forwards to go2rtc (so the
     browser needs only port 8000 plus 8555 for WebRTC media), `/api/events`, and the web app with
