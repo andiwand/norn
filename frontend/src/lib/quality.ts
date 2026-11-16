@@ -16,6 +16,7 @@ export interface Health {
 
 export const CHECK_MS = 2000;
 const STRIKES = 3; // bad checks in a row before stepping down
+const SETTLE_MS = 10_000; // a new stream stalls while it starts; that says nothing yet
 const CALM_MS = 120_000; // calm before trying one step up
 const MAX_WAIT_MS = 30 * 60_000;
 
@@ -26,6 +27,8 @@ export class QualityGuard {
 	#calmSince: number;
 	#upWait = CALM_MS;
 	#triedUpAt: number | null = null;
+	#since: number; // when the current stream started
+	#frozen = 0; // checks in a row with a frozen picture
 
 	constructor(
 		readonly ladder: string[],
@@ -34,6 +37,7 @@ export class QualityGuard {
 	) {
 		this.level = Math.min(start, ladder.length - 1);
 		this.#calmSince = now;
+		this.#since = now;
 	}
 
 	get stream(): string {
@@ -46,7 +50,11 @@ export class QualityGuard {
 
 	/** Feed one check; the stream to play now (a change means: switch to it). */
 	check(health: Health, now = Date.now()): string {
-		if (QualityGuard.bad(health)) {
+		if (now - this.#since < SETTLE_MS) return this.stream;
+		// A picture that doesn't move for one check can be a slow keyframe; two is a freeze.
+		this.#frozen = health.frozen ? this.#frozen + 1 : 0;
+		const bad = QualityGuard.bad({ ...health, frozen: this.#frozen >= 2 });
+		if (bad) {
 			this.#strikes++;
 			this.#calmSince = now;
 			if (this.#strikes >= STRIKES) this.down(now);
@@ -60,6 +68,7 @@ export class QualityGuard {
 				this.level--;
 				this.#triedUpAt = now;
 				this.#calmSince = now;
+				this.#since = now;
 			}
 		}
 		return this.stream;
@@ -74,7 +83,10 @@ export class QualityGuard {
 			this.#upWait = Math.min(this.#upWait * 2, MAX_WAIT_MS);
 			this.#triedUpAt = null;
 		}
-		if (this.level < this.ladder.length - 1) this.level++;
+		if (this.level < this.ladder.length - 1) {
+			this.level++;
+			this.#since = now;
+		}
 		return this.stream;
 	}
 }

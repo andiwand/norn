@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("norn.pilot")
 
+MOVE_TIMEOUT = 8.0  # seconds a move from the API runs without a new command (the page renews it)
 NUDGE_SECONDS = 0.35  # how long one nudge toward a followed person turns the camera
 DEAD_ZONE = 0.15  # how far off the middle (of -1..1) a person may be before Norn turns
 
@@ -42,6 +43,7 @@ class Pilot:
         self.patrol_index = -1
         self.following = False  # the camera's own tracking is on because of Norn
         self._paused = asyncio.Event()  # set by pause(): a dwell ends at once
+        self._auto_stop: asyncio.Task[None] | None = None
         self.task = asyncio.create_task(self._run(), name=f"pilot-{camera_id}")
 
     @property
@@ -50,9 +52,28 @@ class Pilot:
 
     def stop(self) -> None:
         self.task.cancel()
+        if self._auto_stop:
+            self._auto_stop.cancel()
 
     def picture(self, preset_id: str) -> Path:
         return self.hub.settings.runtime_dir / "presets" / self.camera_id / f"{preset_id}.jpg"
+
+    def moved(self, command: PtzCommand) -> None:
+        """A move from the API: if no new command follows within MOVE_TIMEOUT, stop it. A page
+        that lost its connection, or a stop that never came, must not leave the camera turning."""
+        if self._auto_stop:
+            self._auto_stop.cancel()
+            self._auto_stop = None
+        if command.action == "move":
+            self._auto_stop = asyncio.create_task(self._stop_later())
+
+    async def _stop_later(self) -> None:
+        await asyncio.sleep(MOVE_TIMEOUT)
+        log.info("%s: a move without a stop; stopping it", self.camera_id)
+        try:
+            await self.hub.get_driver(self.camera_id).ptz(PtzCommand(action="stop"))
+        except Exception as e:
+            log.warning("%s: stopping failed: %s", self.camera_id, e)
 
     def manual(self) -> None:
         """Someone steered the camera: patrol waits."""

@@ -383,6 +383,7 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
             raise HTTPException(422, str(e)) from e
         if pilot := hub.pilots.get(camera_id):
             pilot.manual()  # someone steers: a patrol waits
+            pilot.moved(command)
         return {"ok": True}
 
     @api.put("/cameras/{camera_id}/presets/{preset_id}")

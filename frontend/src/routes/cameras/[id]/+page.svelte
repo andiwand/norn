@@ -184,6 +184,7 @@
 		<div class="min-w-0 space-y-6">
 			<div
 				bind:this={frame}
+				data-ptz-keys
 				class="group relative overflow-hidden rounded-2xl border border-line bg-black shadow-[0_30px_80px_-40px_rgb(0_0_0/0.9)]"
 			>
 				{#if camera.enabled && caps.has('live')}

@@ -13,19 +13,49 @@
 	let { camera, speed = 0.5 }: { camera: string; speed?: number } = $props();
 
 	let moving = $state<string | null>(null);
+	let repeat: ReturnType<typeof setInterval> | undefined;
 
-	const send = (command: PtzCommand) => store.attempt(() => api.ptz(camera, command));
+	// One command after the other: a quick tap must not let its stop overtake its move, or the
+	// camera turns on to its end stop.
+	let queue: Promise<unknown> = Promise.resolve();
+	const send = (command: PtzCommand) =>
+		(queue = queue.then(() => store.attempt(() => api.ptz(camera, command))));
 
 	function start(key: string, pan = 0, tilt = 0, zoom = 0) {
 		moving = key;
-		send({ action: 'move', pan: pan * speed, tilt: tilt * speed, zoom: zoom * speed });
+		const command: PtzCommand = {
+			action: 'move',
+			pan: pan * speed,
+			tilt: tilt * speed,
+			zoom: zoom * speed
+		};
+		send(command);
+		// The server stops a move it doesn't hear about for a while; holding renews it.
+		clearInterval(repeat);
+		repeat = setInterval(() => send(command), 3000);
 	}
 
 	function stop() {
+		clearInterval(repeat);
 		if (!moving) return;
 		moving = null;
 		send({ action: 'stop' });
 	}
+
+	// Leaving the window, the tab or the page while holding: stop.
+	$effect(() => {
+		const onHide = () => stop();
+		const onVisibility = () => document.hidden && stop();
+		window.addEventListener('blur', onHide);
+		window.addEventListener('pagehide', onHide);
+		document.addEventListener('visibilitychange', onVisibility);
+		return () => {
+			stop();
+			window.removeEventListener('blur', onHide);
+			window.removeEventListener('pagehide', onHide);
+			document.removeEventListener('visibilitychange', onVisibility);
+		};
+	});
 
 	// Pointer events cover mouse and touch; capture keeps the release on the button that started.
 	function hold(node: HTMLElement, args: [string, number, number, number]) {
@@ -64,6 +94,8 @@
 	function onkeydown(e: KeyboardEvent) {
 		const target = e.target as HTMLElement;
 		if (target.closest('input, select, textarea') || e.repeat) return;
+		// Only while the mouse is over the video or the pad: elsewhere the keys scroll the page.
+		if (!document.querySelector('[data-ptz-keys]:hover')) return;
 		const args = keys[e.key];
 		if (args) {
 			e.preventDefault();
@@ -81,7 +113,7 @@
 
 <svelte:window {onkeydown} {onkeyup} />
 
-<div class="flex items-center justify-center gap-6">
+<div data-ptz-keys class="flex items-center justify-center gap-6">
 	<div
 		class="relative size-44 rounded-full border border-line bg-gradient-to-b from-surface-2 to-surface shadow-inner"
 		role="group"

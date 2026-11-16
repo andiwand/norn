@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.1 — 2026-11-16
+
+- Pan/tilt: commands are sent in order, so a quick tap can't leave the camera turning to its
+  end stop; a move stops by itself after 8 s without a new command (holding renews it); the
+  camera stops when the page loses focus; the arrow keys steer only over the video or the pad.
+- Adaptive quality is calmer: no switching while a stream starts, a freeze must last two
+  checks, and a stream that played isn't taken for one that never starts.
+
 ## 0.1.0 — 2026-11-16
 
 The first version, an early preview.

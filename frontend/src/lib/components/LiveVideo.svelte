@@ -93,9 +93,10 @@
 		});
 	});
 
-	// A stream that never starts (after a step up, say) counts as failed.
+	// A stream that never starts (after a step up, say) counts as failed. One that played and
+	// reconnects for a moment doesn't.
 	$effect(() => {
-		if (!guard || status !== 'connecting') return;
+		if (!guard || status !== 'connecting' || played) return;
 		const g = guard;
 		const timer = setTimeout(() => {
 			const next = g.down();

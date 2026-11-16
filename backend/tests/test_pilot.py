@@ -57,3 +57,20 @@ async def test_reaction_turns_another_camera(settings: Settings) -> None:
         assert hub.pilots["yard"].paused_until > 0  # held: no patrol meanwhile
     finally:
         await hub.stop()
+
+
+async def test_a_move_without_a_stop_stops(settings: Settings, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setattr("norn.pilot.MOVE_TIMEOUT", 0.2)
+    hub = Hub(settings)
+    await hub.start()
+    try:
+        from norn.drivers.base import PtzCommand
+
+        driver = hub.get_driver("demo")
+        move = PtzCommand(action="move", pan=1)
+        await driver.ptz(move)
+        hub.pilots["demo"].moved(move)
+        await asyncio.sleep(0.4)
+        assert driver._move is None  # type: ignore[attr-defined]  # stopped by itself
+    finally:
+        await hub.stop()
