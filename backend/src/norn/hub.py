@@ -38,6 +38,7 @@ from .probe import StreamProbe, probe_all, probeable
 from .recorder import Recorder, ffprobe_of
 from .recordings import Library
 from .resources import Resources
+from .secrets import public
 from .settings import Settings
 from .stills import Stills, StillStream
 
@@ -119,7 +120,9 @@ class Camera:
             "driver": self.config.driver,
             "enabled": self.config.enabled,
             "record": self.config.record,
-            "options": self.config.options,
+            # Never the passwords: which secrets are set, and addresses with the password hidden.
+            "options": public(self.config.options)[0],
+            "secrets": public(self.config.options)[1],
             "error": self.error,
             "capabilities": caps,
             "streams": [

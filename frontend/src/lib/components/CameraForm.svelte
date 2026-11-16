@@ -94,6 +94,11 @@
 		return prop.enum ?? prop.anyOf?.find((p) => p.enum)?.enum;
 	}
 
+	/** A password Norn has but never sends back: left empty, it stays as it is. */
+	function stored(key: string): boolean {
+		return !!initial?.secrets?.includes(key);
+	}
+
 	function isSecret(key: string): boolean {
 		return /pass|secret|token/i.test(key);
 	}
@@ -194,8 +199,12 @@
 					class="input font-mono text-[13px]"
 					type={isSecret(key) ? 'password' : 'text'}
 					bind:value={options[key]}
-					required={required.has(key)}
-					placeholder={prop.default != null ? String(prop.default) : ''}
+					required={required.has(key) && !stored(key)}
+					placeholder={stored(key)
+						? 'Unchanged (type to replace)'
+						: prop.default != null
+							? String(prop.default)
+							: ''}
 					autocomplete="off"
 					spellcheck="false"
 				/>

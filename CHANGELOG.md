@@ -40,6 +40,8 @@ The first version.
 - Logging to the console, a rotating file and the Settings page; credentials are scrubbed.
 - The timeline shows what started each clip as an icon, and finds the clips that saw a
   person, a vehicle, ...
+- Camera passwords never leave Norn through the API: secret options are left out of responses,
+  passwords in addresses show as •••, and a save without them keeps the stored ones.
 - Storage limits besides the age: a size limit and a minimum of free disk space; the oldest
   automatic recordings go first. The forecast says when a limit is reached.
 - Recordings can be pinned (kept whatever the limits) and downloaded, from the tile or the

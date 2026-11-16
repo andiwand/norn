@@ -43,6 +43,7 @@ from .hub import Hub, stream_name
 from .labels import describe as describe_labels
 from .recorder import RESERVED
 from .recordings import InvalidPathError
+from .secrets import keep as keep_secrets
 from .settings import Settings
 
 log = logging.getLogger("norn.api")
@@ -250,10 +251,12 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
         data = body.model_dump()
         # What the body leaves out (null) of the pan/tilt setup stays as it is: forms that edit
         # other things don't send it.
-        keep = hub.cameras[camera_id].config.model_dump(
-            include={"presets", "patrol", "reactions", "follow"}, by_alias=True
-        )
+        current = hub.cameras[camera_id].config
+        keep = current.model_dump(include={"presets", "patrol", "reactions", "follow"}, by_alias=True)
         data |= {key: value for key, value in keep.items() if data.get(key) is None}
+        # Passwords the form didn't send (it never gets them) stay as they are.
+        options = {k: v for k, v in data.items() if k not in CameraConfig.model_fields}
+        data |= keep_secrets(options, current.options)
         try:
             await hub.put_camera(camera_id, camera_config(data))
         except ConfigError as e:

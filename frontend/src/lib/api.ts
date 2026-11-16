@@ -102,7 +102,10 @@ export interface Camera {
 	driver: string;
 	enabled: boolean;
 	record: 'off' | 'continuous';
+	/** The driver options, without passwords (addresses show them as •••). */
 	options: Record<string, unknown>;
+	/** Which secret options are set (their values never leave the server). */
+	secrets: string[];
 	error: string | null;
 	capabilities: Capability[];
 	streams: StreamInfo[];
