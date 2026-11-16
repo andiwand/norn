@@ -66,6 +66,12 @@ image or the PyPI package `norn-hub`. The name may change later.
     keyframe mode. It stops `IDLE_AFTER` seconds after the last subscriber. `detect.py`: the
     motion detector, YOLOX (`Detectors`, one inference at a time) and the `Tracker`. The hub's
     `_watch_stills` subscribes per camera when the camera's `detection_for` asks for it.
+  - `pilot.py`: one Pilot per camera: Norn presets (`config.presets`: a camera slot plus
+    controls; pictures in `.norn/presets/`), patrol, reactions (from `_react` in the hub) and
+    following (`autotrack` control, else `nudge` from `_watch_stills`). Manual PTZ via the API
+    pauses it. Camera PUTs without presets/patrol/reactions/follow keep the current ones.
+  - `logs.py`: console, rotating file and an in-memory ring for `/api/logs`; the `Scrub` filter
+    removes credentials from every line.
   - `resources.py`: CPU and memory of Norn and its child processes (psutil), and the GPU.
   - `recordings.py`: the folder layout is the index (`<camera>/<YYYY-MM-DD>/<HH-MM-SS>_<trigger>.mp4`).
     A `.jpg` without a video next to it is a picture. Everything but `manual` expires after

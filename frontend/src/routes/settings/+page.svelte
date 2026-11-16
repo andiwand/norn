@@ -12,6 +12,8 @@
 	import TriggerSetting from '#lib/components/TriggerSetting.svelte';
 	import ScheduleSetting from '#lib/components/ScheduleSetting.svelte';
 	import ChoiceSetting from '#lib/components/ChoiceSetting.svelte';
+	import LogView from '#lib/components/LogView.svelte';
+	import ScrollText from '@lucide/svelte/icons/scroll-text';
 	import ScanEye from '@lucide/svelte/icons/scan-eye';
 	import Plane from '@lucide/svelte/icons/plane';
 	import X from '@lucide/svelte/icons/x';
@@ -437,6 +439,13 @@
 			Set the folders with <code class="font-mono">NORN_BUFFER</code>,
 			<code class="font-mono">NORN_TEMP</code> and <code class="font-mono">NORN_RECORDINGS</code>.
 		</p>
+	</section>
+
+	<section class="card p-5">
+		<div class="mb-4 flex items-center gap-2 text-muted">
+			<ScrollText class="size-4" /><span class="eyebrow">Log</span>
+		</div>
+		<LogView />
 	</section>
 
 	<section class="card p-5">

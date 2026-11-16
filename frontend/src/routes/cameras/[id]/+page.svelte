@@ -12,6 +12,8 @@
 	import RecBadge from '#lib/components/RecBadge.svelte';
 	import DeviceCard from '#lib/components/DeviceCard.svelte';
 	import Panel from '#lib/components/Panel.svelte';
+	import NornPresets from '#lib/components/NornPresets.svelte';
+	import PtzAutomation from '#lib/components/PtzAutomation.svelte';
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 	import Pencil from '@lucide/svelte/icons/pencil';
 	import ExternalLink from '@lucide/svelte/icons/external-link';
@@ -333,8 +335,10 @@
 				<Panel title="Pan · Tilt · Zoom" name="ptz" open>
 					{#snippet summary()}{presets.length ? `${presets.length} presets` : ''}{/snippet}
 					<div class="pt-1"><PtzPad camera={camera.id} /></div>
+					<NornPresets {camera} {controls} />
 					{#if presets.length}
-						<div class="mt-5 flex flex-wrap gap-2">
+						<p class="mt-4 mb-2 text-xs font-medium text-muted">The camera's presets</p>
+						<div class="flex flex-wrap gap-2">
 							{#each presets as preset (preset.id)}
 								<button
 									class="chip"
@@ -346,6 +350,16 @@
 							{/each}
 						</div>
 					{/if}
+				</Panel>
+				<Panel title="Patrol & following" name="ptz-auto">
+					{#snippet summary()}{[
+							camera.patrol?.enabled ? 'Patrols' : '',
+							camera.follow !== 'off' ? 'Follows' : '',
+							camera.reactions.length ? `${camera.reactions.length} reactions` : ''
+						]
+							.filter(Boolean)
+							.join(' · ') || 'Off'}{/snippet}
+					{#key camera.id}<PtzAutomation {camera} />{/key}
 				</Panel>
 			{/if}
 

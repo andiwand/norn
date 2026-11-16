@@ -33,6 +33,13 @@ The first version.
   animal, ...), the Hikvision alert stream, and the alarm of supra/Foscam cameras. A clip runs
   while the detection lasts; a circle can record all its cameras together. A live badge shows
   what each camera detects.
+- Norn presets for pan/tilt cameras: a camera preset slot plus settings to apply there, with a
+  picture; saved from the camera page. Patrol through them (in turn or at random, a dwell
+  time, a schedule), reactions (a detection somewhere turns a camera to a preset for a while),
+  and following people (the camera's own tracking, else Norn's person detection).
+- Logging to the console, a rotating file and the Settings page; credentials are scrubbed.
+- The timeline shows what started each clip as an icon, and finds the clips that saw a
+  person, a vehicle, ...
 - Storage limits besides the age: a size limit and a minimum of free disk space; the oldest
   automatic recordings go first. The forecast says when a limit is reached.
 - Recordings can be pinned (kept whatever the limits) and downloaded, from the tile or the

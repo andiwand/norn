@@ -155,6 +155,8 @@ The settings of the process come from environment variables:
 | `NORN_BUFFER`      | `/dev/shm/norn`           | The pre-recording buffer; RAM if /dev/shm has 128 MB or more. |
 | `NORN_PORT`        | `8000`                    | The port of the web app and the API.                          |
 | `NORN_WEBRTC_PORT` | `8555`                    | The port of WebRTC media, TCP and UDP.                        |
+| `NORN_LOG_FILE`    | `<config>/.norn/logs/norn.log` | The log file (rotated, 5 × 5 MB); `off` for none.   |
+| `NORN_LOG_LEVEL`   | `info`                    | `debug`, `info`, `warning` or `error`.                        |
 | `NORN_GO2RTC`      | `managed`                 | `managed` (Norn runs go2rtc), `external`, or `off`.           |
 | `NORN_GO2RTC_API`  | `http://127.0.0.1:1984`   | The API of go2rtc; set it for an `external` go2rtc.           |
 | `NORN_GO2RTC_BIN`  | `go2rtc`                  | The go2rtc binary.                                            |

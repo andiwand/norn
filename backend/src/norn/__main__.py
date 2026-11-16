@@ -26,6 +26,7 @@ def main() -> None:
         port=settings.port,
         log_level=settings.log_level,
         log_config=None,  # logs.setup made the handlers
+        access_log=settings.access_log,
         proxy_headers=True,
         ws_ping_interval=20,
     )

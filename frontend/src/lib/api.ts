@@ -9,7 +9,9 @@ export type Capability =
 	| 'audio'
 	| 'talkback'
 	| 'firmware-upload'
-	| 'firmware-online';
+	| 'firmware-online'
+	| 'events'
+	| 'preset-save';
 
 export interface StreamInfo {
 	id: string;
@@ -30,6 +32,30 @@ export interface StreamProbe {
 	codec: string | null;
 	fps: number | null;
 	error: string | null;
+}
+
+/** A named view: one of the camera's preset slots, and settings to apply there. */
+export interface NornPreset {
+	name: string;
+	slot: string;
+	controls: Record<string, unknown>;
+}
+
+export interface Patrol {
+	enabled: boolean;
+	presets: string[];
+	order: 'sequence' | 'random';
+	dwell_seconds: number;
+	schedule: Window[];
+	pause_after_manual: number;
+}
+
+/** When `cameras` (empty: this one) detect one of `kinds`, turn to one of `presets`. */
+export interface Reaction {
+	kinds: string[];
+	cameras: string[];
+	presets: string[];
+	hold_seconds: number;
 }
 
 /** A stream the camera may have, to switch on or off; `probe`: what testing it found. */
@@ -97,6 +123,11 @@ export interface Camera {
 	/** The streams Norn uses, by id; null: all that work. */
 	stream_selection?: string[] | null;
 	stream_options: StreamOption[];
+	/** Norn's presets (by id), patrol, reactions to detections, following. */
+	presets_norn: Record<string, NornPreset>;
+	patrol: Patrol | null;
+	reactions: Reaction[];
+	follow: 'off' | 'always' | 'recording' | 'away';
 	/** The camera's own web page, when it answers. */
 	web_url: string | null;
 	/** The camera serves its streams at the same time (null: not known). */
@@ -318,6 +349,14 @@ export interface Forecast {
 	triggers: ForecastTrigger[];
 }
 
+export interface LogLine {
+	id: number;
+	time: number;
+	level: 'DEBUG' | 'INFO' | 'WARNING' | 'ERROR' | 'CRITICAL';
+	logger: string;
+	message: string;
+}
+
 export interface Storage {
 	buffer: StorageStage;
 	temp: StorageStage;
@@ -416,6 +455,14 @@ export const api = {
 	stopRecord: (id: string) => request<unknown>('DELETE', `/cameras/${enc(id)}/record`),
 	storage: () => request<Storage>('GET', '/storage'),
 	resources: () => request<Resources>('GET', '/resources'),
+	logs: (params: { level?: string; after?: number; text?: string; limit?: number } = {}) => {
+		const query = new URLSearchParams(
+			Object.entries(params)
+				.filter(([, v]) => v !== undefined && v !== '')
+				.map(([k, v]) => [k, String(v)])
+		);
+		return request<{ lines: LogLine[]; file: string | null }>('GET', `/logs?${query}`);
+	},
 	forecast: () => request<Forecast>('GET', '/forecast'),
 	recordings: (
 		params: {
@@ -464,6 +511,12 @@ export const api = {
 			{ trigger: 'manual' }
 		),
 	stopCircle: (id: string) => request<unknown>('DELETE', `/circles/${enc(id)}/record`),
+	savePreset: (id: string, preset: string, body: { name: string; controls: string[] }) =>
+		request<NornPreset>('PUT', `/cameras/${enc(id)}/presets/${enc(preset)}`, body),
+	deletePreset: (id: string, preset: string) =>
+		request<void>('DELETE', `/cameras/${enc(id)}/presets/${enc(preset)}`),
+	gotoPreset: (id: string, preset: string) =>
+		request<void>('POST', `/cameras/${enc(id)}/presets/${enc(preset)}/goto`),
 	probeStreams: (id: string) => request<Camera>('POST', `/cameras/${enc(id)}/streams/probe`),
 	refreshDevice: (id: string) => request<Camera>('POST', `/cameras/${enc(id)}/device`),
 	updateFirmware: async (id: string, file?: File): Promise<Camera> => {
@@ -502,6 +555,8 @@ export function cameraBody(camera: Camera, change: Record<string, unknown> = {})
 export const urls = {
 	stream: (camera: string, stream = 'main') =>
 		`/api/stream?camera=${enc(camera)}&stream=${enc(stream)}`,
+	presetPicture: (camera: string, preset: string, version = 0) =>
+		`/api/cameras/${enc(camera)}/presets/${enc(preset)}.jpg?v=${version}`,
 	/** The newest still, at once (for a picture before the video plays). */
 	still: (camera: string, maxAge = 15) =>
 		`/api/cameras/${enc(camera)}/still.jpg?max_age=${maxAge}&t=${Date.now()}`,

@@ -6,6 +6,8 @@
 	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import Film from '@lucide/svelte/icons/film';
+	import TriggerIcon from './TriggerIcon.svelte';
+	import { triggerLabel } from '../format';
 
 	let {
 		cameras,
@@ -129,9 +131,25 @@
 		};
 	});
 
+	// What a clip saw: its trigger, and what else was detected while it ran.
+	const kindsOf = (r: Recording): string[] => {
+		const extra = Array.isArray(r.meta?.events) ? (r.meta.events as string[]) : [];
+		return [...new Set([r.trigger, ...extra])];
+	};
+	// Look for a detection: only the clips that saw it (none of the continuous files, pictures).
+	let lookFor = $state('');
+	const seenKinds = $derived(
+		store.labels.filter((l) =>
+			items.some((i) => i.r.kind === 'video' && kindsOf(i.r).includes(l.id))
+		)
+	);
+	const matches = (i: Item) => !lookFor || (i.r.kind === 'video' && kindsOf(i.r).includes(lookFor));
+
 	const rows = $derived(
 		cameras.map((camera) => {
-			const own = items.filter((i) => i.r.camera === camera.id && i.end >= start && i.t <= end);
+			const own = items.filter(
+				(i) => i.r.camera === camera.id && i.end >= start && i.t <= end && matches(i)
+			);
 			// Pictures as one mark per bucket: thousands of marks would show the same few pixels.
 			const marks = new Set<number>();
 			for (const i of own) {
@@ -155,7 +173,7 @@
 	});
 	const strip = $derived.by(() => {
 		const keys = new Set(cameras.map((c) => c.id));
-		const withImages = items.filter((i) => i.r.thumbnail && keys.has(i.r.camera));
+		const withImages = items.filter((i) => i.r.thumbnail && keys.has(i.r.camera) && matches(i));
 		return Array.from({ length: slots }, (_, n) => {
 			const middle = stripStart + ((n + 0.5) / slots) * span;
 			const half = span / slots / 2;
@@ -335,6 +353,22 @@
 		</div>
 	</div>
 
+	{#if seenKinds.length}
+		<!-- Look for what was detected. -->
+		<div class="mb-3 flex flex-wrap items-center gap-1.5">
+			<button class="chip h-7 {lookFor === '' ? 'chip-active' : ''}" onclick={() => (lookFor = '')}
+				>All</button
+			>
+			{#each seenKinds as label (label.id)}
+				<button
+					class="chip h-7 {lookFor === label.id ? 'chip-active' : ''}"
+					onclick={() => (lookFor = lookFor === label.id ? '' : label.id)}
+					><TriggerIcon trigger={label.id} />{label.name}</button
+				>
+			{/each}
+		</div>
+	{/if}
+
 	<!-- Thumbnails along the window -->
 	<div
 		class="mb-3 grid gap-1.5"
@@ -394,8 +428,20 @@
 								: 'bg-accent'}"
 							style:left="{Math.max(0, x(i.t))}%"
 							style:width="max(3px, {Math.min(100, x(i.end)) - Math.max(0, x(i.t))}%)"
-							title="{i.r.trigger} · {formatAt(i.t)}"
+							title="{kindsOf(i.r).map(triggerLabel).join(', ')} · {formatAt(i.t)}"
 						></span>
+					{/each}
+					<!-- What started each clip, as an icon on top of it. -->
+					{#each row.videos.filter((i) => i.r.trigger !== 'continuous') as i (i.r.id)}
+						<span
+							class="pointer-events-none absolute top-1/2 z-[1] grid size-5 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-surface text-accent shadow ring-1 ring-accent/40"
+							style:left="{Math.min(98, Math.max(2, x(i.t)))}%"
+						>
+							<TriggerIcon
+								trigger={kindsOf(i.r).find((k) => k !== 'motion') ?? i.r.trigger}
+								class="size-3"
+							/>
+						</span>
 					{/each}
 					{#each row.marks as left (left)}
 						<span class="absolute inset-y-2.5 w-[2px] rounded-full bg-accent-2" style:left="{left}%"
