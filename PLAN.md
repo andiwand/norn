@@ -4,10 +4,9 @@ What comes next, roughly in order. The changelog has what is done.
 
 ## Cameras, one at a time
 
-Done: Hikvision (ISAPI), Reolink (ONVIF), supra/Foscam CGI, generic ONVIF. Next for these:
+Done and tested on real cameras: Hikvision (ISAPI, events), Reolink (Baichuan, events, presets),
+supra/Foscam CGI, generic ONVIF. Next:
 
-- Hikvision: motion events from `/ISAPI/Event/notification/alertStream` as recording triggers.
-- Reolink: motion and AI events pushed over Baichuan (`subscribe_events`) as triggers.
 - Test the drivers written from documentation (Dahua, Axis, Foscam HD, Tapo, UniFi) on real
   cameras; cloud-only brands (Ring, Nest, Wyze, Eufy, Arlo) through go2rtc's sources.
 - supra/Foscam: the alarm state from `get_status.cgi` as a trigger; the IR LED.
@@ -21,11 +20,12 @@ vendor API), what it can do, and write or extend a driver.
    privacy mode): Reolink, Tapo, Amcrest/Dahua, Hikvision, UniFi Protect.
 3. Two-way audio (`talkback`), through go2rtc.
 
-## Recording
+## Next
 
-- Motion and other camera events as triggers, with a pre-roll buffer.
-- A timeline per camera to scrub through continuous recordings.
-- Disk usage in the settings, and a size limit besides the age limit.
+- HTTPS (own certificate, or behind Caddy / `tailscale serve`) and a service worker, so Android
+  installs the app; then web push notifications for detections.
+- Saving presets on the supra cameras; real-camera tests of the untested drivers.
+- ONVIF discovery and events in the add-camera form.
 
 ## Later
 

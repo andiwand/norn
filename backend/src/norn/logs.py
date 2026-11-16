@@ -27,6 +27,8 @@ def scrub(text: str) -> str:
 
 class Scrub(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
+        if record.name == "uvicorn.error" and record.levelno < logging.WARNING:
+            record.name = "uvicorn"  # its normal messages, not errors
         message = record.getMessage()
         clean = scrub(message)
         if clean != message:

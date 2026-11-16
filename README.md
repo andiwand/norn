@@ -17,9 +17,9 @@ the controls of the camera's own app, and records.</p>
 
 | Driver      | Cameras                                             | Video        | Control                                                         | Tested on a real camera |
 | ----------- | --------------------------------------------------- | ------------ | --------------------------------------------------------------- | ----------------------- |
-| `reolink`   | Reolink (over Reolink's app protocol, no HTTP needed) | RTSP H.264 | pan/tilt, presets, IR, status light, siren, day/night, firmware | yes (E1 Pro)            |
-| `hikvision` | Hikvision and relabels (Annke, HiLook, …)           | RTSP H.264   | day/night, WDR, flip, colour, motion detection, firmware file   | yes (DS-2CD2042WD-I)    |
-| `foscam`    | Foscam CGI: supra IPC-1A / IPC-100HD, Wansview, …   | MJPEG (HTTP) | pan/tilt, presets, resolution, brightness, flip                 | yes (supra)             |
+| `reolink`   | Reolink (over Reolink's app protocol, no HTTP needed) | RTSP H.264 | pan/tilt, presets, IR, status light, siren, tracking, motion and AI events, firmware | yes (E1 Pro)            |
+| `hikvision` | Hikvision and relabels (Annke, HiLook, …)           | RTSP H.264   | day/night, WDR, flip, colour, motion detection and events, firmware file | yes (DS-2CD2042WD-I)    |
+| `foscam`    | Foscam CGI: supra IPC-1A / IPC-100HD, Wansview, …   | MJPEG (HTTP) | pan/tilt, presets, resolution, brightness, flip, motion alarm   | yes (supra)             |
 | `dahua`     | Dahua, Amcrest, Lorex                               | RTSP         | pan/tilt/zoom, presets, day/night, flip, motion detection       | not yet                 |
 | `axis`      | Axis                                                | RTSP H.264   | pan/tilt/zoom, presets, day/night, firmware file                | not yet                 |
 | `foscam-hd` | Foscam HD (since about 2014)                        | RTSP H.264   | pan/tilt/zoom, presets, IR, mirror, flip                        | not yet                 |
@@ -35,15 +35,22 @@ nobody has run them against the real camera yet. Reports and fixes are welcome.
 Each camera page shows what the camera reports about itself (model, firmware, uptime, …) and
 whether newer firmware exists.
 
-- **Live video** in any browser over WebRTC, with MSE and HLS as fallbacks. Installable on phones.
+- **Live video** in any browser over WebRTC, with MSE and HLS as fallbacks. The quality adapts to
+  the connection; a still shows at once while the video starts; a stills view for many cameras.
 - **Camera controls**: pan, tilt, zoom, presets, and whatever settings the camera has. Each driver
-  describes its controls; the web app builds itself from that.
+  describes its controls; the web app builds itself from that. Norn tests each camera's streams
+  (also third and fourth ones) and whether they work at the same time.
+- **Detection**: the cameras' own motion and AI events, and Norn's own on stills (motion; people,
+  vehicles and animals with a small AI model). Triggers on a schedule, and an away mode.
+- **Pan/tilt**: Norn presets with a picture and their own settings, patrol, reactions to
+  detections, following people.
 - **No re-encoding.** [go2rtc](https://github.com/AlexxIT/go2rtc) reads each camera once and
   repackages the stream for every viewer and the recorder. FFmpeg transcodes only a stream a
   browser can't play.
 - **Recordings** as plain MP4 and JPEG files in day folders: continuous, clips from a button or
   webhook that start a few seconds *before* the trigger, and pictures on a timer. A timeline
-  shows them all. Automatic recordings expire; clips you record by hand stay.
+  shows them all, with what triggered each. Automatic recordings expire by age, size or free
+  space; clips you record by hand, or pin, stay.
 - **Circles**: groups of cameras with one trigger, shared settings, and controls set on all at
   once.
 - **A YAML file, no database.** Edit `config.yaml` by hand or in the app; both keep the other's
