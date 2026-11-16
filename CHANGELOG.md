@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-11-16
 
 - Timeline: every camera at one moment, above the tracks. Move along the tracks: each tile
   shows the video frame then if a recording runs (`GET /api/recordings/<id>/frame?at=`), else
