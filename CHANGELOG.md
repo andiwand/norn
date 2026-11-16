@@ -1,23 +1,23 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-11-16
 
-- A default preset whose slot the camera no longer has (deleted on the camera) isn't steered
-  to any more; the log says to save the view again.
-- Replace a Norn preset with what the camera shows now (and the preset's settings as they are
-  now): a button beside the star, with a second tap to confirm. Same name, same camera slot.
-- Reolink: the camera's preset list is read anew each time; deleted or renamed presets no
-  longer linger under their old names.
 - Instant live video: Norn keeps the newest keyframe of a stream, and what followed, ready.
   A new viewer's picture appears in about 0.1 s instead of waiting up to a few seconds for
   the camera's next keyframe; stills come from it at once too. By default for the stream the
   Live page shows; "Instant start" per stream in the camera's settings (`ready_streams`).
   Other streams are kept while watched and 5 minutes after.
+- Replace a Norn preset with what the camera shows now (and the preset's settings as they are
+  now): a button beside the star, with a second tap to confirm. Same name, same camera slot.
+- A default preset whose slot the camera no longer has (deleted on the camera) isn't steered
+  to any more; the log says to save the view again.
+- Reolink: the camera's preset list is read anew each time; deleted or renamed presets no
+  longer linger under their old names.
+- config.yaml: a camera's presets or lists written by the app land in its block, not below
+  the example comments at the end of the file.
 - Colours: the detection badge on the video is dark glass with a teal dot, like the REC
   badge; "Update available" and the default preset's star use the accent. Orange is left
   for warnings.
-- config.yaml: a camera's presets or lists written by the app land in its block, not below
-  the example comments at the end of the file.
 
 ## 0.2.0 — 2026-11-16
 
