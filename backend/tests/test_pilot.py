@@ -91,7 +91,7 @@ async def test_default_preset_after_a_hand_move(settings: Settings, monkeypatch)
     try:
         pilot, driver = hub.pilots["yard"], hub.get_driver("yard")
         for _ in range(50):  # it goes to the default at the start
-            if pilot.at_default:
+            if pilot.at_preset == "gate":
                 break
             await asyncio.sleep(0.1)
         assert driver.position == [0.5, -0.2, 0.3]  # type: ignore[attr-defined]
@@ -99,10 +99,11 @@ async def test_default_preset_after_a_hand_move(settings: Settings, monkeypatch)
         # Someone steers it by hand: it waits, then returns.
         await pilot.goto("door")
         pilot.manual()
-        assert not pilot.at_default
+        assert pilot.at_preset == "door"
         pilot.paused_until = 0  # the wait is over
+        pilot.last_manual -= 60
         for _ in range(80):
-            if pilot.at_default:
+            if pilot.at_preset == "gate":
                 break
             await asyncio.sleep(0.1)
         assert driver.position == [0.5, -0.2, 0.3]  # type: ignore[attr-defined]
@@ -121,3 +122,46 @@ def test_default_preset_api(client: TestClient) -> None:
     assert client.get("/api/cameras/demo").json()["default_preset"] == "porch"
     client.delete("/api/cameras/demo/presets/porch")
     assert client.get("/api/cameras/demo").json()["default_preset"] is None
+
+
+async def test_default_preset_changes_and_races(settings: Settings) -> None:
+    settings.config_path.parent.mkdir(parents=True)
+    settings.config_path.write_text(
+        "cameras:\n"
+        "  yard:\n"
+        "    name: Yard\n"
+        "    driver: demo\n"
+        "    presets: {gate: {name: Gate, slot: drive}, door: {name: Door, slot: door}}\n"
+        "    default_preset: gate\n"
+    )
+    hub = Hub(settings)
+    await hub.start()
+    try:
+        pilot, driver = hub.pilots["yard"], hub.get_driver("yard")
+        await pilot.goto("gate")
+        assert pilot.at_preset == "gate"
+        # Another default while it sits at the old one: it goes there.
+        await hub.set_default_preset("yard", "door")
+        await pilot._to_default()
+        assert driver.position == [-0.4, 0.0, 0.0]  # type: ignore[attr-defined]
+
+        # A move while a goto is on its way: the goto doesn't claim the preset.
+        real = driver.ptz
+
+        async def slow(command):  # type: ignore[no-untyped-def]
+            if command.action == "goto":
+                await asyncio.sleep(0.2)
+            await real(command)
+
+        driver.ptz = slow  # type: ignore[method-assign]
+        from norn.drivers.base import PtzCommand
+
+        going = asyncio.create_task(pilot.goto("gate"))
+        await asyncio.sleep(0.05)
+        pilot.moved(PtzCommand(action="move", pan=1))
+        await going
+        assert pilot.at_preset is None
+        assert pilot.moving()  # and while the move runs, nothing takes over
+        pilot.moved(PtzCommand(action="stop"))
+    finally:
+        await hub.stop()

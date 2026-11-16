@@ -78,6 +78,8 @@
 		order = rest;
 	}
 	async function done() {
+		// A camera removed meanwhile (another tab, config.yaml) drops out.
+		order = order.filter((id) => store.camera(id));
 		const before = store.cameras.map((c) => c.id).join(',');
 		if (order.join(',') !== before) {
 			savingOrder = true;
@@ -162,6 +164,9 @@
 			{/each}
 		</div>
 		{#if arranging}
+			<button class="btn-ghost" onclick={() => (arranging = false)} disabled={savingOrder}
+				>Cancel</button
+			>
 			<button class="btn-primary" onclick={done} disabled={savingOrder}
 				>{savingOrder ? 'Saving…' : 'Done'}</button
 			>

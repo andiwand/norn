@@ -8,6 +8,7 @@ watches the file and reloads it when someone edits it while the server runs.
 from __future__ import annotations
 
 import io
+import itertools
 import os
 import re
 from datetime import datetime
@@ -432,6 +433,77 @@ def _put_tail_comment(doc: CommentedMap, text: str) -> None:
         item[2].value += text
 
 
+def _split_tail(node: Any) -> str:
+    """Detach the comment lines after the block of `node` (an end-of-line comment stays)."""
+    tail = _tail(node)
+    if tail is None:
+        return ""
+    mapping, key = tail
+    item = mapping.ca.items.get(key)
+    if not item or len(item) < 3 or item[2] is None:
+        return ""
+    text: str = item[2].value
+    newline = text.find("\n")
+    if newline < 0:
+        return ""
+    keep, rest = text[: newline + 1], text[newline + 1 :]
+    if keep.startswith("#"):
+        item[2].value = keep
+    else:
+        item[2] = None
+    return rest
+
+
+def _indented(text: str, indent: str) -> str:
+    return "".join(
+        indent + line.lstrip() if line.strip() else line for line in text.splitlines(keepends=True)
+    )
+
+
+def _reorder(doc: CommentedMap, mapping: CommentedMap, order: list[Any]) -> None:
+    """Put the keys of `mapping` (a top-level key's block) in `order`, each with the comment
+    lines above it, and the lines after the block (above the next top-level key) where they are.
+
+    ruamel keeps the lines above a key on the key before it (on the deepest last line of its
+    block), or on the mapping for the first key, so moving keys alone would move comments to
+    the wrong ones."""
+    keys = list(mapping)
+    if not keys:
+        return
+    above: dict[Any, str] = {}
+    first = mapping.ca.comment[1] if mapping.ca.comment else None
+    above[keys[0]] = "".join(t.value for t in first) if first else ""
+    if first:
+        mapping.ca.comment[1] = None
+        for item in doc.ca.items.values():  # the same lines, also kept on the parent key
+            if len(item) > 3 and item[3] is first:
+                item[3] = None
+    for before, key in itertools.pairwise(keys):
+        text = _split_tail(mapping[before])
+        item = mapping.ca.items.get(key)
+        if item and item[1]:
+            text += "".join(t.value for t in item[1])
+            item[1] = None
+        above[key] = text
+    after = _split_tail(mapping[keys[-1]])
+    for key in order:
+        mapping.move_to_end(key)
+    for key in order:
+        text = above.get(key, "")
+        if text.strip():
+            text = _indented(text.lstrip("\n") if key == order[0] else text, "  ")
+            item = mapping.ca.items.setdefault(key, [None, None, None, None])
+            item[1] = [CommentToken(text, CommentMark(0), None)]
+    if after:
+        last = _tail(mapping[order[-1]]) or (mapping, order[-1])
+        node, key = last
+        item = node.ca.items.setdefault(key, [None, None, None, None])
+        if item[2] is None:
+            item[2] = CommentToken("\n" + after, CommentMark(0), None)
+        else:
+            item[2].value += after
+
+
 class ConfigStore:
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -481,11 +553,7 @@ class ConfigStore:
         unknown = [i for i in ids if i not in cameras]
         if unknown:
             raise ConfigError(f"no camera {', '.join(unknown)}")
-        tail = _take_tail_comment(self._doc)
-        for camera_id in [*dict.fromkeys(ids), *[k for k in cameras if k not in ids]]:
-            cameras.move_to_end(camera_id)
-        if tail:
-            _put_tail_comment(self._doc, tail)
+        _reorder(self._doc, cameras, [*dict.fromkeys(ids), *[k for k in cameras if k not in ids]])
         return self._commit()
 
     def put_circle(self, circle_id: str, circle: CircleConfig) -> Config:

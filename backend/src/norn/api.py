@@ -249,7 +249,7 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
             raise HTTPException(422, str(e)) from e
         return hub.camera_json(camera_id)
 
-    @api.put("/cameras/order")
+    @api.put("/camera-order")
     async def order_cameras(body: OrderBody) -> list[dict[str, Any]]:
         """Arrange the cameras: their order in config.yaml, which the app shows."""
         await hub.order_cameras(body.ids)

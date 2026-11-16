@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — 2026-11-16
 
 - New tabs: Cameras (the list, with rows you can click, and circles), Away, Diagnostics (version,
   go2rtc, resources, storage, log) and Help (webhook, config file, links). Settings has sub-tabs
@@ -8,21 +8,18 @@
 - Live: Auto, HD, SD or Stills for all tiles, remembered per browser; each tile shows the
   quality that plays.
 - Arrange the cameras on the Live page by dragging or with arrows; the order is saved in
-  config.yaml (`PUT /api/cameras/order`).
+  config.yaml, each camera with its comments (`PUT /api/camera-order`).
 - A default Norn preset per camera (the star on a preset): the camera returns there when
-  nothing else steers it: no patrol in its schedule, no hold after a hand move or a reaction,
-  no following. Star and delete show on hover; on touch screens always, and deleting takes
-  a second tap. The Edit toggle is gone.
-- No more "Exception in ASGI application" tracebacks in the log when a browser closes a video
-  connection (switching quality, leaving the page).
-
-## 0.1.1 — 2026-11-16
-
+  nothing else steers it: no patrol in its schedule, no hold after a hand move (at least 30 s)
+  or a reaction, no following. Star and delete show on hover; on touch screens always, and
+  deleting takes a second tap.
 - Pan/tilt: commands are sent in order, so a quick tap can't leave the camera turning to its
   end stop; a move stops by itself after 8 s without a new command (holding renews it); the
   camera stops when the page loses focus; the arrow keys steer only over the video or the pad.
 - Adaptive quality is calmer: no switching while a stream starts, a freeze must last two
   checks, and a stream that played isn't taken for one that never starts.
+- No more "Exception in ASGI application" tracebacks in the log when a browser closes a video
+  connection (switching quality, leaving the page).
 
 ## 0.1.0 — 2026-11-16
 

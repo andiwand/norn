@@ -35,6 +35,7 @@ log = logging.getLogger("norn.pilot")
 MOVE_TIMEOUT = 8.0  # seconds a move from the API runs without a new command (the page renews it)
 NUDGE_SECONDS = 0.35  # how long one nudge toward a followed person turns the camera
 DEAD_ZONE = 0.15  # how far off the middle (of -1..1) a person may be before Norn turns
+DEFAULT_AFTER_MANUAL = 30.0  # at least this long after a hand command before going back to the default
 
 
 class Pilot:
@@ -44,7 +45,9 @@ class Pilot:
         self.paused_until = 0.0  # manual steering, a reaction's hold, following
         self.patrol_index = -1
         self.following = False  # the camera's own tracking is on because of Norn
-        self.at_default = False  # it's at its default preset, as far as Norn knows
+        self.at_preset: str | None = None  # the Norn preset it's at, as far as Norn knows
+        self._moves = 0  # counts every command that moves it: a goto knows if another came meanwhile
+        self.last_manual = -DEFAULT_AFTER_MANUAL
         self._paused = asyncio.Event()  # set by pause(): a dwell ends at once
         self._auto_stop: asyncio.Task[None] | None = None
         self.task = asyncio.create_task(self._run(), name=f"pilot-{camera_id}")
@@ -68,7 +71,7 @@ class Pilot:
             self._auto_stop.cancel()
             self._auto_stop = None
         if command.action != "stop":
-            self.at_default = False
+            self._moved()
         if command.action == "move":
             self._auto_stop = asyncio.create_task(self._stop_later())
 
@@ -80,10 +83,19 @@ class Pilot:
         except Exception as e:
             log.warning("%s: stopping failed: %s", self.camera_id, e)
 
+    def _moved(self) -> None:
+        self._moves += 1
+        self.at_preset = None
+
+    def moving(self) -> bool:
+        """A move from the page is under way (its stop hasn't come yet)."""
+        return self._auto_stop is not None and not self._auto_stop.done()
+
     def manual(self) -> None:
-        """Someone steered the camera: patrol waits."""
+        """Someone steered the camera: patrol waits (and the default preset, at least 30 s)."""
         patrol = self.config.patrol if self.config else None
-        self.pause(patrol.pause_after_manual if patrol else 120)
+        self.last_manual = time.monotonic()
+        self.pause(patrol.pause_after_manual if patrol and patrol.enabled else 120)
 
     def pause(self, seconds: float) -> None:
         self.paused_until = max(self.paused_until, time.monotonic() + seconds)
@@ -96,9 +108,14 @@ class Pilot:
         if preset is None:
             raise KeyError(preset_id)
         driver = self.hub.get_driver(self.camera_id)
-        self.at_default = False
+        if self._auto_stop:  # a forgotten move's stop must not halt this one on its way
+            self._auto_stop.cancel()
+            self._auto_stop = None
+        self._moved()
+        mine = self._moves
         await driver.ptz(PtzCommand(action="goto", preset=preset.slot))
-        self.at_default = preset_id == cfg.default_preset
+        if self._moves == mine:  # nothing else moved it meanwhile
+            self.at_preset = preset_id
         for control_id, value in preset.controls.items():
             try:
                 await driver.set_control(control_id, value)
@@ -148,7 +165,7 @@ class Pilot:
         self.pause(15)  # no patrol while following someone
         if abs(x) < DEAD_ZONE and abs(y) < DEAD_ZONE:
             return
-        self.at_default = False
+        self._moved()
         driver = self.hub.get_driver(self.camera_id)
         pan = max(-1.0, min(1.0, x * 0.8)) if abs(x) >= DEAD_ZONE else 0.0
         tilt = max(-1.0, min(1.0, -y * 0.8)) if abs(y) >= DEAD_ZONE else 0.0
@@ -166,7 +183,7 @@ class Pilot:
             self.hub.remember_control(self.camera_id, "autotrack", wanted)
             self.following = wanted
             if wanted:
-                self.at_default = False
+                self._moved()
                 self.pause(30)
         except Exception as e:
             log.info("%s: tracking not switched: %s", self.camera_id, e)
@@ -176,13 +193,15 @@ class Pilot:
         cached = self.hub.cameras.get(self.camera_id)
         on = any(c.id == "autotrack" and c.value is True for c in (cached.controls if cached else None) or [])
         if on:
-            self.at_default = False
+            self.at_preset = None
         return on
 
     async def _to_default(self) -> None:
         cfg = self.config
         default = cfg.default_preset if cfg else None
-        if default and default in cfg.presets and not self.at_default:
+        if time.monotonic() - self.last_manual < DEFAULT_AFTER_MANUAL:
+            return
+        if default and default in cfg.presets and self.at_preset != default:
             log.info("%s: back to the default preset %s", self.camera_id, default)
             await self.goto(default)
 
@@ -198,7 +217,8 @@ class Pilot:
                 await self._own_tracking()
                 if self.following:
                     self.pause(10)
-                if time.monotonic() < self.paused_until or self.following or self.tracking_itself():
+                busy = self.following or self.moving() or self.tracking_itself()
+                if time.monotonic() < self.paused_until or busy:
                     await asyncio.sleep(5)
                     continue
                 patrol = cfg.patrol

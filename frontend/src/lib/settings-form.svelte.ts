@@ -15,7 +15,8 @@ export class SettingsForm {
 		api.settings().then((d) => this.take(d));
 		return store.on((e) => {
 			if (['settings.changed', 'cameras.changed', 'away.changed'].includes(e.type) && !this.dirty) {
-				api.settings().then((d) => this.take(d));
+				// Edits made while this loads win.
+				api.settings().then((d) => !this.dirty && !this.saving && this.take(d));
 			}
 		});
 	}

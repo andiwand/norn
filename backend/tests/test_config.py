@@ -119,3 +119,36 @@ def test_order_cameras_keeps_comments(tmp_path: Path) -> None:
     assert "b:  # the garden" in text and text.rstrip().endswith("# a camera to add later")
     with pytest.raises(ConfigError):
         store.order_cameras(["nope"])
+
+
+def test_order_cameras_moves_comments_above_cameras_with_them(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "cameras:\n"
+        "  # Front door, the doorbell\n"
+        "  front:\n"
+        "    name: Front\n"
+        "    driver: demo  # eol\n"
+        "  # Garden, on the shed\n"
+        "  garden: {name: Garden, driver: demo}\n"
+        "  # Garage\n"
+        "  garage:\n"
+        "    name: Garage\n"
+        "    driver: demo\n"
+        "\n"
+        "# Recording settings\n"
+        "recording:\n"
+        "  clip_seconds: 30\n"
+    )
+    store = ConfigStore(path)
+    store.load()
+    for order in (["garage", "garden", "front"], ["garden", "front", "garage"]):
+        assert list(store.order_cameras(order).cameras) == order
+        lines = path.read_text().splitlines()
+        for label, camera in (("# Front door", "front:"), ("# Garden", "garden:"), ("# Garage", "garage:")):
+            i = next(n for n, line in enumerate(lines) if line.strip().startswith(label))
+            assert lines[i + 1].strip().startswith(camera), path.read_text()
+            assert lines[i].startswith("  #")
+        assert "driver: demo  # eol" in path.read_text()
+        i = lines.index("# Recording settings")
+        assert lines[i + 1] == "recording:" and lines[i - 1] == ""
