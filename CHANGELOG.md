@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 — 2026-11-16
 
 - Triggers: a page of its own for what makes Norn record (detections and their schedule, clip
   length, pre-recording, pictures) and Norn's detection, with a list of the circles, cameras and
