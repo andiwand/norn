@@ -8,6 +8,11 @@
   now): a button beside the star, with a second tap to confirm. Same name, same camera slot.
 - Reolink: the camera's preset list is read anew each time; deleted or renamed presets no
   longer linger under their old names.
+- Instant live video: Norn keeps the newest keyframe of a stream, and what followed, ready.
+  A new viewer's picture appears in about 0.1 s instead of waiting up to a few seconds for
+  the camera's next keyframe; stills come from it at once too. By default for the stream the
+  Live page shows; "Instant start" per stream in the camera's settings (`ready_streams`).
+  Other streams are kept while watched and 5 minutes after.
 - Colours: the detection badge on the video is dark glass with a teal dot, like the REC
   badge; "Update available" and the default preset's star use the accent. Orange is left
   for warnings.

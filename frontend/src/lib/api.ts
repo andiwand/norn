@@ -64,6 +64,10 @@ export interface StreamOption {
 	label: string;
 	active: boolean;
 	probe: StreamProbe | null;
+	/** Kept ready from its newest keyframe: live video starts at once. */
+	ready: boolean;
+	/** Whether it can be (not MJPEG, not made by FFmpeg). */
+	can_be_ready: boolean;
 }
 
 export interface DeviceInfo {
@@ -125,6 +129,7 @@ export interface Camera {
 	detection: Partial<DetectionSettings> | null;
 	/** The streams Norn uses, by id; null: all that work. */
 	stream_selection?: string[] | null;
+	ready_streams?: string[] | null;
 	stream_options: StreamOption[];
 	/** Norn's presets (by id), patrol, reactions to detections, following. */
 	presets_norn: Record<string, NornPreset>;
@@ -555,6 +560,7 @@ export function cameraBody(camera: Camera, change: Record<string, unknown> = {})
 		schedule: camera.schedule,
 		detection: camera.detection,
 		streams: camera.stream_selection ?? null,
+		ready_streams: camera.ready_streams ?? null,
 		...camera.options,
 		...change
 	};

@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Coroutine
 from contextlib import asynccontextmanager
 from datetime import datetime
 from importlib import resources
@@ -39,6 +40,7 @@ from .detect import MODELS
 from .drivers import DRIVERS, describe
 from .drivers.base import Capability, DriverError, NotSupportedError, PtzCommand
 from .go2rtc import Go2rtcUnavailableError
+from .gop import GopCache, codecs_fit
 from .hub import Hub, stream_name
 from .labels import describe as describe_labels
 from .recorder import RESERVED
@@ -63,6 +65,7 @@ class CameraBody(BaseModel):
     schedule: list[dict[str, Any]] | None = None
     detection: dict[str, Any] | None = None
     streams: list[str] | None = None
+    ready_streams: list[str] | None = None
     presets: dict[str, Any] | None = None
     patrol: dict[str, Any] | None = None
     reactions: list[dict[str, Any]] | None = None
@@ -268,7 +271,8 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
         # other things don't send it.
         current = hub.cameras[camera_id].config
         keep = current.model_dump(
-            include={"presets", "patrol", "reactions", "follow", "default_preset"}, by_alias=True
+            include={"presets", "patrol", "reactions", "follow", "default_preset", "ready_streams"},
+            by_alias=True,
         )
         data |= {key: value for key, value in keep.items() if data.get(key) is None}
         # Passwords the form didn't send (it never gets them) stay as they are.
@@ -680,7 +684,7 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
             async with websockets.connect(
                 hub.go2rtc.ws_url(stream_name(camera, stream)), max_size=None, open_timeout=5
             ) as upstream:
-                await _pipe(ws, upstream)
+                await _pipe(ws, upstream, hub.gop(camera, stream))
         except (OSError, websockets.WebSocketException) as e:
             log.info("stream %s/%s: %s", camera, stream, e)
         finally:
@@ -738,27 +742,64 @@ async def _drain(ws: WebSocket) -> None:
             await ws.receive_text()
 
 
-async def _pipe(ws: WebSocket, upstream: websockets.ClientConnection) -> None:
-    async def down() -> None:
-        async for message in upstream:
+async def _pipe(ws: WebSocket, upstream: websockets.ClientConnection, gop: GopCache | None = None) -> None:
+    """Between the browser and go2rtc. An MSE request is answered from the stream's GOP cache
+    when it's ready and the browser can play its codecs: the picture starts at once. All else
+    (WebRTC, ...) goes to go2rtc as it is."""
+    sending = asyncio.Lock()  # go2rtc's messages and the cache's fragments share the socket
+
+    async def send(message: str | bytes) -> None:
+        async with sending:
             if isinstance(message, bytes):
                 await ws.send_bytes(message)
             else:
                 await ws.send_text(message)
+
+    async def down() -> None:
+        async for message in upstream:
+            await send(message)
+
+    async def from_cache(cache: GopCache) -> None:
+        async with cache.watch() as (codec, start, queue):
+            await send(json.dumps({"type": "mse", "value": codec}))
+            await send(start)
+            while (fragment := await queue.get()) is not None:
+                await send(fragment)
+        # The stream restarted (a new timeline): end, the player connects again.
+
+    tasks: list[asyncio.Task[None]] = []
+    finished = asyncio.Event()  # any of them ended: the browser or go2rtc left, the cache restarted
+
+    def spawn(coroutine: Coroutine[Any, Any, None]) -> None:
+        task = asyncio.create_task(coroutine)
+        task.add_done_callback(lambda _: finished.set())
+        tasks.append(task)
 
     async def up() -> None:
         while True:
             message = await ws.receive()
             if message["type"] == "websocket.disconnect":
                 return
-            if message.get("text") is not None:
-                await upstream.send(message["text"])
+            text = message.get("text")
+            if text is not None:
+                if gop is not None and gop.ready and '"mse"' in text:
+                    with contextlib.suppress(ValueError):
+                        msg = json.loads(text)
+                        if (
+                            msg.get("type") == "mse"
+                            and gop.codec
+                            and codecs_fit(str(msg.get("value", "")), gop.codec)
+                        ):
+                            spawn(from_cache(gop))
+                            continue
+                await upstream.send(text)
             elif message.get("bytes") is not None:
                 await upstream.send(message["bytes"])
 
-    tasks = [asyncio.create_task(down()), asyncio.create_task(up())]
+    spawn(down())
+    spawn(up())
     try:
-        await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        await finished.wait()
     finally:
         for task in tasks:
             task.cancel()

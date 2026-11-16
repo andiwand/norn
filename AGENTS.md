@@ -61,6 +61,14 @@ image or the PyPI package `norn-hub`. The name may change later.
     kind in the camera's `triggers` lasts, `_hold` extends a clip every few seconds.
   - `labels.py` defines the detection labels (motion, person, vehicle, ...) and maps each
     source's names onto them (Reolink AI, Hikvision events, COCO). Use it, never raw names.
+  - `gop.py`: instant live video. A GopCache per stream reads go2rtc's MSE output (fMP4,
+    one frame per message) and keeps the init segment and the fragments since the newest
+    video keyframe. `api._pipe` answers a browser's MSE request from it (init + GOP in one
+    message, then the live fragments); the player jumps to the buffered start and catches up
+    (one marked change in the vendored `video-rtc.js`). WebRTC still goes to go2rtc. The
+    hub keeps `ready_streams` cached all the time (default: the tile stream), others while
+    watched and `GOP_LINGER` after; stills come from the newest keyframe too. Not for MJPEG
+    or streams FFmpeg makes.
   - `stills.py`: one FFmpeg per camera and mode reads go2rtc's sub-stream and emits stills
     (JPEG, gray for motion, the detector's input) to subscribers; `-skip_frame nokey` in
     keyframe mode. It stops `IDLE_AFTER` seconds after the last subscriber. `detect.py`: the

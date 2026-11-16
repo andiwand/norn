@@ -250,6 +250,9 @@ class CameraConfig(BaseModel):
     detection: DetectionOverride | None = None
     # The streams Norn uses, by id (main, sub, ...); None: all that work.
     streams: list[str] | None = None
+    # The streams kept ready from their newest keyframe, so live video starts at once (each
+    # holds a connection to the camera open). None: the one the Live page shows (the small one).
+    ready_streams: list[str] | None = None
     # Pan/tilt cameras: Norn's presets (by id), patrol, reactions to detections, following.
     presets: dict[str, NornPreset] = Field(default_factory=dict)
     patrol: Patrol | None = None

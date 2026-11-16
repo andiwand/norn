@@ -150,6 +150,7 @@ cameras:
     enabled: true # default
     auto_update: false # install new firmware by itself, where the driver can
     picture_seconds: 60 # this camera's own pictures interval (also prebuffer_seconds)
+    ready_streams: [sub] # streams kept ready, so live video starts at once; default: the small one
 
   garden:
     name: Garden

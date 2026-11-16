@@ -1,12 +1,18 @@
 <script lang="ts">
 	// The camera's streams, as testing found them: switch each on or off. A camera that serves
-	// one stream at a time gets a single choice.
+	// one stream at a time gets a single choice. "Instant start" keeps a stream ready from its
+	// newest keyframe, so its live video starts at once (a connection to the camera stays open).
 	import { untrack } from 'svelte';
 	import { api, type Camera, type StreamOption } from '../api';
 	import { store } from '../state.svelte';
 	import RefreshCw from '@lucide/svelte/icons/refresh-cw';
+	import Zap from '@lucide/svelte/icons/zap';
 
-	let { camera, value = $bindable() }: { camera: Camera; value: string[] | null } = $props();
+	let {
+		camera,
+		value = $bindable(),
+		ready = $bindable(null)
+	}: { camera: Camera; value: string[] | null; ready?: string[] | null } = $props();
 
 	let testing = $state(false);
 	// What testing found: from the camera, then from "Test again".
@@ -15,6 +21,10 @@
 	const single = $derived(concurrent === false);
 	const usable = $derived(options.filter((o) => !o.probe || o.probe.ok));
 	const on = $derived(value ?? options.filter((o) => o.active).map((o) => o.id));
+	const instant = $derived(ready ?? options.filter((o) => o.ready).map((o) => o.id));
+	function toggleReady(id: string) {
+		ready = instant.includes(id) ? instant.filter((x) => x !== id) : [...instant, id];
+	}
 
 	function describe(o: StreamOption): string {
 		const p = o.probe;
@@ -89,6 +99,18 @@
 					<span class="block text-sm font-medium">{o.label}</span>
 					<span class="block truncate text-xs text-muted">{describe(o)}</span>
 				</span>
+				{#if o.can_be_ready && on.includes(o.id)}
+					<button
+						type="button"
+						class="chip shrink-0 {instant.includes(o.id) ? 'chip-active' : ''}"
+						aria-pressed={instant.includes(o.id)}
+						title="Keep this stream ready from its newest keyframe: its live video starts at once. Holds a connection to the camera open."
+						onclick={(e) => {
+							e.preventDefault();
+							toggleReady(o.id);
+						}}><Zap class="size-3.5" />Instant start</button
+					>
+				{/if}
 			</label>
 		{/each}
 		{#if !usable.length}

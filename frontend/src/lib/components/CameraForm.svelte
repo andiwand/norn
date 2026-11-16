@@ -34,6 +34,7 @@
 	let triggers = $state<string[] | null>(initial?.triggers ?? null);
 	let schedule = $state<Window[] | null>(initial?.schedule ?? null);
 	let streams = $state<string[] | null>(initial?.stream_selection ?? null);
+	let ready = $state<string[] | null>(initial?.ready_streams ?? null);
 	// Norn's detection on this camera; null fields: as set above.
 	let detectMotion = $state<boolean | null>(initial?.detection?.motion ?? null);
 	let detectObjects = $state<boolean | null>(initial?.detection?.objects ?? null);
@@ -118,6 +119,7 @@
 			schedule,
 			detection,
 			streams,
+			ready_streams: ready,
 			prebuffer_seconds:
 				typeof prebuffer === 'number' && Number.isFinite(prebuffer) ? prebuffer : null
 		};
@@ -230,7 +232,7 @@
 			/>
 		</label>
 		{#if initial && initial.stream_options.length}
-			<StreamSettings camera={initial} bind:value={streams} />
+			<StreamSettings camera={initial} bind:value={streams} bind:ready />
 		{/if}
 		<IntervalSetting
 			label="Pictures"
