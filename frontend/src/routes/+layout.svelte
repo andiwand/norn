@@ -16,16 +16,25 @@
 	let { children }: LayoutProps = $props();
 
 	// Away mode on or off at once. Off also ends a planned absence that is running now.
-	function toggleAway() {
+	let switching = $state(false);
+	async function toggleAway() {
 		const away = store.info?.away;
-		if (!away) return;
+		if (!away || switching) return;
+		// Home also ends a planned absence that is running now; a later one stays planned.
+		const now = Date.now();
+		const running =
+			!!away.start &&
+			new Date(away.start).getTime() <= now &&
+			(!away.end || now < new Date(away.end).getTime());
 		const body = away.now
-			? { active: false, ...(away.start ? { start: null, end: null } : {}) }
+			? { active: false, ...(running ? { start: null, end: null } : {}) }
 			: { active: true };
-		store.attempt(
+		switching = true;
+		await store.attempt(
 			() => api.saveSettings({ away: body }),
 			away.now ? 'Welcome home' : 'Away mode on'
 		);
+		switching = false;
 	}
 
 	$effect(() => store.start());

@@ -16,6 +16,7 @@ Tested against the documented API, not yet against a real camera.
 
 from __future__ import annotations
 
+import contextlib
 from typing import Any
 from urllib.parse import quote
 
@@ -122,8 +123,20 @@ class DahuaDriver(Driver):
     def capabilities(self) -> set[Capability]:
         caps = super().capabilities() | {Capability.CONTROLS}
         if self.has_ptz:
-            caps |= {Capability.PTZ, Capability.PRESETS}
+            caps |= {Capability.PTZ, Capability.PRESETS, Capability.PRESET_SAVE}
         return caps
+
+    def preset_slots(self) -> list[str]:
+        return [str(n) for n in range(1, 256)]
+
+    async def save_preset(self, slot: str, name: str) -> None:
+        channel = self.options.channel
+        await self._get(
+            "ptz.cgi", action="start", channel=channel, code="SetPreset", arg1=0, arg2=slot, arg3=0
+        )
+        # The name is a nicety; cameras without the call keep the number.
+        with contextlib.suppress(DriverError):
+            await self._get("ptz.cgi", action="setPresetName", channel=channel, arg1=slot, arg2=name)
 
     async def _get(self, path: str, **params: Any) -> str:
         try:

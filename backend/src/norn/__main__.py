@@ -7,7 +7,7 @@ import logging
 
 import uvicorn
 
-from . import __version__
+from . import __version__, logs
 from .api import create_app
 from .settings import Settings
 
@@ -18,15 +18,14 @@ def main() -> None:
     parser.parse_args()
 
     settings = Settings.from_env()
-    logging.basicConfig(
-        level=settings.log_level.upper(), format="%(asctime)s %(levelname)-7s %(name)s: %(message)s"
-    )
-    logging.getLogger("httpx").setLevel(logging.WARNING)  # one line per go2rtc call is noise
+    file = logs.setup(settings.log_level, settings.log_file, settings.access_log)
+    logging.getLogger("norn").info("logging to the console%s", f" and {file}" if file else "")
     uvicorn.run(
         create_app(settings),
         host=settings.host,
         port=settings.port,
         log_level=settings.log_level,
+        log_config=None,  # logs.setup made the handlers
         proxy_headers=True,
         ws_ping_interval=20,
     )

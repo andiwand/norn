@@ -91,8 +91,12 @@ class AxisDriver(Driver):
     def capabilities(self) -> set[Capability]:
         caps = super().capabilities() | {Capability.CONTROLS, Capability.FIRMWARE_UPLOAD}
         if self.has_ptz:
-            caps |= {Capability.PTZ, Capability.PRESETS}
+            caps |= {Capability.PTZ, Capability.PRESETS, Capability.PRESET_SAVE}
         return caps
+
+    async def save_preset(self, slot: str, name: str) -> None:
+        """Axis presets are named: the slot is the name."""
+        await self._request("GET", "com/ptz.cgi", params={"camera": 1, "setserverpresetname": slot or name})
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         try:

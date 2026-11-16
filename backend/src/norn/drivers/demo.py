@@ -58,6 +58,8 @@ class DemoDriver(Driver):
             "privacy": False,
         }
         self.position = [0.0, 0.0, 0.0]  # pan, tilt, zoom
+        self._positions: dict[str, tuple[float, float, float]] = dict(PRESET_POSITIONS)
+        self._names = {p.id: p.name for p in PRESETS}
         self._move: asyncio.Task[None] | None = None
 
     def streams(self) -> list[Stream]:
@@ -71,7 +73,13 @@ class DemoDriver(Driver):
         ]
 
     def capabilities(self) -> set[Capability]:
-        caps = {Capability.PTZ, Capability.PRESETS, Capability.CONTROLS, Capability.EVENTS}
+        caps = {
+            Capability.PTZ,
+            Capability.PRESETS,
+            Capability.CONTROLS,
+            Capability.EVENTS,
+            Capability.PRESET_SAVE,
+        }
         return super().capabilities() | caps
 
     def event_kinds(self) -> list[str]:
@@ -167,7 +175,11 @@ class DemoDriver(Driver):
         self.emit("camera.control", {"control": control_id, "value": value})
 
     async def presets(self) -> list[Preset]:
-        return PRESETS
+        return [Preset(id=pid, name=self._names.get(pid, pid)) for pid in self._positions]
+
+    async def save_preset(self, slot: str, name: str) -> None:
+        self._positions[slot] = tuple(self.position)  # type: ignore[assignment]
+        self._names[slot] = name
 
     async def ptz(self, command: PtzCommand) -> None:
         if self._move:
@@ -178,9 +190,9 @@ class DemoDriver(Driver):
         elif command.action == "home":
             self._set_position(0.0, 0.0, 0.0)
         elif command.action == "goto":
-            if command.preset not in PRESET_POSITIONS:
+            if command.preset not in self._positions:
                 raise ValueError(f"unknown preset {command.preset!r}")
-            self._set_position(*PRESET_POSITIONS[command.preset])
+            self._set_position(*self._positions[command.preset])
 
     async def _moving(self, command: PtzCommand) -> None:
         # Pretend to move until a stop arrives, like a real motor would.

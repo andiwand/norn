@@ -93,7 +93,12 @@ class Store {
 				api.cameras(),
 				api.info(),
 				api.circles(),
-				this.labels.length ? null : api.labels().then((l) => this.#takeLabels(l))
+				this.labels.length
+					? null
+					: api
+							.labels()
+							.then((l) => this.#takeLabels(l))
+							.catch(() => null) // the names fall back to the ids
 			]);
 			this.cameras = cameras;
 			this.circles = circles;

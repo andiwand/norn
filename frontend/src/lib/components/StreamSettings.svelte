@@ -1,18 +1,22 @@
 <script lang="ts">
 	// The camera's streams, as testing found them: switch each on or off. A camera that serves
 	// one stream at a time gets a single choice.
-	import { api, type Camera } from '../api';
+	import { untrack } from 'svelte';
+	import { api, type Camera, type StreamOption } from '../api';
 	import { store } from '../state.svelte';
 	import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 
 	let { camera, value = $bindable() }: { camera: Camera; value: string[] | null } = $props();
 
 	let testing = $state(false);
-	const single = $derived(camera.concurrent === false);
-	const usable = $derived(camera.stream_options.filter((o) => !o.probe || o.probe.ok));
-	const on = $derived(value ?? camera.stream_options.filter((o) => o.active).map((o) => o.id));
+	// What testing found: from the camera, then from "Test again".
+	let options = $state(untrack(() => camera.stream_options));
+	let concurrent = $state(untrack(() => camera.concurrent));
+	const single = $derived(concurrent === false);
+	const usable = $derived(options.filter((o) => !o.probe || o.probe.ok));
+	const on = $derived(value ?? options.filter((o) => o.active).map((o) => o.id));
 
-	function describe(o: (typeof camera.stream_options)[number]): string {
+	function describe(o: StreamOption): string {
 		const p = o.probe;
 		if (!p) return 'Not tested';
 		if (!p.ok) return `Doesn't work: ${p.error}`;
@@ -36,8 +40,11 @@
 
 	async function test() {
 		testing = true;
-		await store.attempt(() => api.probeStreams(camera.id), 'Streams tested');
-		await store.refresh();
+		const tested = await store.attempt(() => api.probeStreams(camera.id), 'Streams tested');
+		if (tested) {
+			options = tested.stream_options;
+			concurrent = tested.concurrent;
+		}
 		testing = false;
 	}
 </script>
@@ -62,7 +69,7 @@
 		</button>
 	</div>
 	<div class="mt-2 space-y-1.5">
-		{#each camera.stream_options as o (o.id)}
+		{#each options as o (o.id)}
 			{@const works = !o.probe || o.probe.ok}
 			<label
 				class="flex items-center gap-3 rounded-xl bg-surface-2/60 px-3 py-2 {works
@@ -74,7 +81,8 @@
 					name="stream-{camera.id}"
 					class={single ? 'size-4 accent-[var(--accent)]' : 'switch'}
 					checked={on.includes(o.id)}
-					disabled={!works || (on.length === 1 && on.includes(o.id) && !single)}
+					disabled={(!works && !on.includes(o.id)) ||
+						(on.length === 1 && on.includes(o.id) && !single)}
 					onchange={() => toggle(o.id)}
 				/>
 				<span class="min-w-0 flex-1">

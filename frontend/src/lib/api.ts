@@ -126,6 +126,7 @@ export interface Circle {
 	schedule: Window[] | null;
 	/** When one camera detects a trigger, all cameras of the circle record. */
 	together: boolean;
+	detection?: Partial<DetectionSettings> | null;
 }
 
 /** A control all cameras of a circle share. `mixed`: the cameras have different values. */
@@ -502,7 +503,8 @@ export const urls = {
 	stream: (camera: string, stream = 'main') =>
 		`/api/stream?camera=${enc(camera)}&stream=${enc(stream)}`,
 	/** The newest still, at once (for a picture before the video plays). */
-	still: (camera: string) => `/api/cameras/${enc(camera)}/still.jpg?t=${Date.now()}`,
+	still: (camera: string, maxAge = 15) =>
+		`/api/cameras/${enc(camera)}/still.jpg?max_age=${maxAge}&t=${Date.now()}`,
 	/** The camera as a slow stream of stills (MJPEG, for an <img>). */
 	stills: (camera: string, every = 2) => `/api/cameras/${enc(camera)}/stills?every=${every}`,
 	snapshot: (camera: string, stream = 'main') =>

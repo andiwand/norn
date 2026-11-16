@@ -203,6 +203,16 @@ class OnvifClient:
                 result.append((token[0], value(block, "Name") or token[0]))
         return result
 
+    async def set_preset(self, profile: str, preset: str | None, name: str) -> str:
+        """Store the current position; `preset` None makes a new one. Returns its token."""
+        token = f"<PresetToken>{_escape(preset)}</PresetToken>" if preset else ""
+        xml = await self.call(
+            "ptz",
+            f"<SetPreset xmlns='{{ptz}}'><ProfileToken>{_escape(profile)}</ProfileToken>"
+            f"<PresetName>{_escape(name)}</PresetName>{token}</SetPreset>",
+        )
+        return value(xml, "PresetToken") or preset or ""
+
     async def goto_preset(self, profile: str, preset: str) -> None:
         await self.call(
             "ptz",

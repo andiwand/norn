@@ -34,6 +34,13 @@ def default_buffer() -> str:
     return str(Path(_env("NORN_TEMP", "data/tmp")).with_name("buffer"))
 
 
+def _log_file(config: Path) -> Path | None:
+    value = os.environ.get("NORN_LOG_FILE", "").strip()
+    if value.lower() in ("off", "none", "0", "false"):
+        return None
+    return Path(value) if value else config.parent / ".norn" / "logs" / "norn.log"
+
+
 @dataclass(frozen=True)
 class Settings:
     config_path: Path = Path("data/config/config.yaml")
@@ -53,6 +60,8 @@ class Settings:
     webrtc_port: int = 8555
     ffmpeg_bin: str = "ffmpeg"
     log_level: str = "info"
+    log_file: Path | None = None  # None: no file
+    access_log: bool = False  # one line per HTTP request
 
     @property
     def runtime_dir(self) -> Path:
@@ -80,4 +89,6 @@ class Settings:
             webrtc_port=int(_env("NORN_WEBRTC_PORT", "8555")),
             ffmpeg_bin=_env("NORN_FFMPEG", "ffmpeg"),
             log_level=_env("NORN_LOG_LEVEL", "info").lower(),
+            log_file=_log_file(Path(_env("NORN_CONFIG", "data/config/config.yaml"))),
+            access_log=_env("NORN_ACCESS_LOG", "0").lower() in ("1", "true", "yes"),
         )

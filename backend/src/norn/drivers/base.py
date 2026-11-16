@@ -28,6 +28,7 @@ class Capability(StrEnum):
     FIRMWARE_UPLOAD = "firmware-upload"  # installs a firmware file the user provides
     FIRMWARE_ONLINE = "firmware-online"  # finds and installs new firmware by itself
     EVENTS = "events"  # reports what the camera detects (motion, people, ...), see Driver.events
+    PRESET_SAVE = "preset-save"  # can store the current view in one of its preset slots
 
 
 class Event(BaseModel):
@@ -136,6 +137,14 @@ class Driver(ABC):
 
     @abstractmethod
     def streams(self) -> list[Stream]: ...
+
+    def preset_slots(self) -> list[str]:
+        """The preset ids `save_preset` takes, for Norn to pick a free one. Empty: any id."""
+        return []
+
+    async def save_preset(self, slot: str, name: str) -> None:
+        """Store the current view in preset `slot`, for Capability.PRESET_SAVE."""
+        raise NotSupportedError("this camera can't save presets")
 
     def web_url(self) -> str | None:
         """The camera's own web page, if it has one (Norn checks that it answers)."""

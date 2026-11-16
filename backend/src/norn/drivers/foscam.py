@@ -107,7 +107,13 @@ class FoscamDriver(Driver):
         return [Stream(id="main", label="Main", source=url, codec="mjpeg")]
 
     def capabilities(self) -> set[Capability]:
-        caps = {Capability.PTZ, Capability.PRESETS, Capability.CONTROLS, Capability.EVENTS}
+        caps = {
+            Capability.PTZ,
+            Capability.PRESETS,
+            Capability.CONTROLS,
+            Capability.EVENTS,
+            Capability.PRESET_SAVE,
+        }
         return super().capabilities() | caps
 
     def event_kinds(self) -> list[str]:
@@ -253,6 +259,15 @@ class FoscamDriver(Driver):
 
     async def presets(self) -> list[Preset]:
         return [Preset(id=str(n), name=f"Preset {n}") for n in range(1, PRESETS + 1)]
+
+    def preset_slots(self) -> list[str]:
+        return [str(n) for n in range(1, PRESETS + 1)]
+
+    async def save_preset(self, slot: str, name: str) -> None:
+        """decoder_control 28 + 2n stores the current position as preset n (31 + 2n - 2 goes there)."""
+        if slot not in self.preset_slots():
+            raise ValueError(f"preset {slot!r}: this camera has presets 1 to {PRESETS}")
+        await self._get("/decoder_control.cgi", command=28 + 2 * int(slot))
 
     async def ptz(self, command: PtzCommand) -> None:
         if command.action == "stop":

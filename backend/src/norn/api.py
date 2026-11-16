@@ -24,7 +24,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from starlette.websockets import WebSocketState
 
-from . import __version__
+from . import __version__, logs
 from .config import (
     CAMERA_ID,
     AwaySettings,
@@ -62,6 +62,10 @@ class CameraBody(BaseModel):
     schedule: list[dict[str, Any]] | None = None
     detection: dict[str, Any] | None = None
     streams: list[str] | None = None
+    presets: dict[str, Any] | None = None
+    patrol: dict[str, Any] | None = None
+    reactions: list[dict[str, Any]] | None = None
+    follow: str | None = None
 
 
 class NewCamera(CameraBody):
@@ -81,6 +85,12 @@ class SettingsBody(BaseModel):
     firmware: FirmwareSettings | None = None
     away: AwaySettings | None = None
     detection: DetectionSettings | None = None
+
+
+class PresetBody(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+    slot: str | None = None  # the camera's preset slot; None: the preset's, or a free one
+    controls: list[str] = []  # controls whose current values the preset applies
 
 
 class PinBody(BaseModel):
@@ -103,8 +113,13 @@ class RecordBody(BaseModel):
         return value
 
 
+OPTIONAL_LISTS = ("presets", "reactions", "follow")
+
+
 def camera_config(data: dict[str, Any]) -> CameraConfig:
     """A camera from an API body; the config's own checks fail as a 422 (ConfigError)."""
+    # Left out (null): the defaults (no presets, patrol, reactions; following off).
+    data = {k: v for k, v in data.items() if not (k in OPTIONAL_LISTS and v is None)}
     try:
         return CameraConfig.model_validate(data)
     except ValidationError as e:
@@ -232,8 +247,15 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
     @api.put("/cameras/{camera_id}")
     async def update_camera(camera_id: str, body: CameraBody) -> dict[str, Any]:
         camera_or_404(camera_id)
+        data = body.model_dump()
+        # What the body leaves out (null) of the pan/tilt setup stays as it is: forms that edit
+        # other things don't send it.
+        keep = hub.cameras[camera_id].config.model_dump(
+            include={"presets", "patrol", "reactions", "follow"}, by_alias=True
+        )
+        data |= {key: value for key, value in keep.items() if data.get(key) is None}
         try:
-            await hub.put_camera(camera_id, camera_config(body.model_dump()))
+            await hub.put_camera(camera_id, camera_config(data))
         except ConfigError as e:
             raise HTTPException(422, str(e)) from e
         return hub.camera_json(camera_id)
@@ -356,7 +378,55 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
             raise HTTPException(409, str(e)) from e
         except ValueError as e:
             raise HTTPException(422, str(e)) from e
+        if pilot := hub.pilots.get(camera_id):
+            pilot.manual()  # someone steers: a patrol waits
         return {"ok": True}
+
+    @api.put("/cameras/{camera_id}/presets/{preset_id}")
+    async def save_preset(camera_id: str, preset_id: str, body: PresetBody) -> dict[str, Any]:
+        """Save what the camera shows now as a Norn preset (into a camera preset slot), with the
+        current values of `controls` and a picture."""
+        driver = driver_of(camera_id)
+        if Capability.PRESET_SAVE not in driver.capabilities():
+            raise HTTPException(409, "this camera can't save presets")
+        try:
+            preset = await hub.save_preset(camera_id, preset_id, body.name, body.slot, body.controls)
+        except NotSupportedError as e:
+            raise HTTPException(409, str(e)) from e
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
+        return {"id": preset_id, **preset.model_dump()}
+
+    @api.delete("/cameras/{camera_id}/presets/{preset_id}", status_code=204)
+    async def remove_preset(camera_id: str, preset_id: str) -> Response:
+        camera_or_404(camera_id)
+        try:
+            await hub.remove_preset(camera_id, preset_id)
+        except KeyError as e:
+            raise HTTPException(404, f"no preset {preset_id!r}") from e
+        return Response(status_code=204)
+
+    @api.post("/cameras/{camera_id}/presets/{preset_id}/goto")
+    async def goto_preset(camera_id: str, preset_id: str) -> dict[str, Any]:
+        """Go to a Norn preset: its view, then its settings. A patrol waits a while."""
+        driver_of(camera_id)
+        pilot = hub.pilots[camera_id]
+        try:
+            await pilot.goto(preset_id)
+        except KeyError as e:
+            raise HTTPException(404, f"no preset {preset_id!r}") from e
+        pilot.manual()
+        return {"ok": True}
+
+    @api.get("/cameras/{camera_id}/presets/{preset_id}.jpg")
+    async def preset_picture(camera_id: str, preset_id: str) -> FileResponse:
+        camera_or_404(camera_id)
+        if not CAMERA_ID.match(preset_id):
+            raise HTTPException(400, "bad preset id")
+        path = hub.pilots[camera_id].picture(preset_id)
+        if not path.is_file():
+            raise HTTPException(404, "no picture")
+        return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "no-cache"})
 
     @api.post("/cameras/{camera_id}/record")
     async def record(camera_id: str, body: RecordBody | None = None) -> dict[str, Any]:
@@ -470,6 +540,26 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
         circle_or_404(circle_id)
         stopped = [c for c in hub.circle_members(circle_id) if await hub.recorder.stop_clip(c)]
         return {"stopped": stopped}
+
+    @api.get("/logs")
+    async def get_logs(
+        level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO",
+        after: int = Query(0, ge=0),
+        limit: int = Query(500, ge=1, le=2000),
+        text: str = "",
+    ) -> dict[str, Any]:
+        """The last log lines (credentials scrubbed), newest last; `after`: only newer than that id."""
+        return {
+            "lines": logs.recent.query(level, after, limit, text),
+            "file": str(settings.log_file) if settings.log_file else None,
+        }
+
+    @api.get("/logs/file")
+    async def log_file() -> FileResponse:
+        """The current log file, to download."""
+        if not settings.log_file or not settings.log_file.is_file():
+            raise HTTPException(404, "no log file")
+        return FileResponse(settings.log_file, media_type="text/plain", filename="norn.log")
 
     @api.get("/resources")
     async def resources() -> dict[str, Any]:

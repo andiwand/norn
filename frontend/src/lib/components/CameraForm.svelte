@@ -42,7 +42,9 @@
 	);
 	let detectEvery = $state<number | null | undefined>(initial?.detection?.every_seconds ?? null);
 	const detection = $derived.by(() => {
+		// Fields the form doesn't show (sensitivity, certainty, ...) stay as they are.
 		const d: Record<string, unknown> = {
+			...initial?.detection,
 			motion: detectMotion,
 			objects: detectObjects,
 			stills: detectStills,
@@ -270,6 +272,7 @@
 			bind:value={detectStills}
 			choices={[
 				[null, 'Default'],
+				['auto', 'Auto'],
 				['keyframe', 'Keyframes'],
 				['live', 'Every frame']
 			]}

@@ -184,6 +184,45 @@ class DetectionOverride(BaseModel):
     min_score: float | None = Field(None, ge=0.1, le=0.95)
 
 
+class NornPreset(BaseModel):
+    """A named view of a pan/tilt camera: one of the camera's own preset slots, plus settings
+    to apply when it gets there (night mode, spotlight, ...)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1)
+    slot: str = Field(min_length=1)  # the camera's preset id
+    controls: dict[str, Any] = Field(default_factory=dict)
+
+
+class Patrol(BaseModel):
+    """Turning through presets: in order or at random, a while at each, in its schedule."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    presets: list[str] = Field(default_factory=list)  # Norn preset ids
+    order: Literal["sequence", "random"] = "sequence"
+    dwell_seconds: int = Field(60, ge=5, le=86400)
+    schedule: list[Window] = Field(default_factory=list)  # when; empty: always
+    # After someone moves the camera by hand, the patrol waits this long.
+    pause_after_manual: int = Field(120, ge=0, le=86400)
+
+
+class Reaction(BaseModel):
+    """When a camera detects something, turn this one to a preset for a while."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kinds: list[EventKind] = Field(min_length=1)
+    cameras: list[str] = Field(default_factory=list)  # whose detections; empty: this camera's
+    presets: list[str] = Field(min_length=1)  # one of them (at random, if more)
+    hold_seconds: int = Field(60, ge=5, le=3600)
+
+
+Follow = Literal["off", "always", "recording", "away"]
+
+
 class FirmwareSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -210,6 +249,11 @@ class CameraConfig(BaseModel):
     detection: DetectionOverride | None = None
     # The streams Norn uses, by id (main, sub, ...); None: all that work.
     streams: list[str] | None = None
+    # Pan/tilt cameras: Norn's presets (by id), patrol, reactions to detections, following.
+    presets: dict[str, NornPreset] = Field(default_factory=dict)
+    patrol: Patrol | None = None
+    reactions: list[Reaction] = Field(default_factory=list)
+    follow: Follow = "off"
 
     @field_validator("picture_seconds")
     @classmethod

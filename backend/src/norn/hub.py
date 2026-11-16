@@ -15,7 +15,7 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ValidationError
 
 from . import __version__
-from .config import CameraConfig, CircleConfig, Config, ConfigError, ConfigStore
+from .config import CameraConfig, CircleConfig, Config, ConfigError, ConfigStore, NornPreset
 from .detect import OBJECT_KINDS, Detectors, MotionDetector, Tracker, gray_from_bgr
 from .drivers import DRIVERS
 from .drivers.base import (
@@ -33,6 +33,7 @@ from .firmware import FirmwareStatus, check
 from .forecast import forecast, history
 from .go2rtc import Go2rtc, Go2rtcUnavailableError
 from .labels import LABELS
+from .pilot import Pilot
 from .probe import StreamProbe, probe_all, probeable
 from .recorder import Recorder, ffprobe_of
 from .recordings import Library
@@ -144,6 +145,10 @@ class Camera:
             "prebuffer_seconds": self.config.prebuffer_seconds,
             "triggers": self.config.triggers,
             "stream_selection": self.config.streams,
+            "presets_norn": {k: v.model_dump() for k, v in self.config.presets.items()},
+            "patrol": self.config.patrol.model_dump(by_alias=True) if self.config.patrol else None,
+            "reactions": [r.model_dump() for r in self.config.reactions],
+            "follow": self.config.follow,
             "detection": self.config.detection.model_dump(exclude_none=True)
             if self.config.detection
             else None,
@@ -174,8 +179,11 @@ class Hub:
         # Cameras recording because of detections: what holds each one (camera, kind), and the
         # task that keeps its clip going.
         self.detectors = Detectors(settings)
+        self.pilots: dict[str, Pilot] = {}  # pan/tilt: presets, patrol, reactions, following
         self.stills = Stills(settings.ffmpeg_bin)
         self._still_cache: dict[str, tuple[bytes, float]] = {}
+        self._leases: dict[str, float] = {}  # camera -> until when someone wants its stills
+        self._lease_tasks: dict[str, asyncio.Task[None]] = {}
         self.away = False  # away mode is on (now, or planned for now)
         self._away_task: asyncio.Task[None] | None = None
         self._held: dict[str, set[tuple[str, str]]] = {}
@@ -204,7 +212,11 @@ class Hub:
         log.info("Norn %s with %d cameras", __version__, len(self.cameras))
 
     async def stop(self) -> None:
+        for pilot in self.pilots.values():
+            pilot.stop()
         tasks = [self._watcher, self._poller, self._away_task, *self._holds.values()]
+        tasks += [p.task for p in self.pilots.values()]
+        tasks += list(self._lease_tasks.values())
         for camera in self.cameras.values():
             tasks += [camera.events_task, camera.stills_task, camera.probe_task, camera.controls_task]
         running = [t for t in tasks if t and not t.done()]
@@ -559,6 +571,51 @@ class Hub:
             self.store.put_camera(camera_id, camera)
             await self._apply()
 
+    async def save_preset(
+        self, camera_id: str, preset_id: str, name: str, slot: str | None, controls: list[str]
+    ) -> NornPreset:
+        """Make or change a Norn preset from what the camera shows now: the view goes into a
+        preset slot of the camera (a free one, unless `slot`), the `controls` named keep their
+        current values, and a picture shows the view."""
+        driver = self.get_driver(camera_id)
+        camera = self.cameras[camera_id]
+        existing = camera.config.presets.get(preset_id)
+        if slot is None:
+            slot = existing.slot if existing else None
+        if slot is None and not driver.preset_slots():
+            slot = f"norn-{preset_id}"  # the camera takes any id (a name)
+        if slot is None:
+            taken = {p.slot for p in camera.config.presets.values()}
+            free = [s for s in driver.preset_slots() if s not in taken]
+            if not free:
+                raise ValueError("the camera has no free preset slot")
+            slot = free[-1]  # from the end: the camera's own presets usually start at the front
+        await driver.save_preset(slot, name)
+        current, _ = await self.get_controls(camera_id, max_age=0)
+        values = {c.id: c.value for c in current if c.id in controls and c.kind != "button"}
+        preset = NornPreset(name=name, slot=slot, controls=values)
+        jpeg = await self.still_jpeg(camera_id, max_age=2)
+        pilot = self.pilots[camera_id]
+        if jpeg:
+            path = pilot.picture(preset_id)
+            await asyncio.to_thread(path.parent.mkdir, parents=True, exist_ok=True)
+            await asyncio.to_thread(path.write_bytes, jpeg)
+        presets = {**camera.config.presets, preset_id: preset}
+        await self.put_camera(camera_id, camera.config.model_copy(update={"presets": presets}))
+        return preset
+
+    async def remove_preset(self, camera_id: str, preset_id: str) -> None:
+        camera = self.cameras[camera_id]
+        if preset_id not in camera.config.presets:
+            raise KeyError(preset_id)
+        presets = {k: v for k, v in camera.config.presets.items() if k != preset_id}
+        cfg = camera.config
+        patrol = cfg.patrol
+        if patrol and preset_id in patrol.presets:
+            patrol = patrol.model_copy(update={"presets": [p for p in patrol.presets if p != preset_id]})
+        await self.put_camera(camera_id, cfg.model_copy(update={"presets": presets, "patrol": patrol}))
+        self.pilots[camera_id].picture(preset_id).unlink(missing_ok=True)
+
     async def put_settings(self, sections: dict[str, BaseModel]) -> None:
         async with self._lock:
             for name, values in sections.items():
@@ -692,11 +749,15 @@ class Hub:
                 self._still_cache.pop(cid, None)
                 if cid not in new:
                     await self.stills.forget(cid)
+                    if pilot := self.pilots.pop(cid, None):
+                        pilot.stop()
                 if camera.driver:
                     with contextlib.suppress(Exception):
                         await camera.driver.stop()
         self.cameras = new
         for camera in new.values():
+            if camera.id not in self.pilots:
+                self.pilots[camera.id] = Pilot(self, camera.id)
             if camera.probe_task is None and camera.driver and camera.config.enabled:
                 camera.probe_task = asyncio.create_task(self._probe(camera), name=f"probe-{camera.id}")
             if camera.stills_task is None and camera.driver and camera.config.enabled:
@@ -791,6 +852,8 @@ class Hub:
             for held in self._held.values():
                 held.discard(source)
             return
+        if not was:
+            self._react(camera_id, event.kind)
         if event.kind not in self.triggers_of(camera_id):
             return
         # The camera records; in a circle that records together, all its cameras do.
@@ -804,9 +867,22 @@ class Hub:
             if task is None or task.done():
                 self._holds[target] = asyncio.create_task(self._hold(target, event.kind))
 
+    def _react(self, source: str, kind: str) -> None:
+        """Cameras with a reaction to this detection turn to one of its presets."""
+        for cid, cfg in self.config.cameras.items():
+            pilot = self.pilots.get(cid)
+            if pilot is None or not cfg.enabled:
+                continue
+            for reaction in cfg.reactions:
+                watched = reaction.cameras or [cid]
+                if kind in reaction.kinds and source in watched:
+                    asyncio.create_task(pilot.react(reaction.presets, reaction.hold_seconds))  # noqa: RUF006
+                    break
+
     async def still_jpeg(self, camera_id: str, max_age: float = 15) -> bytes | None:
         """The camera's newest still, fast: from a running still stream, else the RAM buffer's
         newest keyframe (no new connection), else go2rtc. Kept a few seconds for other viewers."""
+        self._lease_stills(camera_id)
         jpeg = self.stills.latest(camera_id, "jpeg", max_age)
         if jpeg is not None:
             return jpeg
@@ -823,6 +899,32 @@ class Hub:
         if jpeg:
             self._still_cache[camera_id] = (jpeg, time.monotonic())
         return jpeg
+
+    def _lease_stills(self, camera_id: str, seconds: float = 30) -> None:
+        """Someone asks for stills of the camera (a tile of the Live page, every few seconds):
+        keep its keyframe still stream running for a while, so the next ones come from there,
+        nearly free, instead of decoding a keyframe of the buffer each time."""
+        camera = self.cameras.get(camera_id)
+        if camera is None or not self.recorder.available:
+            return
+        self._leases[camera_id] = time.monotonic() + seconds
+        task = self._lease_tasks.get(camera_id)
+        if task is None or task.done():
+
+            async def hold() -> None:
+                stream = self.still_stream(camera, "keyframe")
+                async with stream.subscribe("jpeg", 1):
+                    # Sleep until the lease runs out; a request meanwhile moves its end.
+                    while (left := self._leases.get(camera_id, 0) - time.monotonic()) > 0:  # noqa: ASYNC110
+                        await asyncio.sleep(left)
+
+            self._lease_tasks[camera_id] = asyncio.create_task(hold(), name=f"still-lease-{camera_id}")
+
+    def still_aspect(self, camera: Camera) -> float:
+        """Width over height of the stream the stills come from (16:9 when not known)."""
+        own = self.go2rtc_streams(camera)
+        probe = (camera.probe or {}).get(own[-1][1].id) if own else None
+        return probe.width / probe.height if probe and probe.width and probe.height else 16 / 9
 
     def still_source(self, camera: Camera) -> str:
         """Where the camera's still streams read from: its smallest stream of its own."""
@@ -845,8 +947,27 @@ class Hub:
             self.on_event(camera.id, Event(kind=kind, active=False), "norn")
 
         gap = 0.0  # the measured time between stills (keyframes can be far apart)
-        while True:
+        pilot = self.pilots.get(camera.id)
+
+        def norn_follows() -> bool:
+            """Norn steers the camera after people: following is wanted, and the camera can't
+            track by itself."""
+            return bool(
+                pilot
+                and pilot.follow_wanted()
+                and not pilot.own_tracking()
+                and self.detectors.unavailable is None
+            )
+
+        def settings() -> Any:
+            """The detection settings now; following needs people, often."""
             d = self.config.detection_for(camera.id)
+            if norn_follows():
+                d = d.model_copy(update={"objects": True, "stills": "live", "every_seconds": 0.5})
+            return d
+
+        while True:
+            d = settings()
             objects = d.objects and self.detectors.unavailable is None
             if not (d.motion or objects) or not self.go2rtc.ready.is_set() or not self.recorder.available:
                 for kind in list(active):
@@ -870,7 +991,8 @@ class Hub:
                         if last_still is not None:
                             gap = now - last_still if gap == 0 else gap * 0.8 + (now - last_still) * 0.2
                         last_still = now
-                    d = self.config.detection_for(camera.id)
+                    d = settings()
+                    following = norn_follows()
                     seen: set[str] = set()
                     try:
                         if data and d.motion:
@@ -882,6 +1004,9 @@ class Hub:
                             before = camera.detect_ms
                             camera.detect_ms = ms if before is None else before * 0.8 + ms * 0.2
                             seen |= tracker.update(found, now)
+                            if following and pilot:
+                                people = [f for f in found if f.kind == "person"]
+                                await pilot.nudge(people, self.still_aspect(camera))
                     except Exception as e:
                         log.warning("%s: detection failed: %s", camera.id, e)
                     for kind in seen:

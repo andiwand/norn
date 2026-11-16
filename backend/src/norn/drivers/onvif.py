@@ -116,7 +116,7 @@ class OnvifDriver(Driver):
     def capabilities(self) -> set[Capability]:
         caps = super().capabilities() | {Capability.CONTROLS}
         if "ptz" in self.client.services and any(p.has_ptz for p in self.profiles):
-            caps |= {Capability.PTZ, Capability.PRESETS}
+            caps |= {Capability.PTZ, Capability.PRESETS, Capability.PRESET_SAVE}
         return caps
 
     @property
@@ -209,6 +209,13 @@ class OnvifDriver(Driver):
         except OnvifError as e:
             raise DriverError(str(e)) from e
         self.emit("camera.control", {"control": control_id, "value": value_})
+
+    async def save_preset(self, slot: str, name: str) -> None:
+        """ONVIF SetPreset: `slot` is the preset token (new ones get theirs from the camera)."""
+        try:
+            await self.client.set_preset(self._profile.token, slot or None, name)
+        except OnvifError as e:
+            raise DriverError(f"the camera didn't save the preset: {e}") from e
 
     async def presets(self) -> list[Preset]:
         if Capability.PRESETS not in self.capabilities():

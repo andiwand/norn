@@ -226,7 +226,19 @@
 						{#if muted}<VolumeX class="size-4" />{:else}<Volume2 class="size-4" />{/if}
 					</button>
 					{#if camera.streams.length > 1}
-						<div class="flex rounded-full bg-black/45 p-1 backdrop-blur-md">
+						<!-- Narrow screens: a dropdown; there's no room for every quality. -->
+						<select
+							class="rounded-full border-0 bg-black/45 px-3 py-1 text-xs font-medium text-white backdrop-blur-md sm:hidden"
+							value={stream}
+							onchange={(e) => (stream = e.currentTarget.value)}
+							aria-label="Quality"
+						>
+							<option value="auto">Auto · {qualityName(playing)}</option>
+							{#each camera.streams as s (s.id)}
+								<option value={s.id}>{qualityName(s.id)}</option>
+							{/each}
+						</select>
+						<div class="hidden rounded-full bg-black/45 p-1 backdrop-blur-md sm:flex">
 							{#each [{ id: 'auto', transcoded: false }, ...camera.streams] as s (s.id)}
 								<button
 									class="rounded-full px-3 py-1 text-xs font-medium transition {stream === s.id

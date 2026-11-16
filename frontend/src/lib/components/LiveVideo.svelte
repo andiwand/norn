@@ -35,11 +35,13 @@
 		playing = $bindable(stream)
 	}: Props = $props();
 
-	// With a ladder, a guard picks the stream; without, it is `stream`.
+	// With a ladder, a guard picks the stream; without, it is `stream`. The guard lives as long
+	// as the ladder holds the same streams: a refresh of the camera list mustn't reset it.
+	const ladderKey = $derived(ladder?.map((s) => s.id).join(',') ?? '');
 	let guard = $state<QualityGuard | null>(null);
 	let current = $state(untrack(() => stream));
 	$effect(() => {
-		const ids = ladder?.map((s) => s.id) ?? [];
+		const ids = ladderKey ? ladderKey.split(',') : [];
 		const start = Math.max(0, ids.indexOf(stream));
 		untrack(() => {
 			guard = ids.length > 1 ? new QualityGuard(ids, start) : null;
@@ -52,11 +54,19 @@
 	const currentCodec = $derived(ladder?.find((s) => s.id === current)?.codec ?? codec);
 
 	let status = $state<'connecting' | 'playing' | 'error'>('connecting');
+	let played = $state(false); // this stream showed a frame: the poster has done its job
 	let poster = $state<string | null>(null);
-	$effect(() => {
-		poster = urls.still(camera);
-	});
 	let error = $state('');
+
+	// A new camera or stream: connecting again, with a fresh poster until it plays.
+	$effect(() => {
+		void current;
+		poster = urls.still(camera);
+		untrack(() => {
+			status = 'connecting';
+			played = false;
+		});
+	});
 
 	$effect(() => {
 		const el = element as (HTMLElement & { src: string; mode: string }) | null;
@@ -71,10 +81,11 @@
 		if (video) video.muted = muted;
 	});
 
-	// While it plays, the guard watches the video and steps the quality down or up.
+	// The guard watches the video all along (a stall shows as "connecting" for a moment, and
+	// must count too) and steps the quality down or up.
 	$effect(() => {
 		const video = (element as (HTMLElement & { video?: HTMLVideoElement }) | null)?.video;
-		if (!guard || !video || status !== 'playing') return;
+		if (!guard || !video) return;
 		const g = guard;
 		return watchVideo(video, (health) => {
 			const next = g.check(health);
@@ -82,9 +93,23 @@
 		});
 	});
 
+	// A stream that never starts (after a step up, say) counts as failed.
+	$effect(() => {
+		if (!guard || status !== 'connecting') return;
+		const g = guard;
+		const timer = setTimeout(() => {
+			const next = g.down();
+			if (next !== current) current = next;
+		}, 15_000);
+		return () => clearTimeout(timer);
+	});
+
 	function onState(e: Event) {
 		status = (e as CustomEvent).detail;
-		if (status === 'playing') error = '';
+		if (status === 'playing') {
+			error = '';
+			played = true;
+		}
 		if (status === 'error' && guard) {
 			const next = guard.down(); // it doesn't play at all: try a lighter stream
 			if (next !== current) current = next;
@@ -101,16 +126,20 @@
 </script>
 
 <div class="relative overflow-hidden bg-black {className}">
-	<norn-video
-		bind:this={element}
-		{fit}
-		class="block h-full w-full"
-		onnorn-state={onState}
-		onnorn-mode={onMode}
-		onnorn-error={onError}
-	></norn-video>
+	<!-- A new element per stream: go2rtc's player only connects once (a new src waits for the
+	     next reconnect otherwise). -->
+	{#key current}
+		<norn-video
+			bind:this={element}
+			{fit}
+			class="block h-full w-full"
+			onnorn-state={onState}
+			onnorn-mode={onMode}
+			onnorn-error={onError}
+		></norn-video>
+	{/key}
 
-	{#if status !== 'playing' && poster}
+	{#if !played && poster}
 		<!-- The newest still until the video plays: the wait for a keyframe isn't a black box. -->
 		<img
 			src={poster}

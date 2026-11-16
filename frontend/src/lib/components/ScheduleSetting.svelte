@@ -26,6 +26,15 @@
 		['sat', 'Sa'],
 		['sun', 'Su']
 	] as const;
+	const FULL: Record<string, string> = {
+		mon: 'Monday',
+		tue: 'Tuesday',
+		wed: 'Wednesday',
+		thu: 'Thursday',
+		fri: 'Friday',
+		sat: 'Saturday',
+		sun: 'Sunday'
+	};
 
 	const own = $derived(value !== null);
 	const windows = $derived(value ?? inherit ?? []);
@@ -93,7 +102,7 @@
 							type="button"
 							role="switch"
 							aria-checked={w.days.includes(day)}
-							aria-label={day}
+							aria-label={FULL[day]}
 							class="grid size-7 place-items-center rounded-lg text-[11px] font-semibold transition {w.days.includes(
 								day
 							)
@@ -109,7 +118,10 @@
 						class="field h-8 px-2 tabular-nums"
 						value={w.from}
 						aria-label="From"
-						onchange={(e) => e.currentTarget.value && update(i, { from: e.currentTarget.value })}
+						onchange={(e) =>
+							e.currentTarget.value
+								? update(i, { from: e.currentTarget.value })
+								: (e.currentTarget.value = w.from)}
 					/>
 					<span class="text-muted">to</span>
 					<input
@@ -117,7 +129,10 @@
 						class="field h-8 px-2 tabular-nums"
 						value={w.to}
 						aria-label="To"
-						onchange={(e) => e.currentTarget.value && update(i, { to: e.currentTarget.value })}
+						onchange={(e) =>
+							e.currentTarget.value
+								? update(i, { to: e.currentTarget.value })
+								: (e.currentTarget.value = w.to)}
 					/>
 					<button
 						type="button"

@@ -63,7 +63,19 @@
 	async function save() {
 		if (!form) return;
 		saving = true;
-		const data = await store.attempt(() => api.saveSettings($state.snapshot(form!)), 'Saved');
+		// Only what changed here: the server keeps the rest, so a change made meanwhile elsewhere
+		// (away mode in the header, another browser) isn't undone.
+		const now = $state.snapshot(form!) as unknown as Record<string, Record<string, unknown>>;
+		const before = (saved ?? {}) as unknown as Record<string, Record<string, unknown>>;
+		const changes: Record<string, Record<string, unknown>> = {};
+		for (const [section, values] of Object.entries(now)) {
+			for (const [key, value] of Object.entries(values)) {
+				if (JSON.stringify(value) !== JSON.stringify(before[section]?.[key])) {
+					(changes[section] ??= {})[key] = value;
+				}
+			}
+		}
+		const data = await store.attempt(() => api.saveSettings(changes), 'Saved');
 		saving = false;
 		if (data) take(data);
 	}
@@ -340,6 +352,11 @@
 				<span class="min-w-0 flex-1 basis-56">
 					<span class="block text-sm font-medium">Planned</span>
 					<span class="block text-xs text-muted">Away from the first time until the second.</span>
+					{#if form.away.start && form.away.end && form.away.end <= form.away.start}
+						<span class="block text-xs text-warning"
+							>It ends before it starts: it never applies.</span
+						>
+					{/if}
 				</span>
 				<span class="flex w-full flex-wrap items-center justify-end gap-1.5 text-sm sm:w-auto">
 					<input

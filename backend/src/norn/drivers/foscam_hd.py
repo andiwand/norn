@@ -100,8 +100,12 @@ class FoscamHdDriver(Driver):
     def capabilities(self) -> set[Capability]:
         caps = super().capabilities() | {Capability.CONTROLS}
         if self.has_ptz:
-            caps |= {Capability.PTZ, Capability.PRESETS}
+            caps |= {Capability.PTZ, Capability.PRESETS, Capability.PRESET_SAVE}
         return caps
+
+    async def save_preset(self, slot: str, name: str) -> None:
+        """Foscam presets are named: the slot is the name."""
+        await self._cmd("ptzAddPresetPoint", name=slot or name)
 
     async def _cmd(self, cmd: str, **params: Any) -> dict[str, str]:
         o = self.options

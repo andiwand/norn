@@ -22,6 +22,7 @@ import zipfile
 from collections.abc import AsyncIterator
 from typing import Any
 from urllib.parse import quote
+from xml.sax.saxutils import escape
 
 import httpx
 from pydantic import Field
@@ -225,8 +226,28 @@ class ReolinkDriver(Driver):
             Capability.EVENTS,
         }
         if not self._connected or self._supported("pan_tilt"):
-            caps |= {Capability.PTZ, Capability.PRESETS}
+            caps |= {Capability.PTZ, Capability.PRESETS, Capability.PRESET_SAVE}
         return caps
+
+    def preset_slots(self) -> list[str]:
+        return [str(n) for n in range(64)]
+
+    async def save_preset(self, slot: str, name: str) -> None:
+        """Store the current position as preset `slot`, as the Reolink app does (Baichuan message
+        19 with the command setPos). Not yet tried on every model."""
+        if not slot.isdigit():
+            raise ValueError(f"preset {slot!r}: Reolink presets are numbers")
+        body = (
+            '<?xml version="1.0" encoding="UTF-8" ?>\n<body>\n<PtzPreset version="1.1">\n'
+            f"<channelId>{CHANNEL}</channelId>\n<presetList>\n<preset>\n<id>{int(slot)}</id>\n"
+            f"<command>setPos</command>\n<name>{escape(name[:31])}</name>\n</preset>\n"
+            "</presetList>\n</PtzPreset>\n</body>"
+        )
+
+        async def save() -> None:
+            await self.api.baichuan.send(cmd_id=19, channel=CHANNEL, body=body)
+
+        await self._call(save)
 
     async def info(self) -> DeviceInfo:
         try:

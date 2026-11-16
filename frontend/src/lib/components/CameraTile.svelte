@@ -6,7 +6,7 @@
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import VideoOff from '@lucide/svelte/icons/video-off';
 
-	import { urls } from '../api';
+	import StillImage from './StillImage.svelte';
 
 	let { camera, stills = false }: { camera: Camera; stills?: boolean } = $props();
 
@@ -37,7 +37,7 @@
 		</div>
 	{:else if stills}
 		<!-- A slow stream of stills: hardly any network or CPU, for many cameras at once. -->
-		<img src={urls.stills(camera.id)} alt="" class="h-full w-full object-cover" />
+		<StillImage camera={camera.id} class="h-full w-full" />
 	{:else}
 		<LiveVideo
 			camera={camera.id}

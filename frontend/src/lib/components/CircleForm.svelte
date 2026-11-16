@@ -37,6 +37,7 @@
 			triggers,
 			together,
 			schedule,
+			detection: initial?.detection ?? null,
 			prebuffer_seconds:
 				typeof prebuffer === 'number' && Number.isFinite(prebuffer) ? prebuffer : null
 		};
