@@ -1,11 +1,14 @@
 <script lang="ts">
 	// Norn's presets of a pan/tilt camera: a picture each, a click goes there. "Save this view"
-	// stores what the camera shows now (and, if wanted, its current settings) as a preset.
+	// stores what the camera shows now (and, if wanted, its current settings) as a preset. The
+	// star marks the default: where the camera returns when nothing else steers it. Star and
+	// delete show on hover; touch screens, which can't hover, always show them.
 	import { api, urls, type Camera, type Control } from '../api';
 	import { slugify } from '../format';
 	import { store } from '../state.svelte';
 	import Plus from '@lucide/svelte/icons/plus';
 	import X from '@lucide/svelte/icons/x';
+	import Star from '@lucide/svelte/icons/star';
 
 	let { camera, controls }: { camera: Camera; controls: Control[] } = $props();
 
@@ -18,7 +21,9 @@
 	let keep = $state<string[]>([]);
 	let saving = $state(false);
 	let version = $state(Date.now()); // pictures change when a preset is saved again
-	let editing = $state(false);
+	// Deleting takes a second tap within a few seconds.
+	let confirming = $state<string | null>(null);
+	let confirmTimer: ReturnType<typeof setTimeout> | undefined;
 
 	async function save(e: SubmitEvent) {
 		e.preventDefault();
@@ -38,7 +43,23 @@
 		}
 	}
 
+	async function setDefault(id: string) {
+		const next = camera.default_preset === id ? null : id;
+		const ok = await store.attempt(
+			() => api.setDefaultPreset(camera.id, next),
+			next ? `“${camera.presets_norn[id].name}” is the default` : 'No default preset'
+		);
+		if (ok) store.refresh();
+	}
+
 	async function remove(id: string) {
+		clearTimeout(confirmTimer);
+		if (confirming !== id) {
+			confirming = id;
+			confirmTimer = setTimeout(() => (confirming = null), 3000);
+			return;
+		}
+		confirming = null;
 		const ok = await store.attempt(async () => {
 			await api.deletePreset(camera.id, id);
 			return true;
@@ -49,17 +70,11 @@
 
 {#if presets.length || canSave}
 	<div class="mt-5">
-		<div class="mb-2 flex items-center justify-between">
-			<span class="text-xs font-medium text-muted">Norn presets</span>
-			{#if presets.length}
-				<button class="text-xs text-muted hover:text-text" onclick={() => (editing = !editing)}
-					>{editing ? 'Done' : 'Edit'}</button
-				>
-			{/if}
-		</div>
+		<div class="mb-2 text-xs font-medium text-muted">Norn presets</div>
 		<div class="grid grid-cols-2 gap-2">
 			{#each presets as [id, preset] (id)}
-				<div class="relative">
+				{@const isDefault = camera.default_preset === id}
+				<div class="group/preset relative">
 					<button
 						class="group block w-full overflow-hidden rounded-xl border border-line bg-surface-2 text-left"
 						onclick={() =>
@@ -74,15 +89,35 @@
 							class="aspect-video w-full bg-black object-cover transition group-hover:opacity-90"
 							onerror={(e) => ((e.currentTarget as HTMLImageElement).style.visibility = 'hidden')}
 						/>
-						<span class="block truncate px-2 py-1.5 text-xs font-medium">{preset.name}</span>
-					</button>
-					{#if editing}
-						<button
-							class="absolute top-1 right-1 tile-action hover:bg-danger"
-							aria-label="Delete {preset.name}"
-							onclick={() => remove(id)}><X class="size-4" /></button
+						<span class="block truncate px-2 py-1.5 text-xs font-medium"
+							>{preset.name}{#if isDefault}<span class="font-normal text-muted">
+									· default</span
+								>{/if}</span
 						>
-					{/if}
+					</button>
+					<!-- With a mouse: on hover (the default's star always). Touch: always. -->
+					<button
+						class="absolute top-1 left-1 tile-action transition {isDefault
+							? 'text-warning'
+							: 'pointer-fine:opacity-0 pointer-fine:group-hover/preset:opacity-100 pointer-fine:focus-visible:opacity-100'}"
+						aria-label={isDefault ? 'No default preset' : `Make “${preset.name}” the default`}
+						aria-pressed={isDefault}
+						title={isDefault
+							? 'The default: Norn returns here when nothing else steers the camera'
+							: 'Make it the default: Norn returns here when nothing else steers the camera'}
+						onclick={() => setDefault(id)}
+						><Star class="size-4 {isDefault ? 'fill-current' : ''}" /></button
+					>
+					<button
+						class="absolute top-1 right-1 tile-action transition hover:bg-danger {confirming === id
+							? 'w-auto! bg-danger px-2 text-xs font-medium'
+							: 'pointer-fine:opacity-0 pointer-fine:group-hover/preset:opacity-100 pointer-fine:focus-visible:opacity-100'}"
+						aria-label={confirming === id
+							? `Really delete ${preset.name}`
+							: `Delete ${preset.name}`}
+						onclick={() => remove(id)}
+						>{#if confirming === id}Delete?{:else}<X class="size-4" />{/if}</button
+					>
 				</div>
 			{/each}
 		</div>

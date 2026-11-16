@@ -74,3 +74,50 @@ async def test_a_move_without_a_stop_stops(settings: Settings, monkeypatch) -> N
         assert driver._move is None  # type: ignore[attr-defined]  # stopped by itself
     finally:
         await hub.stop()
+
+
+async def test_default_preset_after_a_hand_move(settings: Settings, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    settings.config_path.parent.mkdir(parents=True)
+    settings.config_path.write_text(
+        "cameras:\n"
+        "  yard:\n"
+        "    name: Yard\n"
+        "    driver: demo\n"
+        "    presets: {gate: {name: Gate, slot: drive}, door: {name: Door, slot: door}}\n"
+        "    default_preset: gate\n"
+    )
+    hub = Hub(settings)
+    await hub.start()
+    try:
+        pilot, driver = hub.pilots["yard"], hub.get_driver("yard")
+        for _ in range(50):  # it goes to the default at the start
+            if pilot.at_default:
+                break
+            await asyncio.sleep(0.1)
+        assert driver.position == [0.5, -0.2, 0.3]  # type: ignore[attr-defined]
+
+        # Someone steers it by hand: it waits, then returns.
+        await pilot.goto("door")
+        pilot.manual()
+        assert not pilot.at_default
+        pilot.paused_until = 0  # the wait is over
+        for _ in range(80):
+            if pilot.at_default:
+                break
+            await asyncio.sleep(0.1)
+        assert driver.position == [0.5, -0.2, 0.3]  # type: ignore[attr-defined]
+    finally:
+        await hub.stop()
+
+
+def test_default_preset_api(client: TestClient) -> None:
+    client.post("/api/cameras/demo/ptz", json={"action": "goto", "preset": "door"})
+    client.put("/api/cameras/demo/presets/porch", json={"name": "Porch"})
+    assert client.put("/api/cameras/demo/default-preset", json={"preset": "nope"}).status_code == 404
+    camera = client.put("/api/cameras/demo/default-preset", json={"preset": "porch"}).json()
+    assert camera["default_preset"] == "porch"
+    # A form that doesn't send it keeps it; deleting the preset clears it.
+    assert client.put("/api/cameras/demo", json={"name": "Demo camera", "driver": "demo"}).status_code == 200
+    assert client.get("/api/cameras/demo").json()["default_preset"] == "porch"
+    client.delete("/api/cameras/demo/presets/porch")
+    assert client.get("/api/cameras/demo").json()["default_preset"] is None

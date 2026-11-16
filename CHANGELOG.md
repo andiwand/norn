@@ -9,6 +9,10 @@
   quality that plays.
 - Arrange the cameras on the Live page by dragging or with arrows; the order is saved in
   config.yaml (`PUT /api/cameras/order`).
+- A default Norn preset per camera (the star on a preset): the camera returns there when
+  nothing else steers it: no patrol in its schedule, no hold after a hand move or a reaction,
+  no following. Star and delete show on hover; on touch screens always, and deleting takes
+  a second tap. The Edit toggle is gone.
 - No more "Exception in ASGI application" tracebacks in the log when a browser closes a video
   connection (switching quality, leaving the page).
 

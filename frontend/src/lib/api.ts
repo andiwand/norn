@@ -129,6 +129,8 @@ export interface Camera {
 	/** Norn's presets (by id), patrol, reactions to detections, following. */
 	presets_norn: Record<string, NornPreset>;
 	patrol: Patrol | null;
+	/** The Norn preset it returns to when nothing else steers it. */
+	default_preset: string | null;
 	reactions: Reaction[];
 	follow: 'off' | 'always' | 'recording' | 'away';
 	/** The camera's own web page, when it answers. */
@@ -517,6 +519,8 @@ export const api = {
 	stopCircle: (id: string) => request<unknown>('DELETE', `/circles/${enc(id)}/record`),
 	savePreset: (id: string, preset: string, body: { name: string; controls: string[] }) =>
 		request<NornPreset>('PUT', `/cameras/${enc(id)}/presets/${enc(preset)}`, body),
+	setDefaultPreset: (id: string, preset: string | null) =>
+		request<Camera>('PUT', `/cameras/${enc(id)}/default-preset`, { preset }),
 	deletePreset: (id: string, preset: string) =>
 		request<void>('DELETE', `/cameras/${enc(id)}/presets/${enc(preset)}`),
 	gotoPreset: (id: string, preset: string) =>

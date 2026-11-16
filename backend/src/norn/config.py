@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 from ruamel.yaml.error import CommentMark
@@ -254,6 +254,14 @@ class CameraConfig(BaseModel):
     patrol: Patrol | None = None
     reactions: list[Reaction] = Field(default_factory=list)
     follow: Follow = "off"
+    # A Norn preset the camera returns to when nothing else steers it.
+    default_preset: str | None = None
+
+    @model_validator(mode="after")
+    def _default_is_a_preset(self) -> CameraConfig:
+        if self.default_preset is not None and self.default_preset not in self.presets:
+            raise ValueError(f"default_preset {self.default_preset!r} is not one of its presets")
+        return self
 
     @field_validator("picture_seconds")
     @classmethod

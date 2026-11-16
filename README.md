@@ -49,8 +49,8 @@ whether newer firmware exists.
   (also third and fourth ones) and whether they work at the same time.
 - **Detection**: the cameras' own motion and AI events, and Norn's own on stills (motion; people,
   vehicles and animals with a small AI model). Triggers on a schedule, and an away mode.
-- **Pan/tilt**: Norn presets with a picture and their own settings, patrol, reactions to
-  detections, following people.
+- **Pan/tilt**: Norn presets with a picture and their own settings, a default preset to return
+  to, patrol, reactions to detections, following people.
 - **No re-encoding.** [go2rtc](https://github.com/AlexxIT/go2rtc) reads each camera once and
   repackages the stream for every viewer and the recorder. FFmpeg transcodes only a stream a
   browser can't play.

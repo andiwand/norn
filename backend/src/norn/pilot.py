@@ -9,6 +9,8 @@ One Pilot per camera. It reads the camera's settings each time, so changes apply
 - Reactions: a detection (on this camera or others) turns it to one of some presets for a while.
 - Following: with the camera's own tracking where it has it (a control `autotrack`), else with
   Norn's person detection on stills: a short nudge toward the person, again and again.
+- Default preset: when none of these steers the camera (no patrol in its schedule, no hold after
+  a hand move or a reaction, not following), it goes back to its default preset.
 """
 
 from __future__ import annotations
@@ -42,6 +44,7 @@ class Pilot:
         self.paused_until = 0.0  # manual steering, a reaction's hold, following
         self.patrol_index = -1
         self.following = False  # the camera's own tracking is on because of Norn
+        self.at_default = False  # it's at its default preset, as far as Norn knows
         self._paused = asyncio.Event()  # set by pause(): a dwell ends at once
         self._auto_stop: asyncio.Task[None] | None = None
         self.task = asyncio.create_task(self._run(), name=f"pilot-{camera_id}")
@@ -64,6 +67,8 @@ class Pilot:
         if self._auto_stop:
             self._auto_stop.cancel()
             self._auto_stop = None
+        if command.action != "stop":
+            self.at_default = False
         if command.action == "move":
             self._auto_stop = asyncio.create_task(self._stop_later())
 
@@ -91,7 +96,9 @@ class Pilot:
         if preset is None:
             raise KeyError(preset_id)
         driver = self.hub.get_driver(self.camera_id)
+        self.at_default = False
         await driver.ptz(PtzCommand(action="goto", preset=preset.slot))
+        self.at_default = preset_id == cfg.default_preset
         for control_id, value in preset.controls.items():
             try:
                 await driver.set_control(control_id, value)
@@ -141,6 +148,7 @@ class Pilot:
         self.pause(15)  # no patrol while following someone
         if abs(x) < DEAD_ZONE and abs(y) < DEAD_ZONE:
             return
+        self.at_default = False
         driver = self.hub.get_driver(self.camera_id)
         pan = max(-1.0, min(1.0, x * 0.8)) if abs(x) >= DEAD_ZONE else 0.0
         tilt = max(-1.0, min(1.0, -y * 0.8)) if abs(y) >= DEAD_ZONE else 0.0
@@ -158,9 +166,25 @@ class Pilot:
             self.hub.remember_control(self.camera_id, "autotrack", wanted)
             self.following = wanted
             if wanted:
+                self.at_default = False
                 self.pause(30)
         except Exception as e:
             log.info("%s: tracking not switched: %s", self.camera_id, e)
+
+    def tracking_itself(self) -> bool:
+        """The camera's own tracking is on (switched on by hand): it moves by itself."""
+        cached = self.hub.cameras.get(self.camera_id)
+        on = any(c.id == "autotrack" and c.value is True for c in (cached.controls if cached else None) or [])
+        if on:
+            self.at_default = False
+        return on
+
+    async def _to_default(self) -> None:
+        cfg = self.config
+        default = cfg.default_preset if cfg else None
+        if default and default in cfg.presets and not self.at_default:
+            log.info("%s: back to the default preset %s", self.camera_id, default)
+            await self.goto(default)
 
     # Patrol
 
@@ -174,12 +198,13 @@ class Pilot:
                 await self._own_tracking()
                 if self.following:
                     self.pause(10)
-                patrol = cfg.patrol
-                stops = [p for p in (patrol.presets if patrol else []) if p in cfg.presets]
-                if not patrol or not patrol.enabled or not stops:
+                if time.monotonic() < self.paused_until or self.following or self.tracking_itself():
                     await asyncio.sleep(5)
                     continue
-                if time.monotonic() < self.paused_until or not in_schedule(patrol.schedule, _now()):
+                patrol = cfg.patrol
+                stops = [p for p in (patrol.presets if patrol else []) if p in cfg.presets]
+                if not patrol or not patrol.enabled or not stops or not in_schedule(patrol.schedule, _now()):
+                    await self._to_default()
                     await asyncio.sleep(5)
                     continue
                 if patrol.order == "random":

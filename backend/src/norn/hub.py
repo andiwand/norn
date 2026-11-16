@@ -150,6 +150,7 @@ class Camera:
             "stream_selection": self.config.streams,
             "presets_norn": {k: v.model_dump() for k, v in self.config.presets.items()},
             "patrol": self.config.patrol.model_dump(by_alias=True) if self.config.patrol else None,
+            "default_preset": self.config.default_preset,
             "reactions": [r.model_dump() for r in self.config.reactions],
             "follow": self.config.follow,
             "detection": self.config.detection.model_dump(exclude_none=True)
@@ -616,8 +617,16 @@ class Hub:
         patrol = cfg.patrol
         if patrol and preset_id in patrol.presets:
             patrol = patrol.model_copy(update={"presets": [p for p in patrol.presets if p != preset_id]})
-        await self.put_camera(camera_id, cfg.model_copy(update={"presets": presets, "patrol": patrol}))
+        default = None if cfg.default_preset == preset_id else cfg.default_preset
+        update = {"presets": presets, "patrol": patrol, "default_preset": default}
+        await self.put_camera(camera_id, cfg.model_copy(update=update))
         self.pilots[camera_id].picture(preset_id).unlink(missing_ok=True)
+
+    async def set_default_preset(self, camera_id: str, preset_id: str | None) -> None:
+        cfg = self.cameras[camera_id].config
+        if preset_id is not None and preset_id not in cfg.presets:
+            raise KeyError(preset_id)
+        await self.put_camera(camera_id, cfg.model_copy(update={"default_preset": preset_id}))
 
     async def order_cameras(self, ids: list[str]) -> None:
         async with self._lock:

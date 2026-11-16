@@ -67,6 +67,7 @@ class CameraBody(BaseModel):
     patrol: dict[str, Any] | None = None
     reactions: list[dict[str, Any]] | None = None
     follow: str | None = None
+    default_preset: str | None = None
 
 
 class NewCamera(CameraBody):
@@ -92,6 +93,10 @@ class PresetBody(BaseModel):
     name: str = Field(min_length=1, max_length=40)
     slot: str | None = None  # the camera's preset slot; None: the preset's, or a free one
     controls: list[str] = []  # controls whose current values the preset applies
+
+
+class DefaultPresetBody(BaseModel):
+    preset: str | None
 
 
 class OrderBody(BaseModel):
@@ -262,7 +267,9 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
         # What the body leaves out (null) of the pan/tilt setup stays as it is: forms that edit
         # other things don't send it.
         current = hub.cameras[camera_id].config
-        keep = current.model_dump(include={"presets", "patrol", "reactions", "follow"}, by_alias=True)
+        keep = current.model_dump(
+            include={"presets", "patrol", "reactions", "follow", "default_preset"}, by_alias=True
+        )
         data |= {key: value for key, value in keep.items() if data.get(key) is None}
         # Passwords the form didn't send (it never gets them) stay as they are.
         options = {k: v for k, v in data.items() if k not in CameraConfig.model_fields}
@@ -419,6 +426,16 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
         except KeyError as e:
             raise HTTPException(404, f"no preset {preset_id!r}") from e
         return Response(status_code=204)
+
+    @api.put("/cameras/{camera_id}/default-preset")
+    async def set_default_preset(camera_id: str, body: DefaultPresetBody) -> dict[str, Any]:
+        """The Norn preset the camera returns to when nothing else steers it (null: none)."""
+        camera_or_404(camera_id)
+        try:
+            await hub.set_default_preset(camera_id, body.preset)
+        except KeyError as e:
+            raise HTTPException(404, f"no preset {body.preset!r}") from e
+        return hub.camera_json(camera_id)
 
     @api.post("/cameras/{camera_id}/presets/{preset_id}/goto")
     async def goto_preset(camera_id: str, preset_id: str) -> dict[str, Any]:
