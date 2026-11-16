@@ -17,6 +17,7 @@ import asyncio
 import contextlib
 import io
 import logging
+import time
 import zipfile
 from typing import Any
 from urllib.parse import quote
@@ -98,6 +99,7 @@ class ReolinkDriver(Driver):
         self._lock = asyncio.Lock()
         self._connected = False
         self._latest: Any = None  # the NewSoftwareVersion of the last firmware check
+        self._restore: asyncio.Task[None] | None = None  # turns ports on again after an update
 
     @property
     def api(self) -> Host:
@@ -395,6 +397,13 @@ class ReolinkDriver(Driver):
                     break
         if package is None or file_name is None:
             raise DriverError("the download has no firmware package (.pak)")
+        # An update can turn ports off (seen: RTSP, which the video needs). Remember which were
+        # on, and switch them on again once the camera is back.
+        try:
+            ports = await self._call(self.api.baichuan.get_ports)
+        except DriverError:
+            ports = {}
+        enabled = [name for name in PortType.__members__ if ports.get(name, {}).get("enable")]
         log.warning(
             "%s: uploading %s (%d bytes); the camera restarts", self.camera_id, file_name, len(package)
         )
@@ -405,3 +414,23 @@ class ReolinkDriver(Driver):
         await self._call(upload)
         self._connected = False  # the camera restarts
         self._latest = None
+        if enabled:
+            self._restore = asyncio.create_task(self._restore_ports(enabled))
+
+    async def _restore_ports(self, names: list[str], timeout: float = 900) -> None:
+        """After an update: switch the ports that were on before on again, once the camera answers."""
+        deadline = time.monotonic() + timeout
+        await asyncio.sleep(60)  # it is installing and restarting
+        while time.monotonic() < deadline:
+            try:
+                ports = await self._call(self.api.baichuan.get_ports)
+            except Exception:  # still restarting: refused, timed out, ...
+                self._connected = False
+                await asyncio.sleep(20)
+                continue
+            for name in names:
+                if not ports.get(name, {}).get("enable"):
+                    log.warning("%s: the update turned %s off; turning it on again", self.camera_id, name)
+                    await self._call(self.api.baichuan.set_port_enabled, PortType[name], True)
+            return
+        log.error("%s: didn't come back after the update to restore its ports", self.camera_id)
