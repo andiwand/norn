@@ -1,15 +1,20 @@
-<script lang="ts">
-	// Every camera at one moment of the timeline: the video frame then, if a recording runs,
-	// else the newest picture or thumbnail before it.
-	import { untrack } from 'svelte';
-	import { urls, type Camera, type Recording } from '../api';
-	import Film from '@lucide/svelte/icons/film';
+<script lang="ts" module>
+	import type { Recording } from '../api';
 
-	interface Item {
+	/** A recording on the timeline, its start and end in ms. */
+	export interface TimelineItem {
 		r: Recording;
 		t: number;
 		end: number;
 	}
+</script>
+
+<script lang="ts">
+	// Every camera at one moment of the timeline: the video frame then, if a recording runs,
+	// else the newest picture or thumbnail before it.
+	import { untrack } from 'svelte';
+	import { urls, type Camera } from '../api';
+	import Film from '@lucide/svelte/icons/film';
 
 	let {
 		cameras,
@@ -18,54 +23,44 @@
 		onopen
 	}: {
 		cameras: Camera[];
-		items: Item[];
-		/** The moment, in ms. */
-		at: number;
+		items: TimelineItem[];
+		at: number; // ms
 		onopen: (r: Recording, seconds: number) => void;
 	} = $props();
 
-	interface Tile {
-		camera: Camera;
-		r: Recording | null;
-		seconds: number; // into the recording
-		src: string | null;
-		before: number; // ms between the image and the moment (0: the frame then)
-	}
+	const byCamera = $derived(Map.groupBy(items, (i) => i.r.camera));
 
 	const tiles = $derived(
-		cameras.map((camera): Tile => {
-			const own = items.filter((i) => i.r.camera === camera.id);
+		cameras.map((camera) => {
+			const own = byCamera.get(camera.id) ?? [];
 			const video = own.find((i) => i.r.kind === 'video' && i.t <= at && at < i.end);
 			if (video) {
 				const seconds = Math.floor((at - video.t) / 1000);
 				return { camera, r: video.r, seconds, src: urls.frame(video.r, seconds), before: 0 };
 			}
-			let last: Item | null = null;
-			for (const i of own) if (i.r.thumbnail && i.t <= at && (!last || i.t > last.t)) last = i;
-			return last
-				? { camera, r: last.r, seconds: 0, src: urls.small(last.r), before: at - last.t }
-				: { camera, r: null, seconds: 0, src: null, before: 0 };
+			let last: TimelineItem | null = null;
+			for (const i of own)
+				if (i.r.thumbnail && i.end <= at && (!last || i.end > last.end)) last = i;
+			if (!last) return { camera, r: null, seconds: 0, src: null, before: 0 };
+			return { camera, r: last.r, seconds: 0, src: urls.small(last.r), before: at - last.end };
 		})
 	);
 
-	// Per tile: the image shown stays until the next one has loaded, and only the newest wish
-	// loads, so scrubbing doesn't queue up requests.
+	// Each tile keeps its image until the next has loaded, and only the newest wish loads, so
+	// scrubbing doesn't queue requests. A frame that fails falls back to the thumbnail.
 	let shown = $state<Record<string, string | null>>({});
-	const loading = new Map<string, string>();
+	const loading = new Set<string>();
 	const wanted = new Map<string, string | null>();
 
-	function show(camera: string, src: string | null) {
+	function show(camera: string, src: string | null, fallback: string | null = null) {
 		wanted.set(camera, src);
-		if (src === null || src === shown[camera]) {
-			if (src === null) shown[camera] = null;
-			return;
-		}
-		if (loading.has(camera)) return; // the load under way picks up the newest wish after
-		loading.set(camera, src);
+		if (src === null) return void (shown[camera] = null);
+		if (src === shown[camera] || loading.has(camera)) return;
+		loading.add(camera);
 		const image = new Image();
 		const done = (ok: boolean) => {
 			loading.delete(camera);
-			if (ok) shown[camera] = src;
+			shown[camera] = ok ? src : fallback;
 			const next = wanted.get(camera) ?? null;
 			if (next !== src) show(camera, next);
 		};
@@ -75,8 +70,10 @@
 	}
 
 	$effect(() => {
-		const wishes = tiles.map((t) => [t.camera.id, t.src] as const);
-		untrack(() => wishes.forEach(([camera, src]) => show(camera, src)));
+		for (const t of tiles) {
+			const fallback = t.r && t.before === 0 ? urls.small(t.r) : null;
+			untrack(() => show(t.camera.id, t.src, fallback));
+		}
 	});
 
 	function ago(ms: number): string {
@@ -111,7 +108,7 @@
 			>
 				<span class="truncate text-xs font-semibold">{tile.camera.name}</span>
 				<span class="shrink-0 text-[10px] font-medium text-white/80"
-					>{tile.r ? (tile.before ? ago(tile.before) : 'Video') : 'Nothing before'}</span
+					>{tile.r ? (tile.before ? ago(tile.before) : 'Video') : 'Nothing in range'}</span
 				>
 			</span>
 		</button>

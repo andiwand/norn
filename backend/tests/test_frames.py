@@ -22,8 +22,10 @@ def test_a_frame_of_a_video(client: TestClient, settings: Settings) -> None:
         check=True,
     )  # fmt: skip
     url = "/api/recordings/demo/2026-11-16/12-00-00_manual.mp4/frame"
-    response = client.get(url, params={"at": 1.5, "width": 160})
+    hub = client.app.state.hub  # type: ignore[attr-defined]
+    response = client.get(url, params={"at": 1.5})
     assert response.status_code == 200 and response.content[:2] == b"\xff\xd8"
-    assert client.get(url, params={"at": 1.5, "width": 160}).content == response.content  # kept
+    assert client.get(url, params={"at": 1.5}).content == response.content
+    assert len(hub._frames) == 1  # the second came from the cache
     assert client.get(url, params={"at": 60}).status_code == 404  # past its end
     assert client.get("/api/recordings/demo/2026-11-16/13-00-00_manual.mp4/frame").status_code == 404

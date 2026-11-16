@@ -7,7 +7,7 @@
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import Film from '@lucide/svelte/icons/film';
 	import TriggerIcon from './TriggerIcon.svelte';
-	import Moment from './Moment.svelte';
+	import Moment, { type TimelineItem as Item } from './Moment.svelte';
 	import { triggerLabel } from '../format';
 
 	let {
@@ -31,12 +31,6 @@
 	const PICTURES = 600; // the server thins pictures to about this many per camera and request
 	const BUCKETS = 400; // picture marks per row: more would not show anyway
 
-	interface Item {
-		r: Recording;
-		t: number;
-		end: number;
-	}
-
 	let span = $state(6 * HOUR);
 	let end = $state(Date.now()); // the right edge of the window
 	let following = $state(true); // the window moves with the clock
@@ -45,10 +39,9 @@
 	let loading = $state(false);
 	let width = $state(800);
 	let hover = $state<{ x: number; t: number } | null>(null);
-	// The moment the cameras show above: where the pointer was last over the tracks (it stays
-	// there, so the tiles can be clicked), else the newest.
+	// The moment shown above: the pointer's last place on the tracks, else the newest.
 	let pointed = $state<number | null>(null);
-	const moment = $derived(Math.min(pointed ?? end, Date.now()));
+	const moment = $derived(pointed ?? end);
 	let dragging = $state(false);
 
 	const start = $derived(end - span);
@@ -242,6 +235,7 @@
 	});
 
 	function move(by: number) {
+		pointed = null;
 		end = Math.min(Date.now(), end + by);
 		following = end >= Date.now() - 1000;
 	}
@@ -249,12 +243,14 @@
 	function setScale(next: number) {
 		// Following the clock: stay at now. Else zoom around the middle of the window.
 		const middle = end - span / 2;
+		pointed = null;
 		span = next;
 		end = following ? Date.now() : Math.min(Date.now(), middle + next / 2);
 		following = end >= Date.now() - 1000;
 	}
 
 	function now() {
+		pointed = null;
 		end = Date.now();
 		following = true;
 	}
@@ -267,6 +263,8 @@
 		const track = e.currentTarget as HTMLElement;
 		track.setPointerCapture(e.pointerId);
 		drag = { x: e.clientX, end, width: track.clientWidth, moved: false };
+		const rect = track.getBoundingClientRect();
+		pointed = timeAt((e.clientX - rect.left) / rect.width);
 	}
 
 	function moveTo(e: PointerEvent) {
@@ -288,7 +286,8 @@
 		drag = null;
 		dragging = false;
 		// Only a press that started here, didn't move and used the main button opens something.
-		if (!started || started.moved || e.button !== 0) return;
+		// A tap picks the moment instead (touch has no hover); its tiles open the recordings.
+		if (!started || started.moved || e.button !== 0 || e.pointerType === 'touch') return;
 		const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
 		openAt(camera, timeAt((e.clientX - rect.left) / rect.width));
 	}
@@ -378,8 +377,9 @@
 	<!-- Every camera at the moment -->
 	<div class="mb-1.5 flex items-baseline gap-2 text-xs">
 		<span class="font-semibold tabular-nums">{formatAt(moment)}</span>
-		<span class="text-muted">{pointed === null ? 'the newest' : 'move along the tracks below'}</span
-		>
+		{#if pointed === null}
+			<span class="text-muted">the newest; point at the tracks below to go back</span>
+		{/if}
 		{#if pointed !== null}
 			<button class="ml-auto text-muted hover:text-text" onclick={() => (pointed = null)}
 				>Newest</button
