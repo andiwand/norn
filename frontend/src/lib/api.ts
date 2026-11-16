@@ -580,6 +580,8 @@ export const urls = {
 		`/api/cameras/${enc(camera)}/snapshot?stream=${enc(stream)}&t=${Date.now()}`,
 	recording: (r: Recording) => `/api/recordings/${r.id}`,
 	thumbnail: (r: Recording) => `/api/recordings/${r.id.replace(/\.mp4$/, '.jpg')}`,
+	/** A video's frame `seconds` in, small, for scrubbing the timeline. */
+	frame: (r: Recording, seconds: number) => `/api/recordings/${r.id}/frame?at=${seconds}`,
 	/** A small image for lists: a picture's small copy, or the video's thumbnail. */
 	small: (r: Recording) =>
 		r.kind === 'picture'

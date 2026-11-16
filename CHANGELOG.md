@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Timeline: every camera at one moment, above the tracks. Move along the tracks: each tile
+  shows the video frame then if a recording runs (`GET /api/recordings/<id>/frame?at=`), else
+  the newest picture or thumbnail before it, with how long before. Click a tile to open it
+  there.
+
 ## 0.3.1 — 2026-11-16
 
 - Docker image: Norn's own object detection works when the container runs as a user other

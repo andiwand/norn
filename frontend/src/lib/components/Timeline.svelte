@@ -7,6 +7,7 @@
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import Film from '@lucide/svelte/icons/film';
 	import TriggerIcon from './TriggerIcon.svelte';
+	import Moment from './Moment.svelte';
 	import { triggerLabel } from '../format';
 
 	let {
@@ -44,6 +45,10 @@
 	let loading = $state(false);
 	let width = $state(800);
 	let hover = $state<{ x: number; t: number } | null>(null);
+	// The moment the cameras show above: where the pointer was last over the tracks (it stays
+	// there, so the tiles can be clicked), else the newest.
+	let pointed = $state<number | null>(null);
+	const moment = $derived(Math.min(pointed ?? end, Date.now()));
 	let dragging = $state(false);
 
 	const start = $derived(end - span);
@@ -268,6 +273,7 @@
 		const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
 		const fraction = (e.clientX - rect.left) / rect.width;
 		hover = { x: fraction * 100, t: timeAt(fraction) };
+		pointed = hover.t;
 		if (!drag) return;
 		const dx = e.clientX - drag.x;
 		if (Math.abs(dx) > 4) drag.moved = dragging = true;
@@ -368,6 +374,21 @@
 			{/each}
 		</div>
 	{/if}
+
+	<!-- Every camera at the moment -->
+	<div class="mb-1.5 flex items-baseline gap-2 text-xs">
+		<span class="font-semibold tabular-nums">{formatAt(moment)}</span>
+		<span class="text-muted">{pointed === null ? 'the newest' : 'move along the tracks below'}</span
+		>
+		{#if pointed !== null}
+			<button class="ml-auto text-muted hover:text-text" onclick={() => (pointed = null)}
+				>Newest</button
+			>
+		{/if}
+	</div>
+	<div class="mb-4">
+		<Moment {cameras} {items} at={moment} {onopen} />
+	</div>
 
 	<!-- Thumbnails along the window -->
 	<div

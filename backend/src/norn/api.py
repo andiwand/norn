@@ -628,6 +628,22 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
             raise HTTPException(404, "not found")
         return FileResponse(path)  # supports range requests, so the video can seek
 
+    @api.get("/recordings/{camera}/{day}/{name}/frame")
+    async def recording_frame(
+        camera: str, day: str, name: str, at: float = Query(0, ge=0), width: int = Query(480, ge=64, le=1920)
+    ) -> Response:
+        """The frame of a video `at` seconds in, as a JPEG: for scrubbing the timeline."""
+        try:
+            path = hub.library.path(camera, day, name)
+        except InvalidPathError as e:
+            raise HTTPException(400, str(e)) from e
+        if not name.endswith(".mp4") or not path.is_file():
+            raise HTTPException(404, "not found")
+        jpeg = await hub.video_frame(path, at, width)
+        if jpeg is None:
+            raise HTTPException(404, "no frame there")
+        return Response(jpeg, media_type="image/jpeg", headers={"Cache-Control": "max-age=86400"})
+
     @api.put("/recordings/{camera}/{day}/{name}/pin")
     async def pin_recording(camera: str, day: str, name: str, body: PinBody) -> dict[str, Any]:
         """Pin a recording (Norn never deletes it), or unpin it."""

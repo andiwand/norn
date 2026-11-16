@@ -7,8 +7,10 @@ import contextlib
 import logging
 import shutil
 import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -201,6 +203,9 @@ class Hub:
         # streams while watched, and a while after.
         self.gops: dict[str, GopCache] = {}
         self._gop_task: asyncio.Task[None] | None = None
+        # Frames of recordings for the timeline: a few at a time, the latest kept.
+        self._frames: OrderedDict[tuple[Path, float, int], bytes] = OrderedDict()
+        self._frame_slots = asyncio.Semaphore(2)
 
     @property
     def config(self) -> Config:
@@ -1037,6 +1042,32 @@ class Hub:
             return None
         cache.keep_jpeg(frames[1], out)
         return out
+
+    async def video_frame(self, path: Path, at: float, width: int) -> bytes | None:
+        """The frame `at` seconds into a video file, `width` pixels wide, as a JPEG."""
+        key = (path, round(at, 1), width)
+        if (jpeg := self._frames.get(key)) is not None:
+            self._frames.move_to_end(key)
+            return jpeg
+        async with self._frame_slots:
+            process = await asyncio.create_subprocess_exec(
+                self.settings.ffmpeg_bin, "-hide_banner", "-loglevel", "error", "-ss", f"{at:.2f}",
+                "-i", str(path), "-frames:v", "1", "-vf", f"scale={width}:-2", "-q:v", "5",
+                "-f", "image2", "-c:v", "mjpeg", "pipe:1",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+            )  # fmt: skip
+            try:
+                jpeg, _ = await asyncio.wait_for(process.communicate(), 10)
+            except TimeoutError:
+                process.kill()
+                await process.wait()
+                return None
+        if process.returncode != 0 or not jpeg:
+            return None
+        self._frames[key] = jpeg
+        while len(self._frames) > 200:
+            self._frames.popitem(last=False)
+        return jpeg
 
     def _lease_stills(self, camera_id: str, seconds: float = 30) -> None:
         """Someone asks for stills of the camera (a tile of the Live page, every few seconds):
