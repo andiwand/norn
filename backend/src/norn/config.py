@@ -73,7 +73,9 @@ class Window(BaseModel):
         now = moment.strftime("%H:%M")
         today = DAYS[moment.weekday()]
         yesterday = DAYS[(moment.weekday() - 1) % 7]
-        if self.start <= self.end:
+        if self.start == self.end:  # 00:00 to 00:00: the whole day
+            return today in self.days
+        if self.start < self.end:
             return today in self.days and self.start <= now < self.end
         # Overnight: the evening part belongs to today, the morning part to yesterday's night.
         return (today in self.days and now >= self.start) or (yesterday in self.days and now < self.end)
@@ -132,6 +134,14 @@ class AwaySettings(BaseModel):
     @classmethod
     def _picture_interval(cls, value: int) -> int:
         return _check_picture_interval(value) or 0
+
+    @field_validator("start", "end")
+    @classmethod
+    def _local(cls, value: datetime | None) -> datetime | None:
+        """Times with a zone become the server's local time, like the rest of Norn's times."""
+        if value is not None and value.tzinfo is not None:
+            return value.astimezone().replace(tzinfo=None)
+        return value
 
     def now(self, moment: datetime | None = None) -> bool:
         if self.active:

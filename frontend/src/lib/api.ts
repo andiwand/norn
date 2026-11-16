@@ -197,6 +197,8 @@ export interface Info {
 	version: string;
 	config_error: string | null;
 	config_path: string;
+	/** The server's clock: schedules and away times follow it. */
+	time: { zone: string; offset_minutes: number };
 	go2rtc: { running: boolean; version?: string };
 	recording_available: boolean;
 	recording: RecordingSettings;

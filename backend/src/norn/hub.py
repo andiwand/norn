@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import shutil
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -84,6 +85,7 @@ class Camera:
     concurrent: bool | None = None
     probe_task: asyncio.Task[None] | None = field(default=None, repr=False)
     web_url: str | None = None  # the camera's own web page, when it answers
+    probe_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
 
     def camera_kinds(self) -> list[str]:
         driver = self.driver
@@ -202,13 +204,13 @@ class Hub:
         log.info("Norn %s with %d cameras", __version__, len(self.cameras))
 
     async def stop(self) -> None:
-        for task in (self._watcher, self._poller, self._away_task, *self._holds.values()):
-            if task:
-                task.cancel()
+        tasks = [self._watcher, self._poller, self._away_task, *self._holds.values()]
         for camera in self.cameras.values():
-            for task in (camera.events_task, camera.stills_task):
-                if task:
-                    task.cancel()
+            tasks += [camera.events_task, camera.stills_task, camera.probe_task, camera.controls_task]
+        running = [t for t in tasks if t and not t.done()]
+        for task in running:
+            task.cancel()
+        await asyncio.gather(*running, return_exceptions=True)
         await self.recorder.stop()
         await self.stills.stop()
         for camera in self.cameras.values():
@@ -449,17 +451,27 @@ class Hub:
             )
         return options
 
-    async def _probe(self, camera: Camera) -> None:
-        """Find out which streams work, and whether at the same time; then offer them."""
+    async def _probe(self, camera: Camera, retry: bool = True) -> None:
+        """Find out which streams work, and whether at the same time; then offer them. When no
+        stream works (the camera is off, say), it stays unprobed and Norn tries again later."""
         driver = camera.driver
-        if not driver or not self.recorder.available:
+        ffprobe = ffprobe_of(self.settings.ffmpeg_bin)
+        if not driver or not self.recorder.available or shutil.which(ffprobe) is None:
             return
         sources = {s.id: s.source for s in [*driver.streams(), *driver.extra_streams()]}
         if not any(probeable(s) for s in sources.values()):
             return
-        await self.go2rtc.ready.wait()
-        probes, concurrent = await probe_all(ffprobe_of(self.settings.ffmpeg_bin), sources)
-        if self.cameras.get(camera.id) is not camera:
+        delay = 60.0
+        while True:
+            await self.go2rtc.ready.wait()
+            async with camera.probe_lock:  # one probe at a time, or the camera sees double
+                probes, concurrent = await probe_all(ffprobe, sources)
+            if any(p.ok for p in probes.values()) or not retry:
+                break
+            log.info("%s: no stream answers; testing again in %.0f s", camera.id, delay)
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 1800)
+        if self.cameras.get(camera.id) is not camera or not any(p.ok for p in probes.values()):
             return
         camera.probe, camera.concurrent = probes, concurrent
         found = ", ".join(
@@ -471,7 +483,11 @@ class Hub:
 
     async def probe_streams(self, camera_id: str) -> None:
         camera = self.cameras[camera_id]
-        await self._probe(camera)
+        try:
+            await asyncio.wait_for(self.go2rtc.ready.wait(), 10)
+        except TimeoutError:
+            raise RuntimeError("go2rtc isn't running") from None
+        await self._probe(camera, retry=False)
 
     async def _restream(self) -> None:
         """Hand go2rtc and the recorder the streams as they are now."""
@@ -658,6 +674,12 @@ class Hub:
             if previous and previous.config == cfg:
                 new[cid] = previous
                 continue
+            if previous and _same_device(previous.config, cfg):
+                # Only Norn's own settings changed (name, triggers, schedule, streams, ...):
+                # keep the driver, its connection, its probe and its watchers.
+                previous.config = cfg
+                new[cid] = previous
+                continue
             new[cid] = self._make_camera(cid, cfg)
             if new[cid].driver and cfg.enabled:
                 await new[cid].driver.start()
@@ -666,6 +688,10 @@ class Hub:
                 for task in (camera.events_task, camera.stills_task, camera.probe_task):
                     if task:
                         task.cancel()
+                self._release(cid, gone=cid not in new)
+                self._still_cache.pop(cid, None)
+                if cid not in new:
+                    await self.stills.forget(cid)
                 if camera.driver:
                     with contextlib.suppress(Exception):
                         await camera.driver.stop()
@@ -688,12 +714,23 @@ class Hub:
                     self._watch_events(camera), name=f"events-{camera.id}"
                 )
 
+    def _release(self, camera_id: str, gone: bool) -> None:
+        """A camera was replaced or removed: what it detected ends, and so do the clips it held."""
+        for held in self._held.values():
+            for source in [s for s in held if s[0] == camera_id]:
+                held.discard(source)
+        if gone:
+            self._held.pop(camera_id, None)
+            if task := self._holds.pop(camera_id, None):
+                task.cancel()
+
     # Camera events (motion, people, ...) as recording triggers.
     async def _watch_events(self, camera: Camera) -> None:
         """Listen to a camera's detections for as long as it exists; reconnect when it drops."""
         delay = 5.0
         while True:
             assert camera.driver is not None
+            connected = time.monotonic()
             try:
                 async for event in camera.driver.events():
                     delay = 5.0
@@ -706,6 +743,8 @@ class Hub:
                 log.info("%s: events stopped: %s; again in %.0f s", camera.id, e, delay)
             for kind in list(camera.detecting):  # without a connection, nothing is detected
                 self.on_event(camera.id, Event(kind=kind, active=False), "camera")
+            if time.monotonic() - connected > 60:
+                delay = 5.0  # it was up a while: a camera that closes quiet streams now and then
             await asyncio.sleep(delay)
             delay = min(delay * 2, 300)
 
@@ -723,7 +762,14 @@ class Hub:
 
     def on_event(self, camera_id: str, event: Event, by: str = "camera") -> None:
         """Something was detected on a camera (by the camera itself, or by Norn), or stopped:
-        publish it, and record if it is a trigger. A kind counts as long as anyone detects it."""
+        publish it, and record if it is a trigger. A kind counts as long as anyone detects it.
+        Never raises: the watchers that call it must keep running."""
+        try:
+            self._on_event(camera_id, event, by)
+        except Exception:
+            log.exception("%s: handling %s failed", camera_id, event.kind)
+
+    def _on_event(self, camera_id: str, event: Event, by: str) -> None:
         camera = self.cameras.get(camera_id)
         if camera is None:
             return
@@ -798,10 +844,11 @@ class Hub:
             del active[kind]
             self.on_event(camera.id, Event(kind=kind, active=False), "norn")
 
+        gap = 0.0  # the measured time between stills (keyframes can be far apart)
         while True:
             d = self.config.detection_for(camera.id)
             objects = d.objects and self.detectors.unavailable is None
-            if not (d.motion or objects) or not self.go2rtc.ready.is_set():
+            if not (d.motion or objects) or not self.go2rtc.ready.is_set() or not self.recorder.available:
                 for kind in list(active):
                     end(kind)
                 await asyncio.sleep(2)
@@ -809,14 +856,20 @@ class Hub:
             fmt = "bgr" if objects else "gray"
             mode = "live" if d.stills == "live" else "keyframe"
             wanted = (fmt, mode, d.every_seconds)
-            quiet = max(10.0, 3 * d.every_seconds)
-            async with self.still_stream(camera, mode).subscribe(fmt, d.every_seconds) as sub:
+            stream = self.still_stream(camera, mode)
+            last_still = None
+            async with stream.subscribe(fmt, d.every_seconds) as sub:
                 while True:
+                    quiet = max(10.0, 3 * d.every_seconds, 2.5 * gap)
                     try:
                         data: bytes | None = await asyncio.wait_for(sub.queue.get(), quiet)
                     except TimeoutError:
                         data = None  # no stills (the camera is gone?): detections end below
                     now = time.monotonic()
+                    if data is not None:
+                        if last_still is not None:
+                            gap = now - last_still if gap == 0 else gap * 0.8 + (now - last_still) * 0.2
+                        last_still = now
                     d = self.config.detection_for(camera.id)
                     seen: set[str] = set()
                     try:
@@ -842,12 +895,14 @@ class Hub:
                     changed = ("bgr" if objects else "gray", "live" if d.stills == "live" else "keyframe")
                     if not (d.motion or objects) or (*changed, d.every_seconds) != wanted:
                         break  # subscribe again with the new settings
+                    if self.still_source(camera) != stream.source:
+                        break  # the camera's streams changed (probing, the user): follow them
 
     async def _hold(self, camera_id: str, trigger: str) -> None:
         """Keep a camera's clip going while what triggered it lasts; it then runs `clip_seconds`
         longer, like after a button press."""
         held = self._held.setdefault(camera_id, set())
-        while held:
+        while held and camera_id in self.cameras:
             try:
                 kinds = sorted({kind for _, kind in held})
                 for kind in [trigger, *[k for k in kinds if k != trigger]]:
@@ -893,6 +948,11 @@ async def reachable(url: str | None, timeout: float = 2) -> str | None:
     with contextlib.suppress(OSError):
         await writer.wait_closed()
     return url
+
+
+def _same_device(a: CameraConfig, b: CameraConfig) -> bool:
+    """The same camera, connected the same way: only Norn's settings for it differ."""
+    return (a.driver, a.enabled, a.options) == (b.driver, b.enabled, b.options)
 
 
 def _alike(a: Control, b: Control) -> bool:

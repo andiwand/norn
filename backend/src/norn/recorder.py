@@ -325,6 +325,7 @@ class Recorder:
         self.transcode: set[str] = set()
         self.clips: dict[str, Clip] = {}
         self._housekeeping: asyncio.Task[None] | None = None
+        self._evict_paused_until = 0.0
         self._config = Config()
 
     async def start(
@@ -815,19 +816,29 @@ class Recorder:
     async def _evict(self) -> None:
         """Keep the recordings within their size limit and the disk's free space."""
         r = self._config.recording
+        max_bytes, min_free = int(r.max_gb * 1e9), int(r.min_free_gb * 1e9)
+        if (not max_bytes and not min_free) or time.time() < self._evict_paused_until:
+            return
         try:
-            deleted, excess = await asyncio.to_thread(
-                self.library.evict, int(r.max_gb * 1e9), int(r.min_free_gb * 1e9)
-            )
+            free_before = disk(self.library.root)["free"] if min_free else None
+            deleted, excess = await asyncio.to_thread(self.library.evict, max_bytes, min_free)
         except Exception:
             log.exception("keeping the recordings within their limits failed")
             return
         if deleted:
             log.warning("deleted %d old recordings to stay within the storage limits", len(deleted))
             self.bus.publish("recording.deleted", {"ids": deleted})
-        if excess:
+            if free_before is not None and (disk(self.library.root)["free"] or 0) <= (free_before or 0):
+                # Deleting freed nothing: snapshots, a recycle bin on a NAS, another program.
+                # Going on would delete everything; stop for an hour.
+                self._evict_paused_until = time.time() + 3600
+                log.error(
+                    "deleting recordings doesn't free disk space (snapshots or a recycle bin?); "
+                    "Norn stops deleting for an hour"
+                )
+        elif excess:
             log.error(
-                "the storage limits can't be met: %.1f GB too much, all of it clips kept by hand",
+                "the storage limits can't be met: %.1f GB too much, all of it kept by hand or pinned",
                 excess / 1e9,
             )
 

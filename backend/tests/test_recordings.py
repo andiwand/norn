@@ -184,3 +184,9 @@ def test_evict_oldest_automatic_first(library: Library) -> None:
     assert deleted == ["yard/2026-11-15/09-00-00_motion.mp4"]
     assert excess > 0  # the manual clip stays, whatever the limit
     assert [r.trigger for r in library.list()] == ["manual"]
+
+
+def test_evict_skips_pinned_and_stops_at_most(library: Library) -> None:
+    library.set_pinned("door", "2026-11-14", "08-00-00_continuous.mp4", True)
+    deleted, _ = library.evict(max_bytes=1, most=1)
+    assert deleted == ["yard/2026-11-15/09-00-00_motion.mp4"]  # the pinned older one stays

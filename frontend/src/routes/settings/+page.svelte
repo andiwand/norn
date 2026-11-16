@@ -34,6 +34,14 @@
 	});
 
 	const info = $derived(store.info);
+	const clockDiffers = $derived(
+		!!info?.time && info.time.offset_minutes !== -new Date().getTimezoneOffset()
+	);
+	function offset(minutes: number): string {
+		const sign = minutes < 0 ? '−' : '+';
+		const m = Math.abs(minutes);
+		return `${sign}${Math.floor(m / 60)}${m % 60 ? `:${String(m % 60).padStart(2, '0')}` : ''}`;
+	}
 
 	// The settings form: a copy of the saved values, saved as a whole.
 	let saved = $state<SettingsValues | null>(null);
@@ -228,6 +236,13 @@
 				hint="What the cameras detect that starts a clip. It runs while the detection lasts, plus the clip length."
 				bind:value={form.recording.triggers}
 			/>
+			{#if clockDiffers}
+				<p class="mx-5 my-2 rounded-xl bg-warning/10 px-3 py-2 text-xs text-warning">
+					Norn's clock runs in {info?.time.zone} (UTC{offset(info?.time.offset_minutes ?? 0)}), this
+					browser in UTC{offset(-new Date().getTimezoneOffset())}. Schedules and away times follow
+					Norn's clock: set <code class="font-mono">TZ</code> in compose.yaml to your time zone.
+				</p>
+			{/if}
 			<ScheduleSetting
 				label="When detections record"
 				hint="Only in these times, e.g. at night. Circles and cameras can have their own."

@@ -22,6 +22,7 @@ import contextlib
 import logging
 import os
 import time
+from collections import deque
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Literal
@@ -33,6 +34,7 @@ log = logging.getLogger("norn.stills")
 Format = Literal["jpeg", "gray", "bgr"]  # a JPEG; small gray for motion; the detector input
 Mode = Literal["keyframe", "live"]
 IDLE_AFTER = 10.0  # seconds a stream keeps running after its last subscriber left
+STALL_AFTER = 60.0  # seconds without a still after which FFmpeg is restarted
 JPEG_FILTER = "scale='min(960,iw)':-2"
 FRAME_BYTES = {"gray": MOTION_SIZE[0] * MOTION_SIZE[1], "bgr": OBJECT_SIZE * OBJECT_SIZE * 3}
 
@@ -74,7 +76,8 @@ def still_command(
     cmd = [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin"]
     if mode == "keyframe":
         cmd += ["-skip_frame", "nokey"]
-    cmd += ["-rtsp_transport", "tcp", "-i", source, "-filter_complex", graph]
+    # -timeout: give up on a camera that stops sending (microseconds), instead of hanging.
+    cmd += ["-rtsp_transport", "tcp", "-timeout", "15000000", "-i", source, "-filter_complex", graph]
     for name, target in outputs.items():
         cmd += ["-map", f"[{name}]", "-fps_mode", "passthrough"]
         if name == "jpeg":
@@ -107,6 +110,7 @@ class StillStream:
         self._changed = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
         self.running = False
+        self._last_frame = 0.0
 
     def wanted(self) -> tuple[dict[Format, None], float]:
         formats: dict[Format, None] = {s.format: None for s in self.subscriptions}
@@ -148,7 +152,10 @@ class StillStream:
             idle_since = None
             formats, every = self.wanted()
             started = time.monotonic()
-            error = await self._ffmpeg(list(formats), every)
+            try:
+                error = await self._ffmpeg(list(formats), every)
+            except OSError as e:  # FFmpeg missing, too many open files, ...
+                error = f"can't start FFmpeg: {e}"
             if error is None:
                 delay = 2.0
                 continue  # the subscribers changed
@@ -158,8 +165,15 @@ class StillStream:
             await asyncio.sleep(delay)
             delay = min(delay * 2, 60)
 
+    def _covers(self, formats: list[Format], every: float) -> bool:
+        """Whether a running FFmpeg with these outputs serves the subscribers as they are now.
+        A subscriber leaving, or a slower one joining, needs no restart: each takes what it
+        wants of the stills (Subscription.offer)."""
+        want_formats, want_every = self.wanted()
+        return set(want_formats) <= set(formats) and want_every >= every * 0.99
+
     async def _ffmpeg(self, formats: list[Format], every: float) -> str | None:
-        """Run FFmpeg until the wanted formats or interval change (None) or it fails (why)."""
+        """Run FFmpeg until the subscribers need other outputs (None) or it fails (why)."""
         pipes: dict[Format, tuple[int, int]] = {f: os.pipe() for f in formats if f != "jpeg"}
         outputs: dict[Format, str] = {f: "pipe:1" if f == "jpeg" else f"pipe:{pipes[f][1]}" for f in formats}
         cmd = still_command(self.ffmpeg, self.source, self.mode, every, outputs)
@@ -170,14 +184,22 @@ class StillStream:
                 stderr=asyncio.subprocess.PIPE,
                 pass_fds=[w for _, w in pipes.values()],
             )
+        except BaseException:
+            for r, _ in pipes.values():
+                os.close(r)
+            raise
         finally:
             for _, w in pipes.values():
                 os.close(w)
         self.running = True
+        self._last_frame = time.monotonic()
         loop = asyncio.get_running_loop()
         readers: list[asyncio.Task[None]] = []
         transports = []
+        errors: deque[str] = deque(maxlen=5)  # FFmpeg's last words; read all along, or it blocks
         try:
+            if process.stderr:
+                readers.append(asyncio.create_task(_drain(process.stderr, errors)))
             if "jpeg" in formats and process.stdout:
                 readers.append(asyncio.create_task(self._read_jpegs(process.stdout)))
             for fmt, (r, _) in pipes.items():
@@ -187,18 +209,20 @@ class StillStream:
                 )
                 transports.append(transport)
                 readers.append(asyncio.create_task(self._read_frames(reader, fmt)))
-            wanted = (dict.fromkeys(formats), every)
             exited = asyncio.create_task(process.wait())
+            # No still for this long: FFmpeg hangs (a camera that stopped sending). Start again.
+            stalled_after = max(STALL_AFTER, 10 * every)
             while True:
                 self._changed.clear()
                 change = asyncio.create_task(self._changed.wait())
-                done, _ = await asyncio.wait({exited, change}, return_when=asyncio.FIRST_COMPLETED)
+                done, _ = await asyncio.wait({exited, change}, timeout=5, return_when=asyncio.FIRST_COMPLETED)
                 change.cancel()
                 if exited in done:
-                    err = await process.stderr.read() if process.stderr else b""
-                    return err.decode(errors="replace").strip()[-300:] or f"exit {process.returncode}"
-                if not self.subscriptions or self.wanted() != wanted:
+                    return " / ".join(errors)[-300:] or f"exit {process.returncode}"
+                if not self.subscriptions or not self._covers(formats, every):
                     return None
+                if time.monotonic() - self._last_frame > stalled_after:
+                    return f"no still for {stalled_after:.0f} s"
         finally:
             self.running = False
             for task in readers:
@@ -212,6 +236,7 @@ class StillStream:
 
     def _deliver(self, fmt: Format, data: bytes) -> None:
         now = time.monotonic()
+        self._last_frame = now
         self.latest[fmt] = (data, now)
         for sub in list(self.subscriptions):
             if sub.format == fmt:
@@ -232,24 +257,22 @@ class StillStream:
 
 
 class Stills:
-    """The still streams of all cameras, made on first use."""
+    """The still streams of all cameras, made on first use, one per camera, mode and source."""
 
     def __init__(self, ffmpeg: str) -> None:
         self.ffmpeg = ffmpeg
-        self.streams: dict[tuple[str, Mode], StillStream] = {}
+        self.streams: dict[tuple[str, Mode, str], StillStream] = {}
 
     def stream(self, camera: str, source: str, mode: Mode) -> StillStream:
-        key = (camera, mode)
-        stream = self.streams.get(key)
-        if stream is None or stream.source != source:
-            stream = StillStream(self.ffmpeg, source, mode, f"{camera}/{mode}")
-            self.streams[key] = stream
-        return stream
+        key = (camera, mode, source)
+        if key not in self.streams:
+            self.streams[key] = StillStream(self.ffmpeg, source, mode, f"{camera}/{mode}")
+        return self.streams[key]
 
     def latest(self, camera: str, fmt: Format, max_age: float) -> bytes | None:
         """The newest still of the camera in any mode, if it is at most `max_age` seconds old."""
         best: tuple[bytes, float] | None = None
-        for (cam, _), stream in self.streams.items():
+        for (cam, _, _), stream in self.streams.items():
             if cam == camera and (item := stream.latest.get(fmt)) and (best is None or item[1] > best[1]):
                 best = item
         if best and time.monotonic() - best[1] <= max_age:
@@ -257,7 +280,18 @@ class Stills:
         return None
 
     def running(self, camera: str) -> bool:
-        return any(s.running for (cam, _), s in self.streams.items() if cam == camera)
+        return any(s.running for (cam, _, _), s in self.streams.items() if cam == camera)
+
+    async def forget(self, camera: str) -> None:
+        """A camera is gone: stop its streams."""
+        gone = [key for key in self.streams if key[0] == camera]
+        await asyncio.gather(*(self.streams.pop(key).stop() for key in gone), return_exceptions=True)
 
     async def stop(self) -> None:
         await asyncio.gather(*(s.stop() for s in self.streams.values()), return_exceptions=True)
+
+
+async def _drain(stream: asyncio.StreamReader, keep: deque[str]) -> None:
+    """Read FFmpeg's stderr as it comes, keeping the last lines: an unread pipe fills and blocks it."""
+    while line := await stream.readline():
+        keep.append(line.decode(errors="replace").strip())

@@ -50,9 +50,12 @@ async def probe_one(ffprobe: str, source: str, timeout: float = 15) -> StreamPro
         return StreamProbe(ok=False, error=str(e))
     try:
         out, err = await asyncio.wait_for(process.communicate(), timeout + 5)
-    except TimeoutError:
-        process.kill()
+    except (TimeoutError, asyncio.CancelledError) as e:
+        if process.returncode is None:
+            process.kill()
         await process.wait()
+        if isinstance(e, asyncio.CancelledError):
+            raise
         return StreamProbe(ok=False, error="no answer")
     if process.returncode != 0:
         # The message names the URL, with the password in it: leave the URL out.

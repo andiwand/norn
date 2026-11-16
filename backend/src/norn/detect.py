@@ -263,9 +263,19 @@ class Detectors:
 
     def __init__(self, settings: Any) -> None:
         self.settings = settings
-        self.unavailable = objects_unavailable()
+        self._missing = objects_unavailable()
+        self._failure: str | None = None
         self._loaded: dict[str, ObjectDetector] = {}
         self._lock = asyncio.Lock()
+        self._retry_at = 0.0
+
+    @property
+    def unavailable(self) -> str | None:
+        """Why object detection can't run now (missing packages, a model that didn't load in the
+        last hour), or None."""
+        if self._missing:
+            return self._missing
+        return self._failure if time.monotonic() < self._retry_at else None
 
     def folders(self) -> list[Path]:
         folders = [Path(p) for p in os.environ.get("NORN_MODELS", "").split(os.pathsep) if p]
@@ -275,10 +285,18 @@ class Detectors:
         """Detections in a still, and how many milliseconds it took."""
         async with self._lock:
             if model not in self._loaded:
-                path = await asyncio.to_thread(
-                    model_path, model, self.folders(), self.settings.runtime_dir / "models"
-                )
-                self._loaded[model] = await asyncio.to_thread(ObjectDetector, path)
+                if self.unavailable:
+                    raise RuntimeError(self.unavailable)
+                try:
+                    path = await asyncio.to_thread(
+                        model_path, model, self.folders(), self.settings.runtime_dir / "models"
+                    )
+                    self._loaded[model] = await asyncio.to_thread(ObjectDetector, path)
+                except Exception as e:
+                    # No model (offline, say): don't try again with every still.
+                    self._retry_at = time.monotonic() + 3600
+                    self._failure = f"the model couldn't be loaded ({e}); Norn tries again in an hour"
+                    raise
             detector = self._loaded[model]
             start = time.perf_counter()
             found = await asyncio.to_thread(detector.detect, bgr, min_score)

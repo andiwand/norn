@@ -229,37 +229,40 @@ class Library:
                         deleted.append(recording.id)
         return deleted
 
-    def evict(self, max_bytes: int = 0, min_free: int = 0) -> tuple[list[str], int]:
-        """Delete the oldest recordings that expire anyway (not `manual` ones) until the folder
-        holds at most `max_bytes` and its disk has `min_free` free (0: no limit). Returns what
-        it deleted and how many bytes are still over the limits (0 when they are met)."""
+    def excess(self, max_bytes: int = 0, min_free: int = 0) -> int:
+        """Bytes over the size limit or short of the free space (0: within both)."""
+        used = folder_size(self.root)[0] if max_bytes and self.root.is_dir() else 0
+        free = disk(self.root)["free"] if min_free else None
+        over = used - max_bytes if max_bytes else 0
+        short = min_free - free if free is not None else 0
+        return max(over, short, 0)
+
+    def evict(self, max_bytes: int = 0, min_free: int = 0, most: int = 200) -> tuple[list[str], int]:
+        """Delete the oldest recordings that may go (not kept by hand, not pinned) until the
+        folder holds at most `max_bytes` and its disk has `min_free` free (0: no limit), at most
+        `most` of them in one go. Returns what it deleted, and the bytes still over (by the
+        sizes deleted; the caller measures again)."""
         if not max_bytes and not min_free:
             return [], 0
-
-        def over() -> int:
-            used = folder_size(self.root)[0] if max_bytes else 0
-            free = disk(self.root)["free"] if min_free else None
-            return max(used - max_bytes if max_bytes else 0, min_free - free if free is not None else 0, 0)
-
-        excess = over()
+        excess = self.excess(max_bytes, min_free)
+        deleted: list[str] = []
         if not excess:
-            return [], 0
-        candidates = sorted(
-            (r for camera in self.cameras() for day in self.days(camera) for r in self._day(camera, day)),
-            key=lambda r: r.start,
-        )
-        deleted = []
-        for recording in candidates:
-            if excess <= 0:
-                break
-            if recording.kept:
-                continue
-            video = self.path(recording.camera, recording.day, recording.name)
-            size = sum(p.stat().st_size for s in SUFFIXES if (p := video.with_suffix(s)).exists())
-            if self.delete(recording.camera, recording.day, recording.name):
-                deleted.append(recording.id)
-                excess -= size
-        return deleted, max(0, over()) if deleted else excess
+            return deleted, 0
+        # Day by day from the oldest, so a big library isn't read all at once.
+        days = sorted({(day, camera) for camera in self.cameras() for day in self.days(camera)})
+        for day, camera in days:
+            for recording in sorted(self._day(camera, day), key=lambda r: r.start):
+                if excess <= 0 or len(deleted) >= most:
+                    return deleted, max(excess, 0)
+                fresh = self.get(camera, day, recording.name)  # pinned meanwhile?
+                if fresh is None or fresh.kept:
+                    continue
+                video = self.path(camera, day, recording.name)
+                size = sum(p.stat().st_size for x in SUFFIXES if (p := video.with_suffix(x)).exists())
+                if self.delete(camera, day, recording.name):
+                    deleted.append(recording.id)
+                    excess -= size
+        return deleted, max(excess, 0)
 
     def set_pinned(self, camera: str, day: str, name: str, pinned: bool) -> Recording | None:
         """Pin or unpin a recording: a flag in its JSON sidecar (made for it if it has none)."""

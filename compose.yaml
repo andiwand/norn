@@ -15,7 +15,7 @@ services:
     #   - "8555:8555/tcp"
     #   - "8555:8555/udp"
     environment:
-      TZ: Etc/UTC # the time zone of the recording file names
+      TZ: Etc/UTC # your time zone (e.g. Europe/Berlin): file names, schedules and away times use it
     volumes:
       - ./config:/config # config.yaml
       - ./recordings:/recordings # finished recordings; can be a NAS

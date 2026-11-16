@@ -142,3 +142,35 @@ def test_schedule_and_away_round_trip(client: Any, settings: Settings) -> None:
     assert client.get("/api/settings").json()["values"]["recording"]["triggers"] == ["motion"]
     bad = {"recording": {"schedule": [{"from": "25:00", "to": "07:00"}]}}
     assert client.put("/api/settings", json=bad).status_code == 422
+
+
+async def test_removing_a_camera_ends_its_clip(hub: Hub) -> None:
+    hub.on_event("hall", Event(kind="motion", active=True))
+    await asyncio.sleep(0.1)
+    await hub.remove_camera("hall")
+    count = len(hub.calls)  # type: ignore[attr-defined]
+    await asyncio.sleep(0.2)
+    assert len(hub.calls) == count  # type: ignore[attr-defined]  # no longer extended
+    assert "hall" not in hub._held and "hall" not in hub._holds
+
+
+async def test_editing_triggers_keeps_the_camera(hub: Hub) -> None:
+    from norn.config import CameraConfig
+
+    before = hub.cameras["hall"]
+    cfg = CameraConfig.model_validate({"name": "Hall", "driver": "demo", "triggers": ["person"]})
+    await hub.put_camera("hall", cfg)
+    assert hub.cameras["hall"] is before  # same driver and watchers: only Norn's settings changed
+    assert hub.triggers_of("hall") == {"person"}
+
+
+def test_time_fixes() -> None:
+    from datetime import datetime
+
+    from norn.config import AwaySettings, Window
+
+    away = AwaySettings.model_validate({"start": "2026-11-16T10:00:00Z"})
+    assert away.start is not None and away.start.tzinfo is None  # local time, comparable
+    assert away.now(datetime(2030, 1, 1)) in (True, False)
+    day = Window.model_validate({"from": "00:00", "to": "00:00", "days": ["mon"]})
+    assert day.contains(datetime(2026, 11, 16, 13, 0))  # a Monday: all of it

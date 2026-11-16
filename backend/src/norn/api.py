@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -154,6 +155,11 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
         return {
             "version": __version__,
             "config_error": hub.config_error,
+            # The server's clock, which schedules and away times follow.
+            "time": {
+                "zone": time.tzname[time.localtime().tm_isdst > 0],
+                "offset_minutes": round(datetime.now().astimezone().utcoffset().total_seconds() / 60),
+            },
             "config_path": str(settings.config_path),
             "go2rtc": await hub.go2rtc.info(),
             "recording_available": hub.recorder.available,
@@ -286,7 +292,10 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
     async def probe(camera_id: str) -> dict[str, Any]:
         """Find out again which of the camera's streams work, and whether at the same time."""
         driver_of(camera_id)
-        await hub.probe_streams(camera_id)
+        try:
+            await hub.probe_streams(camera_id)
+        except RuntimeError as e:
+            raise HTTPException(503, str(e)) from e
         return hub.camera_json(camera_id)
 
     @api.post("/cameras/{camera_id}/device")
