@@ -7,10 +7,26 @@
 	import Cctv from '@lucide/svelte/icons/cctv';
 	import Film from '@lucide/svelte/icons/film';
 	import Settings from '@lucide/svelte/icons/settings';
+	import Plane from '@lucide/svelte/icons/plane';
+	import House from '@lucide/svelte/icons/house';
+	import { api } from '#lib/api.js';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import type { LayoutProps } from './$types';
 
 	let { children }: LayoutProps = $props();
+
+	// Away mode on or off at once. Off also ends a planned absence that is running now.
+	function toggleAway() {
+		const away = store.info?.away;
+		if (!away) return;
+		const body = away.now
+			? { active: false, ...(away.start ? { start: null, end: null } : {}) }
+			: { active: true };
+		store.attempt(
+			() => api.saveSettings({ away: body }),
+			away.now ? 'Welcome home' : 'Away mode on'
+		);
+	}
 
 	$effect(() => store.start());
 
@@ -59,7 +75,24 @@
 					</a>
 				{/each}
 			</nav>
-			<div class="ml-auto flex items-center gap-2 text-xs text-muted">
+			{#if store.info}
+				{@const away = store.info.away}
+				<button
+					class="ml-auto flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition {away.now
+						? 'border-accent/50 bg-accent/15 text-accent'
+						: 'border-line text-muted hover:text-text'}"
+					title={away.now
+						? away.end
+							? `Away until ${new Date(away.end).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`
+							: 'Away: detections record at any time'
+						: 'Switch on away mode'}
+					onclick={toggleAway}
+					aria-pressed={away.now}
+				>
+					{#if away.now}<Plane class="size-3.5" />Away{:else}<House class="size-3.5" />Home{/if}
+				</button>
+			{/if}
+			<div class="flex items-center gap-2 text-xs text-muted {store.info ? '' : 'ml-auto'}">
 				<span
 					class="size-2 rounded-full {store.connected
 						? 'bg-success shadow-[0_0_10px_var(--success)]'

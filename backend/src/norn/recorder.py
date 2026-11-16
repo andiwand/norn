@@ -327,13 +327,15 @@ class Recorder:
         self._housekeeping: asyncio.Task[None] | None = None
         self._config = Config()
 
-    async def start(self, config: Config, streams: dict[str, str], transcode: set[str] | None = None) -> None:
+    async def start(
+        self, config: Config, streams: dict[str, str], transcode: set[str] | None = None, away: bool = False
+    ) -> None:
         if not self.available and self.settings.go2rtc_mode != "off":
             log.error("ffmpeg not found (%s); recording is off", self.settings.ffmpeg_bin)
         if self.available:
             await self._recover()
         self._housekeeping = asyncio.create_task(self._housekeep(), name="recorder-housekeeping")
-        await self.apply(config, streams, transcode)
+        await self.apply(config, streams, transcode, away)
 
     async def stop(self) -> None:
         tasks = [
@@ -354,7 +356,9 @@ class Recorder:
         if self.available:
             await self._move_finished(everything=True)
 
-    async def apply(self, config: Config, streams: dict[str, str], transcode: set[str] | None = None) -> None:
+    async def apply(
+        self, config: Config, streams: dict[str, str], transcode: set[str] | None = None, away: bool = False
+    ) -> None:
         """Start and stop continuous recordings, buffers and pictures to match the config."""
         self._config = config
         self.transcode = transcode or set()
@@ -387,7 +391,7 @@ class Recorder:
                     continue
                 await self._buffers.pop(cid).stop()
 
-        pictures = {cid: config.setting(cid, "picture_seconds")[0] for cid in live}
+        pictures = {cid: config.pictures(cid, away) for cid in live}
         pictures = {cid: every for cid, every in pictures.items() if every > 0}
         for cid in list(self._pictures):
             if pictures.get(cid) != self._pictures[cid][0]:

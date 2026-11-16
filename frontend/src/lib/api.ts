@@ -70,6 +70,7 @@ export interface Camera {
 	prebuffer_seconds: number | null;
 	/** What the camera detects that starts a clip; null: as its circle or the settings say. */
 	triggers: string[] | null;
+	schedule: Window[] | null;
 	/** What the camera can detect, and what it detects now; null: it reports nothing. */
 	events: { kinds: string[]; active: string[] } | null;
 	/** Seconds of the past a clip started now would include (the RAM buffer). */
@@ -86,6 +87,7 @@ export interface Circle {
 	picture_seconds: number | null;
 	prebuffer_seconds: number | null;
 	triggers: string[] | null;
+	schedule: Window[] | null;
 	/** When one camera detects a trigger, all cameras of the circle record. */
 	together: boolean;
 }
@@ -160,6 +162,23 @@ export interface Info {
 	go2rtc: { running: boolean; version?: string };
 	recording_available: boolean;
 	recording: RecordingSettings;
+	/** Away mode: `now` is whether it is on at the moment (switched on, or planned). */
+	away: AwaySettings & { now: boolean };
+}
+
+/** A time of the week; `to` before `from` runs past midnight. */
+export interface Window {
+	days: string[];
+	from: string;
+	to: string;
+}
+
+export interface AwaySettings {
+	active: boolean;
+	start: string | null;
+	end: string | null;
+	triggers: string[];
+	picture_seconds: number;
 }
 
 export interface RecordingSettings {
@@ -169,11 +188,13 @@ export interface RecordingSettings {
 	prebuffer_seconds: number;
 	picture_seconds: number;
 	triggers: string[];
+	schedule: Window[];
 }
 
 export interface SettingsValues {
 	recording: RecordingSettings;
 	firmware: { check_hours: number };
+	away: AwaySettings;
 }
 
 export interface StorageStage {
@@ -302,7 +323,8 @@ const enc = encodeURIComponent;
 export const api = {
 	info: () => request<Info>('GET', '/info'),
 	settings: () => request<SettingsData>('GET', '/settings'),
-	saveSettings: (values: Partial<SettingsValues>) =>
+	/** Fields left out keep their value. */
+	saveSettings: (values: { [K in keyof SettingsValues]?: Partial<SettingsValues[K]> }) =>
 		request<SettingsData>('PUT', '/settings', values),
 	drivers: () => request<Driver[]>('GET', '/drivers'),
 	cameras: () => request<Camera[]>('GET', '/cameras'),
@@ -397,6 +419,7 @@ export function cameraBody(camera: Camera, change: Record<string, unknown> = {})
 		picture_seconds: camera.picture_seconds,
 		prebuffer_seconds: camera.prebuffer_seconds,
 		triggers: camera.triggers,
+		schedule: camera.schedule,
 		...camera.options,
 		...change
 	};

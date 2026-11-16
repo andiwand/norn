@@ -1,11 +1,12 @@
 <script lang="ts">
 	// Add or edit a camera. The driver's option fields come from its JSON schema.
-	import { api, type Camera, type Driver, type JsonSchemaProperty } from '../api';
+	import { api, type Camera, type Driver, type JsonSchemaProperty, type Window } from '../api';
 	import { slugify } from '../format';
 	import { store } from '../state.svelte';
 	import { untrack } from 'svelte';
 	import IntervalSetting from './IntervalSetting.svelte';
 	import TriggerSetting from './TriggerSetting.svelte';
+	import ScheduleSetting from './ScheduleSetting.svelte';
 	import NumberSetting from './NumberSetting.svelte';
 
 	interface Props {
@@ -29,6 +30,7 @@
 	);
 	let pictureSeconds = $state<number | null>(initial?.picture_seconds ?? null);
 	let triggers = $state<string[] | null>(initial?.triggers ?? null);
+	let schedule = $state<Window[] | null>(initial?.schedule ?? null);
 	// Empty (null): the global setting.
 	let prebuffer = $state<number | null | undefined>(initial?.prebuffer_seconds ?? null);
 	const globals = $derived(store.info?.recording);
@@ -39,6 +41,7 @@
 	);
 	const inherited = $derived({
 		triggers: circle?.triggers ?? globals?.triggers ?? [],
+		schedule: circle?.schedule ?? globals?.schedule ?? [],
 		picture_seconds: circle?.picture_seconds ?? globals?.picture_seconds ?? 0,
 		prebuffer_seconds: circle?.prebuffer_seconds ?? globals?.prebuffer_seconds ?? 0
 	});
@@ -84,6 +87,7 @@
 			auto_update: initial?.auto_update ?? false,
 			picture_seconds: pictureSeconds,
 			triggers,
+			schedule,
 			prebuffer_seconds:
 				typeof prebuffer === 'number' && Number.isFinite(prebuffer) ? prebuffer : null
 		};
@@ -204,6 +208,11 @@
 				bind:value={triggers}
 				kinds={initial.events.kinds}
 				inherit={inherited.triggers}
+			/>
+			<ScheduleSetting
+				label="When detections record"
+				bind:value={schedule}
+				inherit={inherited.schedule}
 			/>
 		{/if}
 		<NumberSetting

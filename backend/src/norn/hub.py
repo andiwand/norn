@@ -79,6 +79,9 @@ class Camera:
             "picture_seconds": self.config.picture_seconds,
             "prebuffer_seconds": self.config.prebuffer_seconds,
             "triggers": self.config.triggers,
+            "schedule": [w.model_dump(by_alias=True) for w in self.config.schedule]
+            if self.config.schedule is not None
+            else None,
             "device": self.device.model_dump() if self.device else None,
             "firmware": self.firmware.model_dump() if self.firmware else None,
             "update": self.update,
@@ -104,6 +107,8 @@ class Hub:
         self._storage: tuple[float, dict[str, Any]] | None = None
         # Cameras recording because of detections: what holds each one (camera, kind), and the
         # task that keeps its clip going.
+        self.away = False  # away mode is on (now, or planned for now)
+        self._away_task: asyncio.Task[None] | None = None
         self._held: dict[str, set[tuple[str, str]]] = {}
         self._holds: dict[str, asyncio.Task[None]] = {}
         self._resources = Resources()
@@ -122,13 +127,15 @@ class Hub:
             log.error("%s", e)
         await self._build_cameras()
         await self.go2rtc.start(self.streams())
-        await self.recorder.start(self.config, self.streams(), self.transcoded())
+        self.away = self.config.away.now()
+        await self.recorder.start(self.config, self.streams(), self.transcoded(), self.away)
         self._watcher = asyncio.create_task(self._watch_config(), name="config-watcher")
         self._poller = asyncio.create_task(self._poll_devices(), name="device-poller")
+        self._away_task = asyncio.create_task(self._watch_away(), name="away")
         log.info("Norn %s with %d cameras", __version__, len(self.cameras))
 
     async def stop(self) -> None:
-        for task in (self._watcher, self._poller, *self._holds.values()):
+        for task in (self._watcher, self._poller, self._away_task, *self._holds.values()):
             if task:
                 task.cancel()
         for camera in self.cameras.values():
@@ -429,7 +436,12 @@ class Hub:
         except Go2rtcUnavailableError as e:
             # The config is saved; go2rtc picks the streams up from its file when it restarts.
             log.error("go2rtc didn't take the new streams: %s", e)
-        await self.recorder.apply(self.config, streams, self.transcoded())
+        away = self.config.away.now()
+        if away != self.away:
+            self.away = away
+            log.warning("away mode %s", "on" if away else "off")
+            self.bus.publish("away.changed", {"away": away})
+        await self.recorder.apply(self.config, streams, self.transcoded(), away)
         self.bus.publish("cameras.changed")
         # Read new cameras right away instead of at the next poll.
         asyncio.create_task(self.refresh_devices(only_new=True))  # noqa: RUF006
@@ -488,7 +500,16 @@ class Hub:
             delay = min(delay * 2, 300)
 
     def triggers_of(self, camera_id: str) -> set[str]:
-        return set(self.config.setting(camera_id, "triggers")[0] or [])
+        """What starts a clip on the camera now (its schedule and away mode included)."""
+        return self.config.triggers(camera_id)
+
+    async def _watch_away(self) -> None:
+        """Planned away times start and end by the clock: notice it, and apply the change."""
+        while True:
+            await asyncio.sleep(30)
+            if self.config.away.now() != self.away:
+                async with self._lock:
+                    await self._apply()
 
     def on_event(self, camera_id: str, event: Event) -> None:
         """A camera detected something, or stopped: publish it, and record if it is a trigger."""

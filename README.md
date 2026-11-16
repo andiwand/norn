@@ -98,6 +98,15 @@ recording:
   prebuffer_seconds: 10 # a clip starts this long before its trigger; 0 turns it off
   picture_seconds: 0 # a picture of every camera this often; 0 turns it off
   triggers: [motion] # what the cameras detect that starts a clip: motion, person, vehicle, ...
+  schedule: # when detections record; none: always
+    - { days: [mon, tue, wed, thu, fri], from: "20:00", to: "07:00" } # weeknights
+    - { days: [sat, sun], from: "00:00", to: "23:59" }
+
+away: # holiday mode: detections record at any time; also a switch in the header
+  start: 2026-12-20T15:00 # planned; or `active: true` for now
+  end: 2027-01-03T12:00
+  triggers: [motion, person]
+  picture_seconds: 60 # pictures while away; 0: as usual
 
 firmware:
   check_hours: 24 # how often to ask the vendors for new firmware; 0 never

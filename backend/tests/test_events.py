@@ -89,3 +89,56 @@ def test_parse_hikvision_alerts() -> None:
     assert alerts == [("motion", True)]
     alerts, _ = parse_alerts(rest + "NotificationAlert>")
     assert alerts == [("person", True)]
+
+
+def test_schedule_windows() -> None:
+    from datetime import datetime
+
+    from norn.config import Window, in_schedule
+
+    night = Window.model_validate({"days": ["fri"], "from": "20:00", "to": "07:00"})
+    assert night.contains(datetime(2026, 11, 20, 21, 0))  # Friday evening
+    assert night.contains(datetime(2026, 11, 21, 6, 59))  # Saturday morning: Friday's night
+    assert not night.contains(datetime(2026, 11, 21, 21, 0))  # Saturday evening
+    assert not night.contains(datetime(2026, 11, 20, 6, 0))  # Friday morning: Thursday's night
+    day = Window.model_validate({"from": "09:00", "to": "17:00"})
+    assert day.contains(datetime(2026, 11, 16, 9, 0)) and not day.contains(datetime(2026, 11, 16, 17, 0))
+    assert in_schedule([], datetime(2026, 11, 16, 3, 0))  # no windows: always
+
+
+def test_away_beats_schedules() -> None:
+    from datetime import datetime
+
+    from norn.config import Config
+
+    config = Config.model_validate(
+        {
+            "recording": {"triggers": ["motion"], "schedule": [{"from": "22:00", "to": "06:00"}]},
+            "away": {"start": "2026-12-20T15:00", "end": "2027-01-03T12:00", "triggers": ["person"]},
+            "cameras": {"door": {"name": "Door", "driver": "demo"}},
+        }
+    )
+    assert config.triggers("door", datetime(2026, 11, 16, 12, 0)) == set()  # outside the window
+    assert config.triggers("door", datetime(2026, 11, 16, 23, 0)) == {"motion"}
+    assert config.triggers("door", datetime(2026, 12, 24, 12, 0)) == {"person"}  # on holiday
+    assert config.triggers("door", datetime(2027, 1, 3, 12, 0)) == set()  # back home, midday
+
+
+def test_schedule_and_away_round_trip(client: Any, settings: Settings) -> None:
+    body = {
+        "recording": {
+            "triggers": ["motion"],
+            "schedule": [{"days": ["sat", "sun"], "from": "08:00", "to": "20:00"}],
+        }
+    }
+    response = client.put("/api/settings", json=body)
+    assert response.status_code == 200, response.text
+    text = settings.config_path.read_text()
+    assert "from: 08:00" in text or "from: '08:00'" in text
+    assert response.json()["values"]["recording"]["schedule"][0]["from"] == "08:00"
+    client.put("/api/settings", json={"away": {"active": True}})
+    info = client.get("/api/info").json()
+    assert info["away"]["now"] is True and info["away"]["triggers"] == ["motion", "person"]
+    assert client.get("/api/settings").json()["values"]["recording"]["triggers"] == ["motion"]
+    bad = {"recording": {"schedule": [{"from": "25:00", "to": "07:00"}]}}
+    assert client.put("/api/settings", json=bad).status_code == 422

@@ -1,11 +1,12 @@
 <script lang="ts">
 	// Create or edit a circle: its name, its cameras, and settings for the cameras in it.
 	import { untrack } from 'svelte';
-	import { api, type Circle } from '../api';
+	import { api, type Circle, type Window } from '../api';
 	import { slugify } from '../format';
 	import { store } from '../state.svelte';
 	import IntervalSetting from './IntervalSetting.svelte';
 	import TriggerSetting from './TriggerSetting.svelte';
+	import ScheduleSetting from './ScheduleSetting.svelte';
 	import NumberSetting from './NumberSetting.svelte';
 
 	let { circle, onsaved }: { circle?: Circle; onsaved: (circle: Circle) => void } = $props();
@@ -16,6 +17,7 @@
 	let pictureSeconds = $state<number | null>(initial?.picture_seconds ?? null);
 	let triggers = $state<string[] | null>(initial?.triggers ?? null);
 	let together = $state(initial?.together ?? false);
+	let schedule = $state<Window[] | null>(initial?.schedule ?? null);
 	const kinds = $derived([
 		...new Set(cameras.flatMap((id) => store.camera(id)?.events?.kinds ?? []))
 	]);
@@ -37,6 +39,7 @@
 			picture_seconds: pictureSeconds,
 			triggers,
 			together,
+			schedule,
 			prebuffer_seconds:
 				typeof prebuffer === 'number' && Number.isFinite(prebuffer) ? prebuffer : null
 		};
@@ -114,6 +117,11 @@
 			bind:value={triggers}
 			{kinds}
 			inherit={globals?.triggers ?? []}
+		/>
+		<ScheduleSetting
+			label="When detections record"
+			bind:value={schedule}
+			inherit={globals?.schedule ?? []}
 		/>
 		<label class="flex cursor-pointer items-center justify-between gap-4 px-5 py-3.5">
 			<span>

@@ -25,7 +25,8 @@ const REFRESH = new Set([
 	'recording.continuous',
 	'go2rtc.ready',
 	'camera.device',
-	'settings.changed'
+	'settings.changed',
+	'away.changed'
 ]);
 
 export interface CameraControls {

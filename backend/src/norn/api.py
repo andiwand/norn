@@ -24,7 +24,15 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from starlette.websockets import WebSocketState
 
 from . import __version__
-from .config import CAMERA_ID, CameraConfig, CircleConfig, ConfigError, FirmwareSettings, RecordingSettings
+from .config import (
+    CAMERA_ID,
+    AwaySettings,
+    CameraConfig,
+    CircleConfig,
+    ConfigError,
+    FirmwareSettings,
+    RecordingSettings,
+)
 from .drivers import DRIVERS, describe
 from .drivers.base import Capability, DriverError, NotSupportedError, PtzCommand
 from .go2rtc import Go2rtcUnavailableError
@@ -47,6 +55,7 @@ class CameraBody(BaseModel):
     picture_seconds: int | None = None
     prebuffer_seconds: int | None = None
     triggers: list[str] | None = None
+    schedule: list[dict[str, Any]] | None = None
 
 
 class NewCamera(CameraBody):
@@ -64,6 +73,7 @@ class SettingsBody(BaseModel):
 
     recording: RecordingSettings | None = None
     firmware: FirmwareSettings | None = None
+    away: AwaySettings | None = None
 
 
 class ControlBody(BaseModel):
@@ -137,14 +147,15 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
             "config_path": str(settings.config_path),
             "go2rtc": await hub.go2rtc.info(),
             "recording_available": hub.recorder.available,
-            "recording": hub.config.recording.model_dump(),
+            "recording": hub.config.recording.model_dump(by_alias=True),
+            "away": {"now": hub.away, **hub.config.away.model_dump()},
         }
 
     def settings_json() -> dict[str, Any]:
         sections = {name: getattr(hub.config, name) for name in SettingsBody.model_fields}
         return {
-            "values": {name: value.model_dump() for name, value in sections.items()},
-            "defaults": {name: type(value)().model_dump() for name, value in sections.items()},
+            "values": {name: value.model_dump(by_alias=True) for name, value in sections.items()},
+            "defaults": {name: type(value)().model_dump(by_alias=True) for name, value in sections.items()},
         }
 
     @api.get("/settings")
@@ -156,7 +167,10 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
         # Fields left out keep their value, instead of falling back to the default.
         sections = {
             name: type(value).model_validate(
-                {**getattr(hub.config, name).model_dump(), **value.model_dump(exclude_unset=True)}
+                {
+                    **getattr(hub.config, name).model_dump(by_alias=True),
+                    **value.model_dump(exclude_unset=True, by_alias=True),
+                }
             )
             for name, value in body
             if value is not None
@@ -326,7 +340,7 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
             raise HTTPException(404, f"no circle {circle_id!r}")
 
     def circle_json(circle_id: str) -> dict[str, Any]:
-        return {"id": circle_id, **hub.config.circles[circle_id].model_dump()}
+        return {"id": circle_id, **hub.config.circles[circle_id].model_dump(by_alias=True)}
 
     @api.get("/circles")
     async def circles() -> list[dict[str, Any]]:

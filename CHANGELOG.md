@@ -33,6 +33,9 @@ The first version.
   animal, ...), the Hikvision alert stream, and the alarm of supra/Foscam cameras. A clip runs
   while the detection lasts; a circle can record all its cameras together. A live badge shows
   what each camera detects.
+- Schedules for triggers (time windows per day, also past midnight), globally, per circle or
+  per camera; and away mode for holidays, switched in the header or planned, with its own
+  triggers and pictures.
 - A storage forecast per trigger and camera: bytes per day, the size it levels off at, and when
   the disk is full; measured from recordings, estimated from the bitrate before.
 - Pictures on a timer (trigger `interval`), globally, per circle or per camera.

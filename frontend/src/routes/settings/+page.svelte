@@ -1,9 +1,18 @@
 <script lang="ts">
-	import { api, type Driver, type SettingsData, type SettingsValues } from '#lib/api.js';
+	import {
+		api,
+		type Driver,
+		type SettingsData,
+		type SettingsValues,
+		type Window
+	} from '#lib/api.js';
 	import { store } from '#lib/state.svelte.js';
 	import NumberSetting from '#lib/components/NumberSetting.svelte';
 	import IntervalSetting from '#lib/components/IntervalSetting.svelte';
 	import TriggerSetting from '#lib/components/TriggerSetting.svelte';
+	import ScheduleSetting from '#lib/components/ScheduleSetting.svelte';
+	import Plane from '@lucide/svelte/icons/plane';
+	import X from '@lucide/svelte/icons/x';
 	import StorageStages from '#lib/components/StorageStages.svelte';
 	import ForecastCard from '#lib/components/ForecastCard.svelte';
 	import CloudDownload from '@lucide/svelte/icons/cloud-download';
@@ -23,6 +32,7 @@
 	});
 
 	const info = $derived(store.info);
+	const allKinds = $derived([...new Set(store.cameras.flatMap((c) => c.events?.kinds ?? []))]);
 
 	// The settings form: a copy of the saved values, saved as a whole.
 	let saved = $state<SettingsValues | null>(null);
@@ -200,7 +210,71 @@
 				label="Record on detections"
 				hint="What the cameras detect that starts a clip. It runs while the detection lasts, plus the clip length."
 				bind:value={form.recording.triggers}
-				kinds={[...new Set(store.cameras.flatMap((c) => c.events?.kinds ?? []))]}
+				kinds={allKinds}
+			/>
+			<ScheduleSetting
+				label="When detections record"
+				hint="Only in these times, e.g. at night. Circles and cameras can have their own."
+				bind:value={form.recording.schedule as Window[] | null}
+			/>
+			<div id="away" class="flex items-center gap-2 p-5 pb-1 text-muted">
+				<Plane class="size-4" /><span class="eyebrow">Away</span>
+				{#if info?.away.now}<span class="ml-auto chip chip-active">Away now</span>{/if}
+			</div>
+			<label class="flex cursor-pointer items-center justify-between gap-4 px-5 py-3.5">
+				<span>
+					<span class="block text-sm font-medium">Away now</span>
+					<span class="block text-xs text-muted"
+						>For holidays: detections record at any time, with the triggers below. Also in the
+						header.</span
+					>
+				</span>
+				<input type="checkbox" role="switch" class="switch" bind:checked={form.away.active} />
+			</label>
+			<div class="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-5 py-3.5">
+				<span class="min-w-0 flex-1 basis-56">
+					<span class="block text-sm font-medium">Planned</span>
+					<span class="block text-xs text-muted">Away from the first time until the second.</span>
+				</span>
+				<span class="flex w-full flex-wrap items-center justify-end gap-1.5 text-sm sm:w-auto">
+					<input
+						type="datetime-local"
+						class="field h-9 px-2"
+						aria-label="Away from"
+						value={form.away.start?.slice(0, 16) ?? ''}
+						onchange={(e) => (form!.away.start = e.currentTarget.value || null)}
+					/>
+					<span class="text-muted">to</span>
+					<input
+						type="datetime-local"
+						class="field h-9 px-2"
+						aria-label="Away until"
+						value={form.away.end?.slice(0, 16) ?? ''}
+						onchange={(e) => (form!.away.end = e.currentTarget.value || null)}
+					/>
+					{#if form.away.start || form.away.end}
+						<button
+							type="button"
+							class="icon-btn size-8"
+							aria-label="Clear the plan"
+							onclick={() => {
+								form!.away.start = null;
+								form!.away.end = null;
+							}}><X class="size-4" /></button
+						>
+					{/if}
+				</span>
+			</div>
+			<TriggerSetting
+				label="Record while away"
+				hint="What starts a clip while away, on every camera."
+				bind:value={form.away.triggers as string[] | null}
+				kinds={allKinds}
+			/>
+			<IntervalSetting
+				label="Pictures while away"
+				hint="Off: as usual."
+				bind:value={form.away.picture_seconds}
 			/>
 			<div class="flex items-center gap-2 p-5 pb-1 text-muted">
 				<CloudDownload class="size-4" /><span class="eyebrow">Firmware</span>

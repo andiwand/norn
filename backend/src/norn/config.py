@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 import os
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -51,6 +52,36 @@ cameras:
 EventKind = Literal["motion", "person", "vehicle", "animal", "face", "package", "doorbell"]
 
 
+Day = Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+DAYS: tuple[Day, ...] = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+TIME = r"^([01]\d|2[0-3]):[0-5]\d$"
+
+
+class Window(BaseModel):
+    """A time of the week: `from` to `to` on the given days. `to` before `from` runs past
+    midnight (20:00 to 07:00: the night that starts on each of the days)."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    days: list[Day] = Field(default_factory=lambda: list(DAYS))
+    start: str = Field(alias="from", pattern=TIME)
+    end: str = Field(alias="to", pattern=TIME)
+
+    def contains(self, moment: datetime) -> bool:
+        now = moment.strftime("%H:%M")
+        today = DAYS[moment.weekday()]
+        yesterday = DAYS[(moment.weekday() - 1) % 7]
+        if self.start <= self.end:
+            return today in self.days and self.start <= now < self.end
+        # Overnight: the evening part belongs to today, the morning part to yesterday's night.
+        return (today in self.days and now >= self.start) or (yesterday in self.days and now < self.end)
+
+
+def in_schedule(windows: list[Window], moment: datetime) -> bool:
+    """No windows: always."""
+    return not windows or any(w.contains(moment) for w in windows)
+
+
 def _check_picture_interval(value: int | None) -> int | None:
     if value is not None and 0 < value < 10:
         raise ValueError("take a picture at most every 10 seconds")
@@ -70,11 +101,37 @@ class RecordingSettings(BaseModel):
     picture_seconds: int = Field(0, ge=0, le=86400)
     # What the cameras detect that starts a clip (the trigger is the kind: `motion`, ...).
     triggers: list[EventKind] = Field(default_factory=list)
+    # When detections start clips; empty: always.
+    schedule: list[Window] = Field(default_factory=list)
 
     @field_validator("picture_seconds")
     @classmethod
     def _picture_interval(cls, value: int) -> int:
         return _check_picture_interval(value) or 0
+
+
+class AwaySettings(BaseModel):
+    """Away (holiday) mode: on now, or planned from `start` to `end`. While away, detections
+    record whatever the schedules say, with their own triggers, and pictures can come faster."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    active: bool = False
+    start: datetime | None = None  # planned: local time
+    end: datetime | None = None
+    triggers: list[EventKind] = Field(default_factory=lambda: ["motion", "person"])
+    picture_seconds: int = Field(0, ge=0, le=86400)  # 0: as usual
+
+    @field_validator("picture_seconds")
+    @classmethod
+    def _picture_interval(cls, value: int) -> int:
+        return _check_picture_interval(value) or 0
+
+    def now(self, moment: datetime | None = None) -> bool:
+        if self.active:
+            return True
+        moment = moment or datetime.now()
+        return self.start is not None and self.start <= moment and (self.end is None or moment < self.end)
 
 
 class FirmwareSettings(BaseModel):
@@ -99,6 +156,7 @@ class CameraConfig(BaseModel):
     picture_seconds: int | None = Field(None, ge=0, le=86400)
     prebuffer_seconds: int | None = Field(None, ge=0, le=300)
     triggers: list[EventKind] | None = None
+    schedule: list[Window] | None = None
 
     @field_validator("picture_seconds")
     @classmethod
@@ -122,6 +180,7 @@ class CircleConfig(BaseModel):
     picture_seconds: int | None = Field(None, ge=0, le=86400)
     prebuffer_seconds: int | None = Field(None, ge=0, le=300)
     triggers: list[EventKind] | None = None
+    schedule: list[Window] | None = None
     # When one camera of the circle detects a trigger, all of them record.
     together: bool = False
 
@@ -136,7 +195,7 @@ class CircleConfig(BaseModel):
         return list(dict.fromkeys(value))
 
 
-Override = Literal["picture_seconds", "prebuffer_seconds", "triggers"]
+Override = Literal["picture_seconds", "prebuffer_seconds", "triggers", "schedule"]
 
 
 class Config(BaseModel):
@@ -144,10 +203,11 @@ class Config(BaseModel):
 
     recording: RecordingSettings = Field(default_factory=RecordingSettings)
     firmware: FirmwareSettings = Field(default_factory=FirmwareSettings)
+    away: AwaySettings = Field(default_factory=AwaySettings)
     circles: dict[str, CircleConfig] = Field(default_factory=dict)
     cameras: dict[str, CameraConfig] = Field(default_factory=dict)
 
-    @field_validator("recording", "firmware", "cameras", "circles", mode="before")
+    @field_validator("recording", "firmware", "away", "cameras", "circles", mode="before")
     @classmethod
     def _none_is_empty(cls, value: Any) -> Any:
         return {} if value is None else value
@@ -162,6 +222,21 @@ class Config(BaseModel):
 
     def circles_of(self, camera_id: str) -> list[str]:
         return [cid for cid, circle in self.circles.items() if camera_id in circle.cameras]
+
+    def triggers(self, camera_id: str, moment: datetime | None = None) -> set[str]:
+        """What starts a clip on the camera now: the away triggers while away, else its triggers
+        within its schedule."""
+        moment = moment or datetime.now()
+        if self.away.now(moment):
+            return set(self.away.triggers)
+        if not in_schedule(self.setting(camera_id, "schedule")[0] or [], moment):
+            return set()
+        return set(self.setting(camera_id, "triggers")[0] or [])
+
+    def pictures(self, camera_id: str, away: bool = False) -> int:
+        if away and self.away.picture_seconds:
+            return self.away.picture_seconds
+        return self.setting(camera_id, "picture_seconds")[0]
 
     def setting(self, camera_id: str, name: Override) -> tuple[Any, bool]:
         """A recording setting of a camera: its own, else its first circle's, else the global one.
@@ -274,12 +349,12 @@ class ConfigStore:
         return self._stat() != self._mtime
 
     def put_camera(self, camera_id: str, camera: CameraConfig) -> Config:
-        data = camera.model_dump(exclude_defaults=True)
+        data = camera.model_dump(exclude_defaults=True, by_alias=True)
         data["name"], data["driver"] = camera.name, camera.driver
         return self._put_entry("cameras", camera_id, data)
 
     def put_circle(self, circle_id: str, circle: CircleConfig) -> Config:
-        data = circle.model_dump(exclude_defaults=True)
+        data = circle.model_dump(exclude_defaults=True, by_alias=True)
         data["name"], data["cameras"] = circle.name, list(circle.cameras)
         return self._put_entry("circles", circle_id, data)
 
@@ -322,8 +397,8 @@ class ConfigStore:
         """Write a settings section (`recording`, ...). Keys at their default stay out of the file."""
         if name not in Config.model_fields or name == "cameras":
             raise ConfigError(f"no settings section {name!r}")
-        data = values.model_dump()
-        defaults = type(values)().model_dump()
+        data = values.model_dump(by_alias=True)
+        defaults = type(values)().model_dump(by_alias=True)
         tail = _take_tail_comment(self._doc)
         section = self._section(name)
         for key, value in data.items():
