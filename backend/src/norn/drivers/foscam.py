@@ -85,6 +85,7 @@ class FoscamDriver(Driver):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
+        self._motion_alarm: str | None = None  # unknown until set through Norn
         o = self.options
         self.base = f"http://{o.host}:{o.port}"
         self._client = httpx.AsyncClient(
@@ -248,9 +249,29 @@ class FoscamDriver(Driver):
                 value=p.get("mode"),
                 options=[Option(value=str(k), label=v) for k, v in MODES.items()],
             ),
+            # The camera's motion alarm: what makes it report motion (alarm_status). Its state
+            # is only readable through get_params.cgi, which Norn never calls (it also returns
+            # every password): so no value is shown until it is set here.
+            Control(
+                id="motion_alarm",
+                label="Motion alarm",
+                kind="select",
+                group="Alarm",
+                icon="activity",
+                value=self._motion_alarm,
+                options=[Option(value="0", label="Off"), Option(value="1", label="On")],
+            ),
         ]
 
     async def set_control(self, control_id: str, value: Any) -> None:
+        if control_id == "motion_alarm":
+            if str(value) not in ("0", "1"):
+                raise ValueError("0 (off) or 1 (on)")
+            # Only motion_armed: the camera keeps its other alarm settings.
+            await self._get("/set_alarm.cgi", motion_armed=int(value))
+            self._motion_alarm = str(value)
+            self.emit("camera.control", {"control": control_id, "value": str(value)})
+            return
         params = {"resolution": 0, "brightness": 1, "contrast": 2, "mode": 3, "flip": 5}
         if control_id not in params:
             raise NotSupportedError(f"no control {control_id!r}")
