@@ -9,6 +9,8 @@
   quality that plays.
 - Arrange the cameras on the Live page by dragging or with arrows; the order is saved in
   config.yaml (`PUT /api/cameras/order`).
+- No more "Exception in ASGI application" tracebacks in the log when a browser closes a video
+  connection (switching quality, leaving the page).
 
 ## 0.1.1 — 2026-11-16
 

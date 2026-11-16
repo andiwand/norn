@@ -667,8 +667,10 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
         except (OSError, websockets.WebSocketException) as e:
             log.info("stream %s/%s: %s", camera, stream, e)
         finally:
+            # The browser may have gone already (a quality switch, a closed tab): then closing
+            # fails, and that is fine.
             if ws.application_state != WebSocketState.DISCONNECTED:
-                with contextlib.suppress(RuntimeError):
+                with contextlib.suppress(RuntimeError, WebSocketDisconnect):
                     await ws.close()
 
     app.include_router(api)
