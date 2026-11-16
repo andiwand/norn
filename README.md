@@ -6,6 +6,13 @@
 A lightweight, self-hosted hub that relays live video to your phone or desktop browser, gives you
 the controls of the camera's own app, and records.</p>
 
+<p align="center">
+<a href="https://github.com/andiwand/norn/actions/workflows/ci.yml"><img src="https://github.com/andiwand/norn/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+<a href="https://pypi.org/project/norn-hub/"><img src="https://img.shields.io/pypi/v/norn-hub.svg" alt="PyPI"></a>
+<a href="https://pypi.org/project/norn-hub/"><img src="https://img.shields.io/pypi/pyversions/norn-hub.svg" alt="Python"></a>
+<a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-brightgreen.svg" alt="License: MIT"></a>
+</p>
+
 <p align="center"><a href="https://andiwand.github.io/norn/">Website</a> ·
 <a href="#quick-start">Quick start</a> · <a href="#configuration">Configuration</a> ·
 <a href="#development">Development</a></p>

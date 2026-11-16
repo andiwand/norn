@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.1.0 — 2026-11-16
 
-The first version.
+The first version, an early preview.
 
 - Live video in the browser through go2rtc: WebRTC, with MSE and HLS as fallbacks.
 - Camera drivers with capabilities and controls; the web app builds its controls from them.
