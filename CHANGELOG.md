@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 — 2026-11-17
 
 - Home Assistant over MQTT: with `NORN_MQTT` set to a broker, each camera appears in Home
   Assistant by itself (MQTT discovery) with sensors for its detections, recording and whether
