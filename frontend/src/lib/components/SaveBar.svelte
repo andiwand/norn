@@ -19,7 +19,7 @@
 </script>
 
 <div
-	class="sticky top-16 z-20 -mx-4 flex flex-wrap items-center gap-2 border-b border-line bg-bg/85 px-4 py-2.5 backdrop-blur-xl sm:mx-0 sm:rounded-2xl sm:border sm:px-2 {dirty
+	class="sticky top-12 z-20 -mx-3 flex flex-wrap items-center gap-2 border-b border-line bg-bg/85 px-3 py-2.5 backdrop-blur-xl sm:mx-0 sm:rounded-2xl sm:border sm:px-2 md:top-14 {dirty
 		? 'sm:border-accent/50'
 		: ''}"
 >

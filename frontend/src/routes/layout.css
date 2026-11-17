@@ -80,6 +80,8 @@
 			),
 			var(--bg);
 		background-attachment: fixed;
+		/* Nothing may make a phone's page pan sideways: a diagonal swipe would move the bars. */
+		overflow-x: clip;
 	}
 	:focus-visible {
 		outline: 2px solid var(--accent);
