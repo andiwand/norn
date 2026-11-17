@@ -39,28 +39,8 @@
 <svelte:head><title>Settings · Norn</title></svelte:head>
 
 <div class="mx-auto max-w-3xl space-y-5">
-	<div>
-		<h1 class="page-title">Settings</h1>
-		<p class="page-intro">
-			Kept in <code class="font-mono text-text">config.yaml</code>: edit it by hand or here; both
-			keep the other's changes.
-		</p>
-	</div>
-
-	<!-- Phones have no room for these in the bottom bar. -->
-	<div class="-mt-2 flex gap-1.5 md:hidden">
-		<a class="chip" href="/diagnostics">Diagnostics</a>
-		<a class="chip" href="/help">Help</a>
-		{#if !install.installed}
-			{#if install.offered}
-				<button class="chip chip-active" onclick={() => install.install()}>Install app</button>
-			{:else}
-				<a class="chip" href="/help#install">Install app</a>
-			{/if}
-		{/if}
-	</div>
-
 	<SaveBar
+		title="Settings"
 		dirty={settings.dirty}
 		saving={settings.saving}
 		onsave={() => settings.save()}
@@ -79,6 +59,22 @@
 			{/each}
 		</div>
 	</SaveBar>
+	<p class="page-intro -mt-4">
+		Kept in <code class="font-mono text-text">config.yaml</code>: edit it by hand or here; both keep
+		the other's changes.
+	</p>
+	<!-- Phones have no room for these in the bottom bar. -->
+	<div class="-mt-2 flex gap-1.5 md:hidden">
+		<a class="chip" href="/diagnostics">Diagnostics</a>
+		<a class="chip" href="/help">Help</a>
+		{#if !install.installed}
+			{#if install.offered}
+				<button class="chip chip-active" onclick={() => install.install()}>Install app</button>
+			{:else}
+				<a class="chip" href="/help#install">Install app</a>
+			{/if}
+		{/if}
+	</div>
 
 	{#if form && defaults}
 		{#if tab === 'recording'}

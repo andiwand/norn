@@ -1,12 +1,10 @@
 <script lang="ts">
 	// Away: for holidays. Detections record at any time, with their own triggers.
-	import { store } from '#lib/state.svelte.js';
 	import { SettingsForm } from '#lib/settings-form.svelte.js';
 	import SaveBar from '#lib/components/SaveBar.svelte';
 	import SettingsSection from '#lib/components/SettingsSection.svelte';
 	import TriggerSetting from '#lib/components/TriggerSetting.svelte';
 	import IntervalSetting from '#lib/components/IntervalSetting.svelte';
-	import Plane from '@lucide/svelte/icons/plane';
 	import CalendarRange from '@lucide/svelte/icons/calendar-range';
 	import Zap from '@lucide/svelte/icons/zap';
 	import X from '@lucide/svelte/icons/x';
@@ -14,30 +12,21 @@
 	const settings = new SettingsForm();
 	$effect(() => settings.watch());
 	const form = $derived(settings.form);
-	const info = $derived(store.info);
 </script>
 
 <svelte:head><title>Away · Norn</title></svelte:head>
 
 <div class="mx-auto max-w-3xl space-y-5">
-	<div class="flex flex-wrap items-end justify-between gap-3">
-		<div>
-			<h1 class="page-title">Away</h1>
-			<p class="page-intro">
-				For holidays: detections record at any time, regardless of their schedule.
-			</p>
-		</div>
-		<span class="chip {info?.away.now ? 'chip-active' : ''}">
-			<Plane class="size-3.5" />{info?.away.now ? 'Away now' : 'At home'}
-		</span>
-	</div>
-
 	<SaveBar
+		title="Away"
 		dirty={settings.dirty}
 		saving={settings.saving}
 		onsave={() => settings.save()}
 		ondiscard={() => settings.reset()}
 	/>
+	<p class="page-intro -mt-4">
+		For holidays: detections record at any time, regardless of their schedule.
+	</p>
 
 	{#if form}
 		<SettingsSection

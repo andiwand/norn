@@ -5,6 +5,9 @@
 - Phone: the page no longer moves sideways a little, which also made the top and bottom bars
   shift while scrolling (the Save bar on Away, Triggers and Settings was 4 px too wide). The
   Save bar sticks right below the lower top bar again.
+- Away, Triggers and Settings: Save and Discard sit beside the page's headline, and the
+  headline stays below the top bar while scrolling (with Settings' tabs), instead of a separate
+  bar that stuck halfway down. Away's own "At home" chip is gone: the top bar's switch shows it.
 
 ## 0.6.0 — 2026-11-17
 
