@@ -29,7 +29,8 @@ const REFRESH = new Set([
 	'go2rtc.ready',
 	'camera.device',
 	'settings.changed',
-	'away.changed'
+	'away.changed',
+	'mqtt.changed'
 ]);
 
 export interface CameraControls {

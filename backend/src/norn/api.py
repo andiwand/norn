@@ -211,6 +211,7 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
                 "models": {name: m.label for name, m in MODELS.items()},
             },
             "away": {"now": hub.away, **hub.config.away.model_dump()},
+            "mqtt": hub.mqtt.status(),
         }
 
     def settings_json() -> dict[str, Any]:

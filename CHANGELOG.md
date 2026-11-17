@@ -9,6 +9,10 @@
   record button. With `NORN_MQTT_STILLS`, each camera also sends its still every so many
   seconds, as a camera entity. Other home automation can use the same topics (`norn/...`); see
   the README.
+- MQTT in Diagnostics: whether Norn is connected to the broker, why not, and the last command
+  that failed. In Home Assistant a failed command shows as the Norn device's "Last error", and
+  the entity returns to the real state; the controls, presets and still of a camera that doesn't
+  answer are unavailable.
 
 ## 0.6.1 — 2026-11-17
 

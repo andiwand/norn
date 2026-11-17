@@ -12,8 +12,10 @@ a toggle is a switch, a select a select, a range a number, a button a button.
 The topics, under the prefix (default `norn`):
 
     norn/status                                   online / offline (retained, the will)
+    norn/error, norn/error/attributes             the last command that failed, and why
     norn/away, norn/away/set                      ON / OFF
     norn/camera/<id>/online                       ON / OFF
+    norn/camera/<id>/available                    online / offline: its controls, presets, still
     norn/camera/<id>/recording                    ON / OFF
     norn/camera/<id>/event/<kind>                 ON / OFF (motion, person, ...)
     norn/camera/<id>/record/set                   PRESS, STOP, or {"trigger": ..., "seconds": ...}
@@ -21,6 +23,10 @@ The topics, under the prefix (default `norn`):
     norn/camera/<id>/control/<id>, .../set        the control's value (ON / OFF, a label, a number)
     norn/camera/<id>/still                        a JPEG every NORN_MQTT_STILLS seconds (not retained)
     norn/circle/<id>/record/set                   like a camera's
+
+A command that fails (the camera is offline, the value is wrong) sets `norn/error`, which Home
+Assistant shows as the Norn device's "Last error", and sends the true state again, so a switch
+in Home Assistant flips back.
 
 Everything Norn publishes is computed from the hub's state (`desired`) and retained; `sync`
 sends what changed and clears what is gone. Discovery topics are
@@ -35,8 +41,10 @@ import contextlib
 import json
 import logging
 import re
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote, urlsplit
 
@@ -154,6 +162,9 @@ class Mqtt:
         # Stills every so many seconds (0: none); at least 5 s, a still is a whole JPEG.
         self.stills = max(5, settings.mqtt_stills) if settings.mqtt_stills > 0 else 0
         self.connected = False
+        self.error: str | None = None  # why the last connection failed
+        self.since: float | None = None  # when it connected, or failed
+        self.last_error: dict[str, Any] | None = None  # the last command that failed
         self._sent: dict[str, str] = {}  # retained topic -> payload, as the broker has it
         self._publish: Callable[[str, str], Awaitable[None]] | None = None
         self._send: Callable[[str, bytes], Awaitable[None]] | None = None  # not retained
@@ -169,19 +180,57 @@ class Mqtt:
     def enabled(self) -> bool:
         return self.broker is not None
 
+    def status(self) -> dict[str, Any]:
+        """For Diagnostics (GET /api/info)."""
+        if not self.broker:
+            return {"enabled": False}
+        return {
+            "enabled": True,
+            "connected": self.connected,
+            "broker": f"{self.broker.host}:{self.broker.port}",
+            "prefix": self.prefix,
+            "discovery": self.discovery,
+            "stills": self.stills,
+            "error": self.error,
+            "since": self.since,
+            "last_error": self.last_error,
+        }
+
+    def _changed(self, connected: bool, error: str | None) -> None:
+        if (connected, error) != (self.connected, self.error):
+            self.connected, self.error, self.since = connected, error, time.time()
+            self.hub.bus.publish("mqtt.changed", {"connected": connected})
+
     # What Norn publishes.
 
     def _config(
-        self, out: dict[str, str], component: str, object_id: str, device: dict[str, Any], **entity: Any
+        self,
+        out: dict[str, str],
+        component: str,
+        object_id: str,
+        device: dict[str, Any],
+        camera: str | None = None,
+        **entity: Any,
     ) -> None:
+        """A discovery config. With `camera`, the entity is available only while Norn and that
+        camera both are: for what talks to the camera (controls, presets, its still)."""
         if not self.discovery:
             return
         object_id = slug(object_id)
+        availability: dict[str, Any] = {"availability_topic": f"{self.prefix}/status"}
+        if camera:
+            availability = {
+                "availability": [
+                    {"topic": f"{self.prefix}/status"},
+                    {"topic": f"{self.prefix}/camera/{camera}/available"},
+                ],
+                "availability_mode": "all",
+            }
         payload = {
             "unique_id": f"{self.prefix}_{object_id}",
             "has_entity_name": True,
             "device": device,
-            "availability_topic": f"{self.prefix}/status",
+            **availability,
             "origin": {"name": "Norn", "sw_version": __version__, "url": "https://andiwand.github.io/norn/"},
             **{k: v for k, v in entity.items() if v is not None},
         }
@@ -205,6 +254,22 @@ class Mqtt:
             command_topic=f"{p}/away/set",
         )
         states[f"{p}/away"] = on_off(hub.away)
+        self._config(
+            configs,
+            "sensor",
+            "error",
+            norn,
+            name="Last error",
+            icon="mdi:alert-circle-outline",
+            entity_category="diagnostic",
+            state_topic=f"{p}/error",
+            json_attributes_topic=f"{p}/error/attributes",
+        )
+        error = self.last_error
+        states[f"{p}/error"] = error["error"][:255] if error else NONE
+        states[f"{p}/error/attributes"] = json.dumps(
+            {"command": error["command"], "time": error["time"]} if error else {}
+        )
         for circle_id, circle in hub.config.circles.items():
             self._config(
                 configs,
@@ -240,8 +305,12 @@ class Mqtt:
                     if v
                 }
 
+            # Offline: the camera doesn't answer Norn (its controls). Unknown counts as online.
+            states[f"{base}/available"] = "offline" if info and not info.online else "online"
             if self.stills:
-                self._config(configs, "camera", f"{cid}_still", device, name="Still", topic=f"{base}/still")
+                self._config(
+                    configs, "camera", f"{cid}_still", device, cid, name="Still", topic=f"{base}/still"
+                )
             self._config(
                 configs,
                 "binary_sensor",
@@ -308,6 +377,7 @@ class Mqtt:
                     "select",
                     f"{cid}_preset",
                     device,
+                    cid,
                     name="Preset",
                     icon="mdi:camera-switch",
                     options=list(names.values()),
@@ -339,7 +409,7 @@ class Mqtt:
                         "unit_of_measurement": control.unit,
                         "mode": "slider",
                     }
-                self._config(configs, component, f"{cid}_control_{control.id}", device, **entity)
+                self._config(configs, component, f"{cid}_control_{control.id}", device, cid, **entity)
         return configs | states
 
     def ours(self, topic: str) -> bool:
@@ -392,6 +462,15 @@ class Mqtt:
             await self._handle(topic, payload.strip())
         except Exception as e:
             log.warning("%s: %s", topic, e)
+            self.last_error = {
+                "command": f"{topic} {payload.strip()[:100]}".strip(),
+                "error": str(e) or type(e).__name__,
+                "time": datetime.now().astimezone().isoformat(timespec="seconds"),
+            }
+            # Send the true state again: Home Assistant shows what it asked for until it hears.
+            self._sent.pop(topic.removesuffix("/set"), None)
+            self._dirty.set()
+            self.hub.bus.publish("mqtt.changed", {"connected": self.connected})
 
     async def _handle(self, topic: str, payload: str) -> None:
         p, hub = self.prefix, self.hub
@@ -518,7 +597,8 @@ class Mqtt:
                     async def send(topic: str, payload: bytes) -> None:
                         await client.publish(topic, payload, qos=0, retain=False)
 
-                    self._publish, self._send, self._sent, self.connected = publish, send, {}, True
+                    self._publish, self._send, self._sent = publish, send, {}
+                    self._changed(True, None)
                     self._found, self._ready = set(), False
                     delay = 5.0
                     log.info("connected to the MQTT broker %s:%d", broker.host, broker.port)
@@ -537,15 +617,10 @@ class Mqtt:
                 raise
             except Exception as e:
                 errors = e.exceptions if isinstance(e, BaseExceptionGroup) else [e]
-                log.warning(
-                    "MQTT broker %s:%d: %s; again in %.0f s",
-                    broker.host,
-                    broker.port,
-                    "; ".join(str(x) for x in errors),
-                    delay,
-                )
-            finally:
-                self._publish, self._send, self.connected = None, None, False
+                error = "; ".join(str(x) or type(x).__name__ for x in errors)
+                log.warning("MQTT broker %s:%d: %s; again in %.0f s", broker.host, broker.port, error, delay)
+                self._publish, self._send = None, None
+                self._changed(False, error)
             await asyncio.sleep(delay)
             delay = min(delay * 2, 300)
 
@@ -554,8 +629,10 @@ class Mqtt:
             payload = message.payload.decode(errors="replace") if isinstance(message.payload, bytes) else ""
             topic = str(message.topic)
             if topic.endswith("/set"):
-                if message.retain:
-                    continue  # a command someone left on the broker: not for every reconnect
+                if message.retain or not payload.strip():
+                    # A command someone left on the broker (not for every reconnect), or one
+                    # cleared from it (an empty message): nothing to do.
+                    continue
                 # Commands talk to cameras, which can be slow: don't hold up the next message.
                 task = asyncio.create_task(self.handle(topic, payload))
                 self._commands.add(task)

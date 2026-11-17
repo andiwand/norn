@@ -252,6 +252,11 @@ each circle, and one device per camera with:
 Away mode goes both ways: an automation can turn it on when everyone has left, and others can
 follow it when it changes in Norn (by hand or as planned).
 
+While a camera doesn't answer, its controls, presets and still show as unavailable in Home
+Assistant; its sensors and record buttons stay. A command that fails shows as the Norn device's
+**Last error**, and the entity goes back to the camera's real state. Diagnostics shows whether
+Norn is connected to the broker, and the last failed command.
+
 MQTT carries no video: for that, add a Generic Camera (above). It can carry still pictures:
 with `NORN_MQTT_STILLS=10`, each camera also gets a **Still** camera entity with a new picture
 every 10 seconds. That is off by default, since each picture is a whole JPEG through the broker.
@@ -261,6 +266,8 @@ The topics, for other home automation (states are retained; `ON`/`OFF` for on an
 | Topic                                  | What                                                       |
 | -------------------------------------- | ---------------------------------------------------------- |
 | `norn/status`                          | `online` or `offline`.                                     |
+| `norn/error`, `norn/error/attributes`  | The last command that failed: why, and the command and time. |
+| `norn/camera/<id>/available`           | `online` or `offline`: whether the camera answers Norn.    |
 | `norn/away`, `norn/away/set`           | Away mode.                                                 |
 | `norn/camera/<id>/event/<kind>`        | A detection (`motion`, `person`, ...).                     |
 | `norn/camera/<id>/recording`           | Whether the camera records.                                |

@@ -3,13 +3,14 @@ publisher is a dict, and messages go to `handle` directly."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from dataclasses import replace
 
 import pytest
 
-from norn.drivers.base import Event
+from norn.drivers.base import DeviceInfo, Event
 from norn.hub import Hub
 from norn.mqtt import Broker, Mqtt
 from norn.settings import Settings
@@ -172,3 +173,67 @@ async def test_stills(hub: Hub, broker: dict[str, str], settings: Settings) -> N
     hub.still_jpeg = still_jpeg  # type: ignore[method-assign]
     await mqtt.send_stills()
     assert sent == {"norn/camera/yard/still": b"\xff\xd8 yard"}
+
+
+async def test_failed_command(hub: Hub, broker: dict[str, str]) -> None:
+    await hub.mqtt.sync()
+    assert (
+        broker["norn/error"] == "None"
+        and config(broker, "sensor", "error")["entity_category"] == "diagnostic"
+    )
+    hub.mqtt._sent["norn/camera/yard/control/ir"] = "stale"  # Home Assistant thinks it changed
+
+    await hub.mqtt.handle("norn/camera/yard/control/ir/set", "Sometimes")
+    await hub.mqtt.sync()
+    assert "not an option" in broker["norn/error"]
+    attributes = json.loads(broker["norn/error/attributes"])
+    assert attributes["command"] == "norn/camera/yard/control/ir/set Sometimes" and attributes["time"]
+    assert broker["norn/camera/yard/control/ir"] == "Auto"  # the true state, again
+    assert hub.mqtt.status()["last_error"]["error"] == broker["norn/error"]
+
+
+async def test_offline_camera(hub: Hub, broker: dict[str, str]) -> None:
+    await hub.mqtt.sync()
+    assert broker["norn/camera/yard/available"] == "online"
+    spotlight = config(broker, "switch", "yard_control_spotlight")
+    assert spotlight["availability_mode"] == "all"
+    assert [a["topic"] for a in spotlight["availability"]] == ["norn/status", "norn/camera/yard/available"]
+    assert "yard/available" in str(config(broker, "select", "yard_preset")["availability"])
+    # What doesn't talk to the camera's controls depends on Norn only.
+    assert config(broker, "button", "yard_record")["availability_topic"] == "norn/status"
+    assert config(broker, "binary_sensor", "yard_online")["availability_topic"] == "norn/status"
+
+    hub.cameras["yard"].device = DeviceInfo(online=False, error="no answer")
+    await hub.mqtt.sync()
+    assert broker["norn/camera/yard/available"] == "offline"
+    assert broker["norn/camera/yard/online"] == "OFF"
+
+
+async def test_status(hub: Hub, settings: Settings) -> None:
+    assert Mqtt(settings, hub).status() == {"enabled": False}
+    status = hub.mqtt.status()
+    assert status["enabled"] and status["broker"] == "broker.local:1883" and not status["connected"]
+    assert "p@ss" not in json.dumps(status)
+
+
+async def test_listen_skips_left_and_cleared_commands(hub: Hub, broker: dict[str, str]) -> None:
+    class Message:
+        def __init__(self, topic: str, payload: bytes, retain: bool) -> None:
+            self.topic, self.payload, self.retain = topic, payload, retain
+
+    class Client:
+        async def _messages(self):  # type: ignore[no-untyped-def]
+            yield Message("norn/camera/yard/control/brightness/set", b"7", True)  # left retained
+            yield Message("norn/camera/yard/control/brightness/set", b"", False)  # cleared
+            yield Message("norn/camera/yard/control/spotlight/set", b"ON", False)  # a real one
+
+        @property
+        def messages(self):  # type: ignore[no-untyped-def]
+            return self._messages()
+
+    state = hub.get_driver("yard").state  # type: ignore[attr-defined]
+    brightness = state["brightness"]
+    await hub.mqtt._listen(Client())
+    await asyncio.gather(*hub.mqtt._commands)
+    assert state["brightness"] == brightness and state["spotlight"] is True
+    assert hub.mqtt.last_error is None

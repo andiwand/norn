@@ -243,6 +243,21 @@ export interface Recording {
 	meta: Record<string, unknown>;
 }
 
+export interface MqttStatus {
+	enabled: boolean;
+	connected?: boolean;
+	broker?: string;
+	prefix?: string;
+	discovery?: string | null;
+	stills?: number;
+	/** Why the last connection failed. */
+	error?: string | null;
+	/** When it connected, or failed (seconds since the epoch). */
+	since?: number | null;
+	/** The last command from MQTT that failed. */
+	last_error?: { command: string; error: string; time: string } | null;
+}
+
 export interface Info {
 	version: string;
 	config_error: string | null;
@@ -254,6 +269,8 @@ export interface Info {
 	rtsp: { port: number; shared: boolean };
 	recording_available: boolean;
 	recording: RecordingSettings;
+	/** MQTT, for Home Assistant: off unless NORN_MQTT is set. */
+	mqtt: MqttStatus;
 	/** Away mode: `now` is whether it is on at the moment (switched on, or planned). */
 	away: AwaySettings & { now: boolean };
 	detection: DetectionSettings & {
