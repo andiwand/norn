@@ -7,8 +7,6 @@
 	import HardDriveDownload from '@lucide/svelte/icons/hard-drive-download';
 	import HardDrive from '@lucide/svelte/icons/hard-drive';
 
-	let { compact = false }: { compact?: boolean } = $props();
-
 	let storage = $state<Storage | null>(null);
 
 	$effect(() => {
@@ -95,7 +93,7 @@
 						)}
 					</p>
 				{/if}
-				{#if !compact}<p class="mt-1 text-xs text-muted">{hint}</p>{/if}
+				<p class="mt-1 text-xs text-muted">{hint}</p>
 			</div>
 		{/each}
 	</div>

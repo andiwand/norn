@@ -4,6 +4,9 @@
 	import { store } from '#lib/state.svelte.js';
 	import Logo from '#lib/components/Logo.svelte';
 	import Toasts from '#lib/components/Toasts.svelte';
+	import HeaderGauges from '#lib/components/HeaderGauges.svelte';
+	import { install } from '#lib/install.svelte.js';
+	import Download from '@lucide/svelte/icons/download';
 	import Cctv from '@lucide/svelte/icons/cctv';
 	import Film from '@lucide/svelte/icons/film';
 	import Settings from '@lucide/svelte/icons/settings';
@@ -93,12 +96,17 @@
 
 <div class="flex min-h-dvh flex-col">
 	<header class="sticky top-0 z-30 border-b border-line bg-bg/70 backdrop-blur-xl">
-		<div class="mx-auto flex h-16 max-w-[1600px] items-center gap-6 px-4 sm:px-6">
-			<a href="/" class="flex items-center gap-2.5 font-semibold tracking-tight">
-				<Logo size={30} class="text-text" />
-				<span class="text-lg">Norn</span>
-			</a>
-			<nav class="hidden items-center gap-0.5 md:flex">
+		<div
+			class="mx-auto flex h-12 max-w-[1600px] items-center gap-2 px-4 sm:gap-3 sm:px-6 md:h-14 xl:gap-5"
+		>
+			<div class="flex shrink-0">
+				<a href="/" class="flex shrink-0 items-center gap-2.5 font-semibold tracking-tight">
+					<Logo size={26} class="text-text" />
+					<span class="hidden text-lg min-[360px]:inline">Norn</span>
+				</a>
+			</div>
+			<!-- The nav sits in the middle of the room between the logo and the controls. -->
+			<nav class="hidden min-w-0 flex-1 items-center justify-center gap-0.5 md:flex">
 				{#each nav as item (item.href)}
 					{@const active = item.match(path)}
 					<a
@@ -110,34 +118,67 @@
 						title={item.label}
 					>
 						<item.icon class="size-4" />
-						<span class="hidden lg:inline">{item.label}</span>
+						<span class="hidden xl:inline">{item.label}</span>
 					</a>
 				{/each}
 			</nav>
-			{#if store.info}
-				{@const away = store.info.away}
-				<button
-					class="ml-auto flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition {away.now
-						? 'border-accent/50 bg-accent/15 text-accent'
-						: 'border-line text-muted hover:text-text'}"
-					title={away.now
-						? away.end
-							? `Away until ${new Date(away.end).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`
-							: 'Away: detections record at any time'
-						: 'Switch on away mode'}
-					onclick={toggleAway}
-					aria-pressed={away.now}
+			<div class="ml-auto flex shrink-0 items-center gap-2 sm:gap-3 xl:gap-5">
+				{#if store.info}
+					{@const away = store.info.away}
+					<!-- Home or away, as a switch: the knob sits on the house or the plane. -->
+					<button
+						role="switch"
+						aria-checked={away.now}
+						aria-label="Away mode"
+						class="relative flex h-8 w-16 shrink-0 items-center justify-between rounded-full border px-2 transition disabled:opacity-60 {away.now
+							? 'border-accent/50 bg-accent/20'
+							: 'border-line bg-surface-2'}"
+						title={away.now
+							? away.end
+								? `Away until ${new Date(away.end).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}. Switch off when you're home.`
+								: 'Away: detections record at any time. Switch off when you are home.'
+							: 'Home. Switch on away mode when you leave.'}
+						onclick={toggleAway}
+						disabled={switching}
+					>
+						<span
+							class="absolute top-0.5 left-0.5 size-[26px] rounded-full shadow transition-transform {away.now
+								? 'translate-x-8 bg-accent'
+								: 'bg-surface'}"
+						></span>
+						<House class="relative size-3.5 {away.now ? 'text-muted' : 'text-text'}" />
+						<Plane class="relative size-3.5 {away.now ? 'text-accent-ink' : 'text-muted'}" />
+					</button>
+				{/if}
+				<!-- Install: the browser's own dialog where it offers one, else how to do it. -->
+				{#if install.offered && !install.installed}
+					<button
+						class="icon-btn size-8 shrink-0 text-muted"
+						onclick={() => install.install()}
+						title="Install Norn as an app"
+						aria-label="Install Norn as an app"><Download class="size-4" /></button
+					>
+				{:else if !install.installed && !path.startsWith('/help')}
+					<a
+						href="/help#install"
+						class="icon-btn size-8 shrink-0 text-muted"
+						title="How to install Norn as an app"
+						aria-label="How to install Norn as an app"><Download class="size-4" /></a
+					>
+				{/if}
+				<HeaderGauges />
+				<!-- Connected: just the dot; only trouble gets words. -->
+				<div
+					class="flex shrink-0 items-center gap-2 text-xs text-muted"
+					title={store.connected ? 'Connected' : 'Reconnecting…'}
 				>
-					{#if away.now}<Plane class="size-3.5" />Away{:else}<House class="size-3.5" />Home{/if}
-				</button>
-			{/if}
-			<div class="flex items-center gap-2 text-xs text-muted {store.info ? '' : 'ml-auto'}">
-				<span
-					class="size-2 rounded-full {store.connected
-						? 'bg-success shadow-[0_0_10px_var(--success)]'
-						: 'bg-warning'}"
-				></span>
-				<span class="hidden sm:inline">{store.connected ? 'Connected' : 'Reconnecting…'}</span>
+					<span
+						class="size-2 rounded-full {store.connected
+							? 'bg-success shadow-[0_0_10px_var(--success)]'
+							: 'bg-warning'}"
+					></span>
+					{#if !store.connected}<span class="hidden sm:inline">Reconnecting…</span>{/if}
+				</div>
 			</div>
 		</div>
 		{#if store.info?.config_error}
@@ -148,7 +189,7 @@
 		{/if}
 	</header>
 
-	<main class="mx-auto w-full max-w-[1600px] flex-1 px-4 pt-6 pb-28 sm:px-6 md:pb-12">
+	<main class="mx-auto w-full max-w-[1600px] flex-1 px-3 pt-3 pb-24 sm:px-6 sm:pt-6 md:pb-12">
 		{@render children()}
 	</main>
 
@@ -159,7 +200,7 @@
 			{@const active = item.match(path)}
 			<a
 				href={item.href}
-				class="flex flex-1 flex-col items-center gap-1 py-1 text-[11px] font-medium {active
+				class="flex flex-1 flex-col items-center gap-0.5 py-0.5 text-[10px] font-medium {active
 					? 'text-accent'
 					: 'text-muted'}"
 				aria-current={active ? 'page' : undefined}

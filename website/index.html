@@ -56,8 +56,8 @@
   <h2 class="section-title">Everything your cameras do, in one app</h2>
   <p class="section-lead">Watch, control and record every camera in your home from one place, instead of one app per brand.</p>
   <div class="norns">
-    <article><span class="rune"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 13 5.2 3.5a.5.5 0 0 0 .8-.4V7.9a.5.5 0 0 0-.8-.4L16 11"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg></span><h3>Live</h3><p>Live video in the browser over WebRTC, with MSE and HLS as fallbacks. The quality adapts to the connection, a picture shows at once while the video starts, and a stills view watches many cameras on almost no bandwidth.</p></article>
-    <article><span class="rune"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="2"/><path d="M7 3v18M17 3v18M2 8h5M2 16h5M17 8h5M17 16h5"/></svg></span><h3>Recordings</h3><p>Plain MP4 and JPEG files in day folders: continuous, clips that start seconds before their trigger, pictures on a timer. A timeline shows them all; old ones expire, by age, size or free space, unless you pin them.</p></article>
+    <article><span class="rune"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 13 5.2 3.5a.5.5 0 0 0 .8-.4V7.9a.5.5 0 0 0-.8-.4L16 11"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg></span><h3>Live</h3><p>Live video in the browser over WebRTC, with MSE and HLS as fallbacks. It starts in about a tenth of a second, the quality adapts to the connection, and a stills view watches many cameras on almost no bandwidth.</p></article>
+    <article><span class="rune"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="2"/><path d="M7 3v18M17 3v18M2 8h5M2 16h5M17 8h5M17 16h5"/></svg></span><h3>Recordings</h3><p>Plain MP4 and JPEG files in day folders: continuous, clips that start seconds before their trigger, pictures on a timer. A timeline shows them all, and every camera at the moment you point at; old ones expire, by age, size or free space, unless you pin them.</p></article>
     <article><span class="rune"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/><path d="M3.3 15.3A1 1 0 0 0 4 17h16a1 1 0 0 0 .7-1.7C19.4 14 18 12.5 18 8a6 6 0 0 0-12 0c0 4.5-1.4 6-2.7 7.3"/></svg></span><h3>Detection</h3><p>The cameras' own motion and AI events, and Norn's own: motion, and people, vehicles and animals with a small AI model on the CPU. On a schedule, or all the time while you're away.</p></article>
   </div>
 
@@ -65,7 +65,10 @@
     <div><h3>Full camera control</h3><p>Pan, tilt, zoom, night vision, spotlight, siren — whatever the camera offers, and firmware updates. Each driver describes its controls, and the UI builds itself from them.</p></div>
     <div><h3>Presets, patrol, follow</h3><p>Named views with a picture and their own settings. Patrol through them, turn a camera to the gate when someone is at the door, or follow people while recording.</p></div>
     <div><h3>Circles</h3><p>Group cameras: one trigger records them all, they share settings, and the controls they have in common are set at once.</p></div>
-    <div><h3>Light on the CPU</h3><p>Video is repackaged, not transcoded; FFmpeg only steps in where it must, and only while someone watches. Settings shows what each part costs, and a forecast of the storage.</p></div>
+    <div><h3>Light on the CPU</h3><p>Video is repackaged, not transcoded; FFmpeg only steps in where it must, and only while someone watches. Diagnostics shows what each part costs and a forecast of the storage; the top bar, how full the disk is.</p></div>
+    <div><h3>Triggers where they matter</h3><p>What records, how long a clip runs and how much comes before it: for all cameras, a circle, one camera, or one pan/tilt preset — the gate view can record people, the yard view animals.</p></div>
+    <div><h3>Home Assistant</h3><p>Each camera's page has what to copy: its streams and stills, buttons to record and turn to presets, sensors for recording and detections. The camera keeps one connection, to Norn.</p></div>
+    <div><h3>An app on your phone</h3><p>Install Norn to the home screen: its own icon, full screen, a bottom bar made for the thumb, and a timeline you scrub with a finger.</p></div>
     <div><h3>A YAML file, no database</h3><p>Everything lives in <code>config.yaml</code>. Edit it by hand or in the app — Norn keeps your comments and picks up changes while it runs.</p></div>
     <div><h3>Local, and open</h3><p>Runs in your network, with no account and no cloud. One image for amd64 and arm64, or a PyPI package. MIT licensed.</p></div>
   </div>
@@ -159,7 +162,8 @@
     <li class="done">Drivers for popular brands, firmware updates, stream probing</li>
     <li class="done">Detection by the cameras and by Norn, schedules, away mode, circles</li>
     <li class="done">Presets, patrol, reactions and following for pan/tilt cameras</li>
-    <li>HTTPS and sign-in, for access from outside the home and installing on Android</li>
+    <li class="done">Home Assistant, triggers per camera and preset, installing as an app</li>
+    <li>HTTPS and sign-in built in, for access from outside the home</li>
     <li>Notifications on the phone when something is detected</li>
     <li>Testing more brands on real cameras, ONVIF discovery in the app</li>
   </ul>

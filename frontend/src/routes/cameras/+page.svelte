@@ -28,10 +28,8 @@
 <div class="mx-auto max-w-3xl space-y-5">
 	<div class="flex flex-wrap items-end justify-between gap-3">
 		<div>
-			<h1 class="text-2xl font-semibold tracking-tight">Cameras</h1>
-			<p class="mt-1 text-sm text-muted">
-				Open a camera to watch and steer it, or edit how Norn reaches it.
-			</p>
+			<h1 class="page-title">Cameras</h1>
+			<p class="page-intro">Open a camera to watch and steer it, or edit how Norn reaches it.</p>
 		</div>
 		<a href="/cameras/new" class="btn-primary"><Plus class="size-4" />Add camera</a>
 	</div>

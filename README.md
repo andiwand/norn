@@ -42,13 +42,15 @@ nobody has run them against the real camera yet. Reports and fixes are welcome.
 Each camera page shows what the camera reports about itself (model, firmware, uptime, …) and
 whether newer firmware exists.
 
-- **Live video** in any browser over WebRTC, with MSE and HLS as fallbacks. The quality adapts to
-  the connection; a still shows at once while the video starts; a stills view for many cameras.
+- **Live video** in any browser over WebRTC, with MSE and HLS as fallbacks. It starts in about
+  a tenth of a second (Norn keeps the newest keyframe ready), the quality adapts to the
+  connection, and a stills view watches many cameras on little bandwidth.
 - **Camera controls**: pan, tilt, zoom, presets, and whatever settings the camera has. Each driver
   describes its controls; the web app builds itself from that. Norn tests each camera's streams
   (also third and fourth ones) and whether they work at the same time.
 - **Detection**: the cameras' own motion and AI events, and Norn's own on stills (motion; people,
-  vehicles and animals with a small AI model). Triggers on a schedule, and an away mode.
+  vehicles and animals with a small AI model). Triggers on a schedule, and an away mode. What
+  records can be set for all cameras, and per circle, camera or pan/tilt preset.
 - **Pan/tilt**: Norn presets with a picture and their own settings, a default preset to return
   to, patrol, reactions to detections, following people. A preset can record its own way
   (`triggers`, `clip_seconds`, `prebuffer_seconds` under the preset) while the camera is there.
@@ -57,10 +59,15 @@ whether newer firmware exists.
   browser can't play.
 - **Recordings** as plain MP4 and JPEG files in day folders: continuous, clips from a button or
   webhook that start a few seconds *before* the trigger, and pictures on a timer. A timeline
-  shows them all, with what triggered each. Automatic recordings expire by age, size or free
-  space; clips you record by hand, or pin, stay.
+  shows them all, with what triggered each, and every camera at the moment you point at.
+  Automatic recordings expire by age, size or free space; clips you record by hand, or pin,
+  stay.
 - **Circles**: groups of cameras with one trigger, shared settings, and controls set on all at
   once.
+- **Home Assistant**: each camera's page has what to copy into Home Assistant: its streams,
+  stills, and buttons to record and turn. See [Home Assistant](#home-assistant).
+- **An app on your phone**: install the web app to the home screen (see
+  [Install as an app](#install-as-an-app)).
 - **A YAML file, no database.** Edit `config.yaml` by hand or in the app; both keep the other's
   changes, comments included.
 - **Local.** No account, no cloud, no telemetry.
@@ -191,9 +198,9 @@ recordings/front-door/2026-11-15/14-32-07_manual.mp4     the video
 
 Recordings go through three stages: each camera's last seconds wait in RAM (`NORN_BUFFER`), what
 is being recorded is written to `NORN_TEMP`, and finished files move to `NORN_RECORDINGS`, which
-can be a NAS. Settings shows what each stage holds, a forecast per trigger (measured from the
+can be a NAS. Diagnostics shows what each stage holds, a forecast per trigger (measured from the
 last week, or estimated from the settings and each camera's bitrate), and what Norn costs in CPU
-and memory.
+and memory; the top bar shows how full the disk is and how busy the CPU is.
 
 Start a clip from anything that sends HTTP, like Home Assistant or a doorbell:
 
@@ -216,6 +223,19 @@ sensors for recording and detections).
   `rtsp://<norn>:<rtsp port>/<camera id>` (`<camera id>_sub` for the small stream) and the
   still image `http://<norn>/api/cameras/<camera id>/still.jpg`.
 - Without RTSP: an **MJPEG IP Camera** with `http://<norn>/api/cameras/<camera id>/stills`.
+
+### Install as an app
+
+Norn installs like an app, with its own icon and without the browser's bars. The button with
+the arrow in the top bar does it, or explains how:
+
+- **iPhone, iPad**: in Safari, Share, then Add to Home Screen. **Mac**: in Safari, File, then
+  Add to Dock.
+- **Android, desktop Chrome and Edge**: the browser's Install app. These browsers install only
+  from an HTTPS address, so over `http://<host>:8000` they offer just a shortcut. Put Norn behind
+  HTTPS with a certificate the phone trusts, for example with
+  [Tailscale Serve](https://tailscale.com/kb/1312/serve) (`tailscale serve --bg 8000`) or a
+  reverse proxy such as Caddy. A proxy must pass WebSockets (`/api/stream`, `/api/events`).
 
 > Norn has no sign-in yet. Run it in your home network only, not open to the internet. The same
 > goes for the shared RTSP streams.

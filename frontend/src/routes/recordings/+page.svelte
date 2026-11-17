@@ -6,7 +6,6 @@
 	import { formatDay } from '#lib/format.js';
 	import RecordingTile from '#lib/components/RecordingTile.svelte';
 	import RecordingDialog from '#lib/components/RecordingDialog.svelte';
-	import StorageStages from '#lib/components/StorageStages.svelte';
 	import Timeline from '#lib/components/Timeline.svelte';
 	import LayoutGrid from '@lucide/svelte/icons/layout-grid';
 	import ChartGantt from '@lucide/svelte/icons/chart-gantt';
@@ -109,20 +108,19 @@
 
 <svelte:head><title>Recordings · Norn</title></svelte:head>
 
-<div class="mb-6 flex flex-wrap items-start gap-4">
-	<div class="min-w-0 flex-1 basis-80">
-		<h1 class="text-2xl font-semibold tracking-tight">Recordings</h1>
-		<p class="mt-1 text-sm text-muted">
-			Plain MP4 and JPEG files in the recordings folder. The ring on a recording shows how long
-			until Norn deletes it; clips you record by hand stay.
+<div class="mb-3 flex items-center gap-3 sm:mb-5">
+	<div class="min-w-0 flex-1">
+		<h1 class="page-title">Recordings</h1>
+		<p class="page-intro">
+			MP4 and JPEG files. The ring shows when Norn deletes one; clips you record by hand stay.
 		</p>
 	</div>
-	<div class="flex rounded-xl bg-surface-3 p-1" role="radiogroup" aria-label="View">
+	<div class="flex shrink-0 rounded-xl bg-surface-3 p-1" role="radiogroup" aria-label="View">
 		{#each [{ id: 'timeline', label: 'Timeline', icon: ChartGantt }, { id: 'grid', label: 'Grid', icon: LayoutGrid }] as v (v.id)}
 			<button
 				role="radio"
 				aria-checked={view === v.id}
-				class="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition {view ===
+				class="flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-sm font-medium transition {view ===
 				v.id
 					? 'bg-surface text-text shadow'
 					: 'text-muted hover:text-text'}"
@@ -133,36 +131,38 @@
 	</div>
 </div>
 
-<div class="mb-6"><StorageStages compact /></div>
-
-<div class="mb-6 flex flex-wrap gap-2">
-	<button class="chip {camera === '' ? 'chip-active' : ''}" onclick={() => setFilter('camera', '')}
-		>All cameras</button
+<!-- One line; on a phone it scrolls sideways rather than taking more rows. -->
+<div
+	class="-mx-3 mb-3 flex [scrollbar-width:none] gap-2 overflow-x-auto px-3 sm:mx-0 sm:mb-5 sm:flex-wrap sm:px-0"
+>
+	<button
+		class="chip shrink-0 {camera === '' ? 'chip-active' : ''}"
+		onclick={() => setFilter('camera', '')}>All cameras</button
 	>
 	{#each store.cameras as c (c.id)}
 		<button
-			class="chip {camera === c.id ? 'chip-active' : ''}"
+			class="chip shrink-0 {camera === c.id ? 'chip-active' : ''}"
 			onclick={() => setFilter('camera', c.id)}>{c.name}</button
 		>
 	{/each}
 	{#if view === 'grid'}
 		<span class="mx-1 w-px self-stretch bg-line"></span>
 		<button
-			class="chip {trigger === '' ? 'chip-active' : ''}"
+			class="chip shrink-0 {trigger === '' ? 'chip-active' : ''}"
 			onclick={() => setFilter('trigger', '')}>Everything</button
 		>
 		<button
-			class="chip {trigger === 'clips' ? 'chip-active' : ''}"
+			class="chip shrink-0 {trigger === 'clips' ? 'chip-active' : ''}"
 			onclick={() => setFilter('trigger', 'clips')}>Clips</button
 		>
 		<button
-			class="chip {trigger === 'continuous' ? 'chip-active' : ''}"
+			class="chip shrink-0 {trigger === 'continuous' ? 'chip-active' : ''}"
 			onclick={() => setFilter('trigger', 'continuous')}
 		>
 			Continuous
 		</button>
 		<button
-			class="chip {trigger === 'pictures' ? 'chip-active' : ''}"
+			class="chip shrink-0 {trigger === 'pictures' ? 'chip-active' : ''}"
 			onclick={() => setFilter('trigger', 'pictures')}>Pictures</button
 		>
 	{/if}

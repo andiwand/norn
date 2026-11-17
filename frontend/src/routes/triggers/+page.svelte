@@ -67,8 +67,8 @@
 
 <div class="mx-auto max-w-3xl space-y-5">
 	<div>
-		<h1 class="text-2xl font-semibold tracking-tight">Triggers</h1>
-		<p class="mt-1 text-sm text-muted">
+		<h1 class="page-title">Triggers</h1>
+		<p class="page-intro">
 			What makes Norn record, for every camera. Circles, cameras and their presets can set their
 			own; <a href="/away" class="text-accent hover:underline">Away</a> has its own triggers.
 		</p>

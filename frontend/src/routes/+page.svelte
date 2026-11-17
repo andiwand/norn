@@ -118,7 +118,7 @@
 
 <div class="mb-6 flex flex-wrap items-end justify-between gap-4">
 	<div>
-		<h1 class="text-2xl font-semibold tracking-tight">Live</h1>
+		<h1 class="page-title">Live</h1>
 		<p class="mt-1 text-sm text-muted">
 			{store.cameras.length}
 			{store.cameras.length === 1 ? 'camera' : 'cameras'}{#if recording}<span>

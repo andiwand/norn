@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+- Recordings timeline: the gaps between camera tracks point, press and drag like the tracks.
+- Recordings timeline on a phone: scrolling the page over the timeline no longer changes the
+  moment above. Like the mouse's pointing and dragging, a finger now does one thing at a time:
+  dragging along the tracks (or a tap) picks the moment, dragging the times below the tracks
+  moves the window. The time labels no longer run into each other.
+- Recordings timeline: a tap or click on a trigger icon opens its clip (on a phone it no longer
+  only picked the moment). On a phone the cameras at the moment show two to a row, the thumbnail
+  strip is left out and the detection chips scroll sideways, so the tracks stay in view.
+- Top bar: two small gauges, like a battery, for how full the recordings disk is and how busy the
+  CPU is; they link to Diagnostics. Storage left the Recordings page (it is in Diagnostics).
+- Install the app: a button in the top bar while Norn doesn't run as an installed app. It opens
+  the browser's install dialog where there is one, else Help's new section on how to do it: for
+  Safari (Share, Add to Home Screen; on a Mac File, Add to Dock), and why a browser can't when Norn
+  is open over plain HTTP (browsers install apps only from HTTPS). Settings links to it on a phone.
+- Top bar: Home and Away are a switch now, a house on the left and a plane on the right; the
+  button that said "Home" looked like a link to the start page. The connection is just its dot.
+- Less height above the content: a lower top bar, smaller page titles, and the sentence under a
+  title only where there is room; the camera chips on Recordings stay on one line.
+
 ## 0.5.0 — 2026-11-16
 
 - Triggers: a page of its own for what makes Norn record (detections and their schedule, clip

@@ -19,8 +19,8 @@
 
 <div class="mx-auto max-w-3xl space-y-5">
 	<div>
-		<h1 class="text-2xl font-semibold tracking-tight">Diagnostics</h1>
-		<p class="mt-1 text-sm text-muted">What Norn runs, what it costs, and what it stores.</p>
+		<h1 class="page-title">Diagnostics</h1>
+		<p class="page-intro">What Norn runs, what it costs, and what it stores.</p>
 	</div>
 
 	<section class="grid gap-4 sm:grid-cols-2">

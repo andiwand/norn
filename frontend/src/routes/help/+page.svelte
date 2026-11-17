@@ -5,6 +5,8 @@
 	import Webhook from '@lucide/svelte/icons/webhook';
 	import FileCode from '@lucide/svelte/icons/file-code';
 	import BookOpen from '@lucide/svelte/icons/book-open';
+	import Smartphone from '@lucide/svelte/icons/smartphone';
+	import InstallApp from '#lib/components/InstallApp.svelte';
 
 	const info = $derived(store.info);
 	const origin = $derived(typeof location === 'undefined' ? '' : location.origin);
@@ -15,8 +17,14 @@
 
 <div class="mx-auto max-w-3xl space-y-5">
 	<div>
-		<h1 class="text-2xl font-semibold tracking-tight">Help</h1>
-		<p class="mt-1 text-sm text-muted">Connecting Norn to other things, and where to find more.</p>
+		<h1 class="page-title">Help</h1>
+		<p class="page-intro">Connecting Norn to other things, and where to find more.</p>
+	</div>
+
+	<div id="install">
+		<SettingsSection title="Install the app" icon={Smartphone}>
+			<InstallApp />
+		</SettingsSection>
 	</div>
 
 	<SettingsSection

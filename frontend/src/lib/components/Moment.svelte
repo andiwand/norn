@@ -85,11 +85,12 @@
 	}
 </script>
 
+<!-- On a phone two to a row, so the tracks below stay in view. -->
 <div
 	class="grid gap-2"
-	style:grid-template-columns="repeat(auto-fill, minmax(min(100%, {cameras.length > 2
-		? 11
-		: 16}rem), 1fr))"
+	style:grid-template-columns="repeat(auto-fill, minmax({cameras.length > 1
+		? `min(${cameras.length > 2 ? 11 : 16}rem, calc(50% - 0.25rem))`
+		: 'min(100%, 16rem)'}, 1fr))"
 >
 	{#each tiles as tile (tile.camera.id)}
 		{@const src = shown[tile.camera.id]}

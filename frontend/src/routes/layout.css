@@ -191,3 +191,12 @@
 @utility tile-action {
 	@apply flex size-8 items-center justify-center gap-1.5 rounded-full bg-black/50 text-white backdrop-blur-md transition hover:bg-black/70;
 }
+
+/* A page's heading, and the sentence under it: only where there is room for it. */
+@utility page-title {
+	@apply text-xl font-semibold tracking-tight sm:text-2xl;
+}
+
+@utility page-intro {
+	@apply mt-1 hidden text-sm text-muted sm:block;
+}

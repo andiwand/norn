@@ -1,6 +1,8 @@
 <script lang="ts">
 	// All recordings on one time axis: a row per camera, a strip of thumbnails above it.
 	// Drag to move in time, pick a scale, click a recording (or a point in a video) to open it.
+	// A mouse points (hover) at a moment and drags the tracks to move; a finger has no hover, so
+	// it drags along the tracks to pick the moment and drags the times below them to move.
 	import { api, urls, type Camera, type Recording } from '../api';
 	import { store } from '../state.svelte';
 	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
@@ -26,8 +28,8 @@
 		{ label: 'Day', span: 24 * HOUR },
 		{ label: 'Week', span: 7 * 24 * HOUR }
 	];
-	// Tick steps in minutes; the first that gives at most about 8 labels.
-	const STEPS = [5, 15, 30, 60, 180, 360, 720, 1440, 2880];
+	// Tick steps in minutes; the first that gives no more labels than fit.
+	const STEPS = [5, 15, 20, 30, 60, 120, 180, 360, 480, 720, 1440, 2880];
 	const PICTURES = 600; // the server thins pictures to about this many per camera and request
 	const BUCKETS = 400; // picture marks per row: more would not show anyway
 
@@ -187,7 +189,10 @@
 	// Tick marks on the local clock, counted in calendar steps, so they stay on round times
 	// across a change to or from summer time.
 	const ticks = $derived.by(() => {
-		const step = STEPS.find((m) => span / (m * 60_000) <= 8) ?? STEPS[STEPS.length - 1];
+		// About 72 px per label (a time like "07:00 PM"), at most 8: on a phone fewer, so they
+		// don't run into each other.
+		const fit = Math.max(2, Math.min(8, Math.floor(laneWidth / 72)));
+		const step = STEPS.find((m) => span / (m * 60_000) <= fit) ?? STEPS[STEPS.length - 1];
 		const d = new Date(start);
 		const advance = () => {
 			if (step >= 1440) d.setDate(d.getDate() + step / 1440);
@@ -255,41 +260,108 @@
 		following = true;
 	}
 
-	// Dragging a track moves the window; a click without dragging opens what is under it.
-	let drag: { x: number; end: number; width: number; moved: boolean } | null = null;
+	// The tracks' container takes the pointer, measured on a track (all span the same width): the
+	// gaps between tracks point, press and drag too. Dragging moves the window; a click without
+	// dragging opens what is under it.
+	let lane = $state<HTMLElement>();
+	let laneWidth = $state(600);
+	let drag: {
+		x: number;
+		y: number;
+		end: number;
+		width: number;
+		moved: boolean;
+		touch: boolean;
+		camera: string | undefined; // the track pressed, if any
+		/** Moves the window: a mouse anywhere, a finger only on the times below the tracks. */
+		pans: boolean;
+	} | null = null;
+
+	function fractionAt(e: PointerEvent): number | null {
+		if (!lane) return null;
+		const rect = lane.getBoundingClientRect();
+		const fraction = (e.clientX - rect.left) / rect.width;
+		return fraction < 0 || fraction > 1 ? null : fraction; // null: over the names
+	}
 
 	function down(e: PointerEvent) {
-		if (e.button !== 0) return;
-		const track = e.currentTarget as HTMLElement;
-		track.setPointerCapture(e.pointerId);
-		drag = { x: e.clientX, end, width: track.clientWidth, moved: false };
-		const rect = track.getBoundingClientRect();
-		pointed = timeAt((e.clientX - rect.left) / rect.width);
+		const fraction = fractionAt(e);
+		if (e.button !== 0 || fraction === null || !lane) return;
+		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+		const touch = e.pointerType === 'touch';
+		const track = (e.target as Element).closest<HTMLElement>('[data-camera]');
+		const axis = !!(e.target as Element).closest('[data-axis]');
+		drag = {
+			x: e.clientX,
+			y: e.clientY,
+			end,
+			width: lane.clientWidth,
+			moved: false,
+			touch,
+			camera: track?.dataset.camera,
+			pans: !touch || axis
+		};
+		// A finger may be starting to scroll the page: it picks the moment only once it moves
+		// sideways, or lifts.
+		if (!touch) pointed = timeAt(fraction);
 	}
 
 	function moveTo(e: PointerEvent) {
-		const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+		if (!lane) return;
+		const rect = lane.getBoundingClientRect();
 		const fraction = (e.clientX - rect.left) / rect.width;
-		hover = { x: fraction * 100, t: timeAt(fraction) };
-		pointed = hover.t;
-		if (!drag) return;
-		const dx = e.clientX - drag.x;
-		if (Math.abs(dx) > 4) drag.moved = dragging = true;
-		if (drag.moved) {
-			end = Math.min(Date.now(), drag.end - (dx / drag.width) * span);
-			following = end >= Date.now() - 1000;
+		if (drag && !drag.moved) {
+			const dx = Math.abs(e.clientX - drag.x);
+			const sideways = drag.touch ? dx > 10 && dx > Math.abs(e.clientY - drag.y) : dx > 4;
+			if (sideways) drag.moved = dragging = true;
+			else if (drag.touch) return;
 		}
+		if (!drag && (fraction < 0 || fraction > 1)) {
+			hover = null; // over the names
+			return;
+		}
+		if (drag?.moved && drag.pans) {
+			end = Math.min(Date.now(), drag.end - ((e.clientX - drag.x) / drag.width) * span);
+			following = end >= Date.now() - 1000;
+			if (drag.touch) return; // moving the window, not picking a moment
+		}
+		const at = drag?.touch ? Math.min(1, Math.max(0, fraction)) : fraction;
+		hover = { x: at * 100, t: timeAt(at) };
+		pointed = hover.t;
 	}
 
-	function up(e: PointerEvent, camera: string) {
+	function up(e: PointerEvent) {
 		const started = drag;
 		drag = null;
 		dragging = false;
-		// Only a press that started here, didn't move and used the main button opens something.
-		// A tap picks the moment instead (touch has no hover); its tiles open the recordings.
-		if (!started || started.moved || e.button !== 0 || e.pointerType === 'touch') return;
-		const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-		openAt(camera, timeAt((e.clientX - rect.left) / rect.width));
+		const fraction = fractionAt(e);
+		if (!started || started.moved || e.button !== 0 || fraction === null) return;
+		// A trigger icon opens its clip. Else a tap picks the moment (touch has no hover), whose
+		// tiles open the recordings; a click on a track opens what is there. Between tracks it
+		// only points.
+		const icon = started.camera && iconAt(started.camera, fraction, started.touch ? 18 : 10);
+		if (icon) onopen(icon.r, 0);
+		else if (started.touch) pointed = timeAt(fraction);
+		else if (started.camera) openAt(started.camera, timeAt(fraction));
+	}
+
+	// Where a clip's trigger icon sits, in percent (kept inside the track).
+	const iconX = (i: Item) => Math.min(98, Math.max(2, x(i.t)));
+
+	/** The clip whose trigger icon is nearest, within `reach` pixels; the icons are small. */
+	function iconAt(camera: string, fraction: number, reach: number): Item | null {
+		const row = rows.find((r) => r.camera.id === camera);
+		let best: Item | null = null;
+		let distance = reach;
+		for (const i of row?.videos ?? []) {
+			if (i.r.trigger === 'continuous') continue;
+			const d = Math.abs((iconX(i) / 100 - fraction) * laneWidth);
+			if (d <= distance) {
+				best = i;
+				distance = d;
+			}
+		}
+		return best;
 	}
 
 	function cancel() {
@@ -320,8 +392,8 @@
 	}
 </script>
 
-<div class="card p-4 sm:p-5">
-	<div class="mb-4 flex flex-wrap items-center gap-2">
+<div class="card p-3 sm:p-5">
+	<div class="mb-3 flex flex-wrap items-center gap-2">
 		<div class="flex items-center gap-1">
 			<button class="icon-btn size-9" onclick={() => move(-span / 2)} aria-label="Earlier"
 				><ChevronLeft class="size-5" /></button
@@ -360,13 +432,16 @@
 
 	{#if seenKinds.length}
 		<!-- Look for what was detected. -->
-		<div class="mb-3 flex flex-wrap items-center gap-1.5">
-			<button class="chip h-7 {lookFor === '' ? 'chip-active' : ''}" onclick={() => (lookFor = '')}
-				>All</button
+		<div
+			class="-mx-3 mb-3 flex [scrollbar-width:none] items-center gap-1.5 overflow-x-auto px-3 sm:mx-0 sm:flex-wrap sm:px-0"
+		>
+			<button
+				class="chip h-7 shrink-0 {lookFor === '' ? 'chip-active' : ''}"
+				onclick={() => (lookFor = '')}>All</button
 			>
 			{#each seenKinds as label (label.id)}
 				<button
-					class="chip h-7 {lookFor === label.id ? 'chip-active' : ''}"
+					class="chip h-7 shrink-0 {lookFor === label.id ? 'chip-active' : ''}"
 					onclick={() => (lookFor = lookFor === label.id ? '' : label.id)}
 					><TriggerIcon trigger={label.id} />{label.name}</button
 				>
@@ -378,7 +453,9 @@
 	<div class="mb-1.5 flex items-baseline gap-2 text-xs">
 		<span class="font-semibold tabular-nums">{formatAt(moment)}</span>
 		{#if pointed === null}
-			<span class="text-muted">the newest; point at the tracks below to go back</span>
+			<span class="text-muted">newest</span>
+			<span class="hidden text-muted sm:inline">· point at the tracks to go back</span>
+			<span class="text-muted sm:hidden">· drag along the tracks to go back</span>
 		{/if}
 		{#if pointed !== null}
 			<button class="ml-auto text-muted hover:text-text" onclick={() => (pointed = null)}
@@ -386,13 +463,13 @@
 			>
 		{/if}
 	</div>
-	<div class="mb-4">
+	<div class="mb-3">
 		<Moment {cameras} {items} at={moment} {onopen} />
 	</div>
 
-	<!-- Thumbnails along the window -->
+	<!-- Thumbnails along the window; not on a phone, where the moment above shows them. -->
 	<div
-		class="mb-3 grid gap-1.5"
+		class="mb-3 hidden gap-1.5 sm:grid"
 		style:grid-template-columns="repeat({slots}, minmax(0, 1fr))"
 		bind:clientWidth={width}
 	>
@@ -425,19 +502,25 @@
 
 	<!-- One track per camera -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="relative" onpointerleave={() => (hover = null)}>
+	<!-- Up and down scrolls the page; sideways is for the timeline. -->
+	<div
+		class="relative touch-pan-y"
+		onpointerdown={down}
+		onpointermove={moveTo}
+		onpointerup={up}
+		onpointercancel={cancel}
+		onpointerleave={() => (hover = null)}
+	>
 		{#each rows as row (row.camera.id)}
 			<div class="flex items-center gap-3 py-1">
 				<span class="w-24 shrink-0 truncate text-xs font-medium sm:w-32" title={row.camera.name}
 					>{row.camera.name}</span
 				>
-				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
-					class="relative h-8 flex-1 cursor-grab touch-pan-y overflow-hidden rounded-lg bg-surface-2 active:cursor-grabbing"
-					onpointerdown={down}
-					onpointermove={moveTo}
-					onpointerup={(e) => up(e, row.camera.id)}
-					onpointercancel={cancel}
+					class="relative h-8 flex-1 cursor-grab overflow-hidden rounded-lg bg-surface-2 active:cursor-grabbing"
+					data-camera={row.camera.id}
+					bind:this={lane}
+					bind:clientWidth={laneWidth}
 				>
 					{#each ticks.list as at (at)}
 						<span class="absolute inset-y-0 w-px bg-line" style:left="{x(at)}%"></span>
@@ -456,7 +539,7 @@
 					{#each row.videos.filter((i) => i.r.trigger !== 'continuous') as i (i.r.id)}
 						<span
 							class="pointer-events-none absolute top-1/2 z-[1] grid size-5 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-surface text-accent shadow ring-1 ring-accent/40"
-							style:left="{Math.min(98, Math.max(2, x(i.t)))}%"
+							style:left="{iconX(i)}%"
 						>
 							<TriggerIcon
 								trigger={kindsOf(i.r).find((k) => k !== 'motion') ?? i.r.trigger}
@@ -481,10 +564,14 @@
 		<!-- The axis -->
 		<div class="flex gap-3">
 			<span class="w-24 shrink-0 sm:w-32"></span>
-			<div class="relative h-6 flex-1">
+			<!-- On a phone the handle that moves the window: taller, and marked as one. -->
+			<div
+				class="relative h-8 flex-1 cursor-grab rounded-lg bg-surface-2/60 active:cursor-grabbing sm:h-6 sm:rounded-none sm:bg-transparent"
+				data-axis
+			>
 				{#each ticks.list as at (at)}
 					<span
-						class="absolute top-1 -translate-x-1/2 text-[10px] whitespace-nowrap text-muted tabular-nums"
+						class="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 text-[10px] whitespace-nowrap text-muted tabular-nums sm:top-1 sm:translate-y-0"
 						style:left="{x(at)}%">{tickLabel(at, ticks.step)}</span
 					>
 				{/each}
@@ -507,6 +594,9 @@
 		>
 		<span class="flex items-center gap-1.5"
 			><span class="h-3 w-[2px] rounded-full bg-accent-2"></span>Picture</span
+		>
+		<span class="w-full sm:hidden"
+			>Drag along the tracks to pick a moment, drag the times to move</span
 		>
 		<span class="ml-auto hidden sm:inline"
 			>Drag to move in time · click to open · the grid lists them for the keyboard</span

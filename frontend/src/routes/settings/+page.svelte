@@ -4,6 +4,7 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { store } from '#lib/state.svelte.js';
+	import { install } from '#lib/install.svelte.js';
 	import { SettingsForm } from '#lib/settings-form.svelte.js';
 	import SaveBar from '#lib/components/SaveBar.svelte';
 	import SettingsSection from '#lib/components/SettingsSection.svelte';
@@ -39,8 +40,8 @@
 
 <div class="mx-auto max-w-3xl space-y-5">
 	<div>
-		<h1 class="text-2xl font-semibold tracking-tight">Settings</h1>
-		<p class="mt-1 text-sm text-muted">
+		<h1 class="page-title">Settings</h1>
+		<p class="page-intro">
 			Kept in <code class="font-mono text-text">config.yaml</code>: edit it by hand or here; both
 			keep the other's changes.
 		</p>
@@ -50,6 +51,13 @@
 	<div class="-mt-2 flex gap-1.5 md:hidden">
 		<a class="chip" href="/diagnostics">Diagnostics</a>
 		<a class="chip" href="/help">Help</a>
+		{#if !install.installed}
+			{#if install.offered}
+				<button class="chip chip-active" onclick={() => install.install()}>Install app</button>
+			{:else}
+				<a class="chip" href="/help#install">Install app</a>
+			{/if}
+		{/if}
 	</div>
 
 	<SaveBar

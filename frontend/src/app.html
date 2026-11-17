@@ -11,6 +11,14 @@
 		<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 		<link rel="apple-touch-icon" href="/icon-192.png" />
 		<title>Norn</title>
+		<script>
+			// Keep the browser's offer to install the app until the app asks for it (lib/install).
+			addEventListener('beforeinstallprompt', (e) => {
+				e.preventDefault();
+				window.__nornInstall = e;
+				dispatchEvent(new Event('norn-install'));
+			});
+		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">

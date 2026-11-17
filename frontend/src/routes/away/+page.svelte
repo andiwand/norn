@@ -22,8 +22,8 @@
 <div class="mx-auto max-w-3xl space-y-5">
 	<div class="flex flex-wrap items-end justify-between gap-3">
 		<div>
-			<h1 class="text-2xl font-semibold tracking-tight">Away</h1>
-			<p class="mt-1 text-sm text-muted">
+			<h1 class="page-title">Away</h1>
+			<p class="page-intro">
 				For holidays: detections record at any time, regardless of their schedule.
 			</p>
 		</div>
