@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.1 — 2026-11-17
 
 - Phone: the page no longer moves sideways a little, which also made the top and bottom bars
   shift while scrolling (the Save bar on Away, Triggers and Settings was 4 px too wide). The
