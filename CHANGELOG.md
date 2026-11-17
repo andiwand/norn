@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Home Assistant over MQTT: with `NORN_MQTT` set to a broker, each camera appears in Home
+  Assistant by itself (MQTT discovery) with sensors for its detections, recording and whether
+  it is online, buttons to record and stop a clip, its Norn presets, and its controls as
+  switches, selects, numbers and buttons. Away mode is a switch both ways, and each circle has a
+  record button. With `NORN_MQTT_STILLS`, each camera also sends its still every so many
+  seconds, as a camera entity. Other home automation can use the same topics (`norn/...`); see
+  the README.
+
 ## 0.6.1 — 2026-11-17
 
 - Phone: the page no longer moves sideways a little, which also made the top and bottom bars

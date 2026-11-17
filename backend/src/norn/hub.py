@@ -36,6 +36,7 @@ from .forecast import forecast, history
 from .go2rtc import Go2rtc, Go2rtcUnavailableError
 from .gop import GopCache
 from .labels import LABELS
+from .mqtt import Mqtt
 from .pilot import Pilot
 from .probe import StreamProbe, probe_all, probeable
 from .recorder import Recorder, ffprobe_of
@@ -208,6 +209,7 @@ class Hub:
         # Frames of recordings for the timeline: a few at a time, the latest kept.
         self._frames: OrderedDict[tuple[Path, float], bytes] = OrderedDict()
         self._frame_slots = asyncio.Semaphore(2)
+        self.mqtt = Mqtt(settings, self)  # Home Assistant and other home automation, if NORN_MQTT is set
 
     @property
     def config(self) -> Config:
@@ -229,9 +231,11 @@ class Hub:
         self._away_task = asyncio.create_task(self._watch_away(), name="away")
         if self.go2rtc.enabled:
             self._gop_task = asyncio.create_task(self._keep_gops(), name="gop-keeper")
+        await self.mqtt.start()
         log.info("Norn %s with %d cameras", __version__, len(self.cameras))
 
     async def stop(self) -> None:
+        await self.mqtt.stop()  # first: it says "offline" while the broker still listens
         for pilot in self.pilots.values():
             pilot.stop()
         tasks = [self._watcher, self._poller, self._away_task, self._gop_task, *self._holds.values()]

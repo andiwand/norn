@@ -64,8 +64,9 @@ whether newer firmware exists.
   stay.
 - **Circles**: groups of cameras with one trigger, shared settings, and controls set on all at
   once.
-- **Home Assistant**: each camera's page has what to copy into Home Assistant: its streams,
-  stills, and buttons to record and turn. See [Home Assistant](#home-assistant).
+- **Home Assistant**: over MQTT, each camera appears in Home Assistant by itself, with its
+  detections, recording, controls and presets, and away mode as a switch. Each camera's page
+  also has its streams to copy. See [Home Assistant](#home-assistant).
 - **An app on your phone**: install the web app to the home screen (see
   [Install as an app](#install-as-an-app)).
 - **A YAML file, no database.** Edit `config.yaml` by hand or in the app; both keep the other's
@@ -183,6 +184,10 @@ The settings of the process come from environment variables:
 | `NORN_GO2RTC`      | `managed`                 | `managed` (Norn runs go2rtc), `external`, or `off`.           |
 | `NORN_GO2RTC_API`  | `http://127.0.0.1:1984`   | The API of go2rtc; set it for an `external` go2rtc.           |
 | `NORN_RTSP_SHARE`  | `0`                       | `1`: serve the RTSP streams to the network (Home Assistant).  |
+| `NORN_MQTT`        |                           | An MQTT broker, `mqtt://user:password@host:1883` (`mqtts://` for TLS). |
+| `NORN_MQTT_PREFIX` | `norn`                    | The first level of Norn's MQTT topics.                        |
+| `NORN_MQTT_DISCOVERY` | `homeassistant`        | Home Assistant's discovery prefix; `off` for none.            |
+| `NORN_MQTT_STILLS` | `0`                       | Send each camera's still over MQTT every so many seconds (at least 5); `0` for none. |
 | `NORN_GO2RTC_BIN`  | `go2rtc`                  | The go2rtc binary.                                            |
 | `NORN_FFMPEG`      | `ffmpeg`                  | The FFmpeg binary.                                            |
 | `TZ`               |                           | The time zone of the recordings' file names.                  |
@@ -223,6 +228,51 @@ sensors for recording and detections).
   `rtsp://<norn>:<rtsp port>/<camera id>` (`<camera id>_sub` for the small stream) and the
   still image `http://<norn>/api/cameras/<camera id>/still.jpg`.
 - Without RTSP: an **MJPEG IP Camera** with `http://<norn>/api/cameras/<camera id>/stills`.
+
+#### MQTT
+
+With a broker (in Home Assistant, the Mosquitto add-on), Norn publishes what it knows and takes
+commands, and Home Assistant's MQTT discovery adds everything by itself: no YAML to copy.
+Start Norn with the broker's address:
+
+```yaml
+environment:
+  NORN_MQTT: mqtt://norn:secret@homeassistant.local
+```
+
+Home Assistant then shows a **Norn** device with an **Away mode** switch and a record button for
+each circle, and one device per camera with:
+
+- a sensor for each kind of detection (motion, person, vehicle, ...), on while it lasts;
+- **Recording** and **Online** sensors;
+- **Record clip** and **Stop clip** buttons;
+- **Preset**, to turn a pan/tilt camera to one of its Norn presets;
+- the camera's controls, as Norn shows them: switches, selects, numbers and buttons.
+
+Away mode goes both ways: an automation can turn it on when everyone has left, and others can
+follow it when it changes in Norn (by hand or as planned).
+
+MQTT carries no video: for that, add a Generic Camera (above). It can carry still pictures:
+with `NORN_MQTT_STILLS=10`, each camera also gets a **Still** camera entity with a new picture
+every 10 seconds. That is off by default, since each picture is a whole JPEG through the broker.
+
+The topics, for other home automation (states are retained; `ON`/`OFF` for on and off):
+
+| Topic                                  | What                                                       |
+| -------------------------------------- | ---------------------------------------------------------- |
+| `norn/status`                          | `online` or `offline`.                                     |
+| `norn/away`, `norn/away/set`           | Away mode.                                                 |
+| `norn/camera/<id>/event/<kind>`        | A detection (`motion`, `person`, ...).                     |
+| `norn/camera/<id>/recording`           | Whether the camera records.                                |
+| `norn/camera/<id>/online`              | Whether the camera answers.                                |
+| `norn/camera/<id>/record/set`          | `PRESS` starts a clip, `STOP` ends it; or `{"trigger": "doorbell", "seconds": 30}`. |
+| `norn/camera/<id>/preset`, `.../set`   | The Norn preset, by name.                                  |
+| `norn/camera/<id>/control/<id>`, `.../set` | A control: `ON`/`OFF`, an option's label, or a number. |
+| `norn/circle/<id>/record/set`          | Like a camera's: all the circle's cameras.                 |
+| `norn/camera/<id>/still`               | A JPEG, with `NORN_MQTT_STILLS` (not retained).            |
+
+Anyone who can publish to the broker can control the cameras through these topics, so give the
+broker passwords.
 
 ### Install as an app
 

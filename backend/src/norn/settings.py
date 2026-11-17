@@ -65,6 +65,12 @@ class Settings:
     log_level: str = "info"
     log_file: Path | None = None  # None: no file
     access_log: bool = False  # one line per HTTP request
+    # MQTT, for Home Assistant and other home automation: a broker's address
+    # (mqtt://user:password@host:1883, mqtts:// for TLS); None: off.
+    mqtt_url: str | None = None
+    mqtt_prefix: str = "norn"  # Norn's topics: <prefix>/...
+    mqtt_discovery: str = "homeassistant"  # Home Assistant's discovery prefix; "off": none
+    mqtt_stills: int = 0  # send each camera's still every so many seconds; 0: no stills
 
     @property
     def rtsp_port(self) -> int:
@@ -99,4 +105,8 @@ class Settings:
             log_level=_env("NORN_LOG_LEVEL", "info").lower(),
             log_file=_log_file(Path(_env("NORN_CONFIG", "data/config/config.yaml"))),
             access_log=_env("NORN_ACCESS_LOG", "0").lower() in ("1", "true", "yes"),
+            mqtt_url=os.environ.get("NORN_MQTT", "").strip() or None,
+            mqtt_prefix=_env("NORN_MQTT_PREFIX", "norn").strip("/"),
+            mqtt_discovery=_env("NORN_MQTT_DISCOVERY", "homeassistant").strip("/"),
+            mqtt_stills=int(_env("NORN_MQTT_STILLS", "0")),
         )
