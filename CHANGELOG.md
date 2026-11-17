@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 — 2026-11-17
 
 - Recordings timeline: the gaps between camera tracks point, press and drag like the tracks.
 - Recordings timeline on a phone: scrolling the page over the timeline no longer changes the

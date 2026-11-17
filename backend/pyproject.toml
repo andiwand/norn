@@ -1,6 +1,6 @@
 [project]
 name = "norn-hub"
-version = "0.5.0"
+version = "0.6.0"
 readme = "README.md"
 description = "A lightweight hub that brings all your home cameras into one modern web app"
 requires-python = ">=3.13"
