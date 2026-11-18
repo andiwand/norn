@@ -205,12 +205,7 @@
 			><Cctv class="size-7" /></span
 		>
 		<h2 class="text-lg font-semibold">No cameras yet</h2>
-		<p class="mt-2 text-sm text-muted">
-			Add your first camera to see it here. You can also edit <code class="font-mono text-text"
-				>config.yaml</code
-			>
-			directly — Norn picks up changes on its own.
-		</p>
+		<p class="mt-2 text-sm text-muted">Add your first camera to see it here.</p>
 		<a href="/cameras/new" class="mt-6 btn-primary"><Plus class="size-4" />Add camera</a>
 	</div>
 {:else}

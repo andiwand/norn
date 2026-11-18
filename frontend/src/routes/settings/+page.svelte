@@ -87,10 +87,6 @@
 			{/each}
 		</div>
 	</SaveBar>
-	<p class="page-intro -mt-4">
-		Kept in <code class="font-mono text-text">config.yaml</code>: edit it by hand or here; both keep
-		the other's changes.
-	</p>
 	<!-- Phones have no room for these in the bottom bar: they open from here, as a menu. -->
 	<nav class="-mt-1 divide-y divide-line overflow-hidden card md:hidden" aria-label="More">
 		{#each MORE as item (item.href)}
