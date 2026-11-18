@@ -115,6 +115,13 @@ h2 b, .tagline b, .section-title b { font-weight: 750; }
   #stage .device.phone .screen { height: 100%; aspect-ratio: auto; }
   body:is([data-chapter="live"], [data-chapter="phone"]) #stage .device.browser { opacity: 0; transform: translateY(-46%) scale(0.97); }
   body:is([data-chapter="live"], [data-chapter="phone"]) #stage .device.phone { opacity: 1; transform: translate(-50%, -46%); }
+  /* Out first, then in: the old device is gone before the new one shows, so the two are never
+     seen over each other half-transparent. */
+  #stage .device { transition: opacity 0.18s ease, transform 0.8s cubic-bezier(0.2, 0.8, 0.2, 1); }
+  body:is([data-chapter="live"], [data-chapter="phone"]) #stage .device.phone,
+  body:not(:is([data-chapter="live"], [data-chapter="phone"])) #stage .device.browser {
+    transition: opacity 0.32s ease 0.18s, transform 0.8s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
 }
 
 .device { border-radius: 18px; background: var(--device); box-shadow: var(--shadow), inset 0 0 0 1px var(--device-edge); }
@@ -124,7 +131,8 @@ h2 b, .tagline b, .section-title b { font-weight: 750; }
 .device .screen { position: relative; overflow: hidden; }
 .device.browser .screen { aspect-ratio: 16 / 10; border-radius: 0 0 18px 18px; }
 .device .screen > img, .device .screen > .ai-boxes { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 0.6s ease; }
-.device .screen > .on { opacity: 1; }
+.device .screen > img, .device .screen > .ai-boxes { transition-duration: 0.18s; }
+.device .screen > .on { opacity: 1; transition: opacity 0.32s ease 0.18s; }
 /* A phone body like storeframe's: a dark bezel, a light edge, the camera island. */
 .device.phone { position: relative; padding: 9px; border-radius: 40px; background: linear-gradient(150deg, #2c3240, #0c0f15 55%); box-shadow: var(--shadow), inset 0 0 0 1.5px #4a5263; }
 /* A status bar above the app (the island sits in it), as on a real phone. */
