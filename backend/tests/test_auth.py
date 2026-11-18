@@ -90,6 +90,7 @@ def test_a_viewer_watches_and_steers_but_changes_nothing(app: TestClient) -> Non
     assert viewer.get("/api/cameras").status_code == 200
     assert viewer.get("/api/recordings").status_code == 200
     assert viewer.put("/api/settings", json={"away": {"active": True}}).status_code == 200
+    assert viewer.put("/api/settings", json={"away": {"active": True, "triggers": []}}).status_code == 403
     assert viewer.put("/api/settings", json={"recording": {"retention_days": 1}}).status_code == 403
     assert viewer.put("/api/cameras/door", json={"name": "Mine", "driver": "demo"}).status_code == 403
     assert viewer.delete("/api/cameras/door").status_code == 403
@@ -164,3 +165,37 @@ def test_passwords_and_devices() -> None:
         == "Chrome on Mac"
     )
     assert device_name("curl/8.7.1") == "curl"
+
+
+def test_open_connections_end_with_their_access(app: TestClient) -> None:
+    """A device signed out (or sign-in turned on) closes its open event stream at once."""
+    with app.websocket_connect("/api/events") as before:  # open while sign-in is off
+        app.post("/api/users/first", json=ADMIN)
+        with pytest.raises(WebSocketDisconnect) as closed:
+            before.receive_json()  # closed for signing in, not waiting for events
+        assert closed.value.code == 4401
+    phone = other(app)
+    phone.post("/api/auth/login", json=ADMIN)
+    with phone.websocket_connect("/api/events") as events:
+        session = next(d for d in app.get("/api/auth/sessions").json() if not d["current"])
+        assert app.delete(f"/api/auth/sessions/{session['id']}").status_code == 204
+        with pytest.raises(WebSocketDisconnect) as closed:
+            events.receive_json()
+        assert closed.value.code == 4401
+
+
+def test_a_used_session_renews_its_cookie(app: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    app.post("/api/users/first", json=ADMIN)
+    assert "set-cookie" not in app.get("/api/cameras").headers  # just signed in: nothing new
+    auth = app.app.state.auth  # type: ignore[attr-defined]
+    for s in auth.sessions.values():
+        s.seen -= 3600  # an hour since it was last used
+    renewed = app.get("/api/cameras").headers.get("set-cookie", "")
+    assert "norn_session=" in renewed and "Max-Age=2592000" in renewed and "SameSite=Strict" in renewed
+
+
+def test_a_refused_change_changes_nothing(app: TestClient) -> None:
+    app.post("/api/users/first", json=ADMIN)
+    app.post("/api/users", json={"name": "ben", "password": "viewer pass"})
+    assert app.put("/api/users/ben", json={"role": "admin", "password": "short"}).status_code == 422
+    assert next(u for u in app.get("/api/users").json() if u["name"] == "ben")["role"] == "viewer"

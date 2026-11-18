@@ -61,44 +61,6 @@ class Device(BaseModel):
         return self.model_dump(exclude={"keys"})
 
 
-def device_name(user_agent: str) -> str:
-    """A name a person recognizes, from the browser's user agent: "Chrome on Android"."""
-    ua = user_agent or ""
-    system = next(
-        (
-            name
-            for key, name in (
-                ("iPhone", "iPhone"),
-                ("iPad", "iPad"),
-                ("Android", "Android"),
-                ("Mac OS X", "Mac"),
-                ("Windows", "Windows"),
-                ("CrOS", "Chromebook"),
-                ("Linux", "Linux"),
-            )
-            if key in ua
-        ),
-        "",
-    )
-    browser = next(
-        (
-            name
-            for key, name in (
-                ("Edg/", "Edge"),
-                ("Firefox/", "Firefox"),
-                ("SamsungBrowser/", "Samsung Internet"),
-                ("Chrome/", "Chrome"),
-                ("Safari/", "Safari"),
-            )
-            if key in ua
-        ),
-        "",
-    )
-    if system in ("iPhone", "iPad") or (browser == "Safari" and system):
-        return system  # iOS: the installed app (all browsers there are Safari inside)
-    return f"{browser} on {system}" if browser and system else browser or system or "Browser"
-
-
 class DeviceStore:
     """The devices, in a JSON file written whole (to a temporary file, then moved)."""
 

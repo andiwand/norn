@@ -3,9 +3,10 @@ users, the signed-in devices and the API tokens. See auth.py."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
-import re
+import secrets
 from http.cookies import SimpleCookie
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -88,9 +89,12 @@ def identify(auth: Auth, hub: Hub, scope: Scope) -> Who | None:
         return None
     if COOKIE not in cookie:
         return None
-    session = auth.by_session(cookie[COOKIE].value)
+    value = cookie[COOKIE].value
+    session, renewed = auth.by_session(value)
     user = users.get(session.user) if session else None
-    return Who(session.user, user.role, session=session.id) if session and user else None
+    if not (session and user):
+        return None
+    return Who(session.user, user.role, session=session.id, renew=value if renewed else None)
 
 
 class AuthMiddleware:
@@ -124,7 +128,32 @@ class AuthMiddleware:
             )
             await send({"type": "http.response.body", "body": body})
             return
+        if who and who.renew and scope["type"] == "http":
+            send = _with_cookie(send, _cookie_header(who.renew, _https_scope(scope)))
         await self.app(scope, receive, send)
+
+
+def _https_scope(scope: Scope) -> bool:
+    proto = _header(scope, b"x-forwarded-proto").split(",")[0].strip()
+    return scope.get("scheme") in ("https", "wss") or proto == "https"
+
+
+def _cookie_header(token: str, https: bool) -> bytes:
+    """The session cookie (see _set_cookie): HttpOnly, SameSite=Strict, for SESSION_DAYS."""
+    secure = "; Secure" if https else ""
+    age = SESSION_DAYS * 86400
+    return f"{COOKIE}={token}; Max-Age={age}; Path=/; HttpOnly; SameSite=Strict{secure}".encode()
+
+
+def _with_cookie(send: Send, cookie: bytes) -> Send:
+    """Send the response with the session cookie again: it lives as long as the session."""
+
+    async def sending(message: dict[str, Any]) -> None:
+        if message["type"] == "http.response.start":
+            message = {**message, "headers": [*message.get("headers", []), (b"set-cookie", cookie)]}
+        await send(message)
+
+    return sending
 
 
 def who_of(request: Request) -> Who | None:
@@ -191,7 +220,7 @@ def router(auth: Auth, hub: Hub) -> APIRouter:
             raise HTTPException(429, f"Too many tries: wait {int(wait // 60) + 1} min and try again")
         user = hub.config.users.get(name)
         # The hash is checked also for unknown names, so the time doesn't tell which exist.
-        ok = check_password(body.password, user.password if user else _DUMMY)
+        ok = await asyncio.to_thread(check_password, body.password, user.password if user else _DUMMY)
         if not (ok and user):
             auth.failed(name)
             log.warning("failed sign-in for %r", name)
@@ -211,7 +240,7 @@ def router(auth: Auth, hub: Hub) -> APIRouter:
     async def change_password(body: PasswordBody, request: Request) -> None:
         who = me(request)
         user = hub.config.users[who.name]
-        if not check_password(body.current, user.password):
+        if not await asyncio.to_thread(check_password, body.current, user.password):
             raise HTTPException(403, "The current password is wrong")
         await set_password(who.name, body.password, keep=who.session)
 
@@ -221,7 +250,8 @@ def router(auth: Auth, hub: Hub) -> APIRouter:
         except ValueError as e:
             raise HTTPException(422, str(e)) from e
         user = hub.config.users[name]
-        await hub.put_user(name, user.model_copy(update={"password": hash_password(password)}))
+        hashed = await asyncio.to_thread(hash_password, password)
+        await hub.put_user(name, user.model_copy(update={"password": hashed}))
         auth.end_sessions(name, keep=keep)  # the other devices sign in again
 
     @api.get("/auth/sessions")
@@ -289,8 +319,10 @@ def router(auth: Auth, hub: Hub) -> APIRouter:
             check_new_password(body.password)
         except ValueError as e:
             raise HTTPException(422, str(e)) from e
-        await hub.put_user(name, UserConfig(role="admin", password=hash_password(body.password)))
+        hashed = await asyncio.to_thread(hash_password, body.password)
+        await hub.put_user(name, UserConfig(role="admin", password=hashed))
         _set_cookie(request, response, auth.start_session(name, request.headers.get("user-agent", "")))
+        auth.kick(lambda who: who is None)  # what was open without sign-in closes: sign in now
         log.info("sign-in is on: %s is the first admin", name)
         return {"name": name, "role": "admin"}
 
@@ -303,7 +335,7 @@ def router(auth: Auth, hub: Hub) -> APIRouter:
             check_new_password(body.password)
         except ValueError as e:
             raise HTTPException(422, str(e)) from e
-        user = UserConfig(role=body.role, password=hash_password(body.password))
+        user = UserConfig(role=body.role, password=await asyncio.to_thread(hash_password, body.password))
         await hub.put_user(name, user)
         return user_json(name, user, who_of(request))
 
@@ -314,6 +346,11 @@ def router(auth: Auth, hub: Hub) -> APIRouter:
             raise HTTPException(404, f"no user {name!r}")
         if body.role == "viewer" and user.role == "admin" and admins() == [name]:
             raise HTTPException(409, "Norn needs an admin: make someone else an admin first")
+        if body.password:  # checked first: a request that fails changes nothing
+            try:
+                check_new_password(body.password)
+            except ValueError as e:
+                raise HTTPException(422, str(e)) from e
         if body.role:
             await hub.put_user(name, user.model_copy(update={"role": body.role}))
         if body.password:
@@ -340,4 +377,4 @@ def router(auth: Auth, hub: Hub) -> APIRouter:
 
 
 # A hash to check against for unknown names (its password is random and never used).
-_DUMMY = hash_password(re.sub(r"\W", "", __name__) + "-not-a-password")
+_DUMMY = hash_password(secrets.token_hex(16))

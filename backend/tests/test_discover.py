@@ -191,3 +191,30 @@ def test_the_api_marks_cameras_already_added(client: TestClient, monkeypatch: py
     assert client.get("/api/discover/192.168.1.80").json()["device"]["driver"] == "reolink"
     assert client.get("/api/discover/192.168.1.99").json() == {"device": None}
     assert client.get("/api/discover/a;b").status_code == 422
+
+
+async def test_a_scan_waits_for_the_answers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The probe goes out and the sockets stay open while cameras answer (a camera on this
+    machine stands in for one in the network)."""
+    import asyncio
+
+    loop = asyncio.get_running_loop()
+
+    class Camera(asyncio.DatagramProtocol):
+        def connection_made(self, transport):  # type: ignore[no-untyped-def]
+            self.transport = transport
+
+        def datagram_received(self, data: bytes, addr):  # type: ignore[no-untyped-def]
+            self.transport.sendto(HIKVISION.encode(), addr)  # a moment later, like a camera
+
+    camera, _ = await loop.create_datagram_endpoint(Camera, local_addr=("127.0.0.1", 0))
+    port = camera.get_extra_info("sockname")[1]
+    # The "group" is the stand-in camera; the probe goes out from this machine's loopback, the
+    # way the app scans (no hosts of its own).
+    monkeypatch.setattr(discover, "GROUP", ("127.0.0.1", port))
+    monkeypatch.setattr(discover, "interfaces", lambda: ["127.0.0.1"])
+    try:
+        found = await discover.discover(seconds=0.4)
+    finally:
+        camera.close()
+    assert [f.host for f in found] == ["192.168.1.64"]

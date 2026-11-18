@@ -183,15 +183,17 @@ async def discover(seconds: float = 3.0, hosts: list[str] | None = None) -> list
     unicast, _ = await loop.create_datagram_endpoint(lambda: collector, sock=unicast_sock)
     transports.append(unicast)
     try:
-        for _rounds in range(2):  # UDP may drop one: twice, with and without types
+        # UDP may drop one: two rounds, with and without types, each followed by the wait for
+        # answers (the sockets must stay open meanwhile).
+        for _rounds in range(2):
             for transport in transports[:-1]:
                 for types in (True, False):
                     with contextlib.suppress(OSError):
                         transport.sendto(probe_message(types), GROUP)
-        for host in hosts or []:
-            for types in (True, False):
-                with contextlib.suppress(OSError):
-                    unicast.sendto(probe_message(types), (host, GROUP[1]))
+            for host in hosts or []:
+                for types in (True, False):
+                    with contextlib.suppress(OSError):
+                        unicast.sendto(probe_message(types), (host, GROUP[1]))
             await asyncio.sleep(seconds / 2)
     finally:
         for transport in transports:

@@ -13,10 +13,11 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from norn.auth import device_name
 from norn.config import NotificationSettings, Window
 from norn.drivers.base import Event
 from norn.hub import Hub
-from norn.notify import Device, DeviceStore, Notifier, blocked, device_name
+from norn.notify import Device, DeviceStore, Notifier, blocked
 from norn.settings import Settings
 
 WEDNESDAY_NOON = datetime(2026, 11, 18, 12, 0)
@@ -47,9 +48,9 @@ def test_device_names() -> None:
     )
     mac = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/131.0 Safari/537.36"
     assert device_name(android) == "Chrome on Android"
-    assert device_name(iphone) == "iPhone"
+    assert device_name(iphone) == "Safari on iPhone"
     assert device_name(mac) == "Chrome on Mac"
-    assert device_name("") == "Browser"
+    assert device_name("") == "Unknown device"
 
 
 def test_devices_are_kept_and_a_browser_keeps_its_device(tmp_path: Path) -> None:
@@ -167,7 +168,16 @@ def test_the_api(client: TestClient) -> None:
     hub.notifier._sender = sent
     info = client.get("/api/notifications").json()
     assert len(info["public_key"]) == 87 and info["devices"] == []
-    for bad in ("http://fcm.googleapis.com/x", "https://192.168.1.2/x", "https://localhost/x"):
+    bad_ones = (
+        "http://fcm.googleapis.com/x",
+        "https://192.168.1.2/x",
+        "https://localhost/x",
+        "https://nas/x",
+        "https://2130706433/x",
+        "https://fcm.googleapis.com.evil.example/x",
+        "https://fcm.googleapis.com:8443/x",
+    )
+    for bad in bad_ones:
         r = client.post("/api/notifications/devices", json={"endpoint": bad, "keys": KEYS})
         assert r.status_code == 422, bad
     # Keys that aren't a browser's: refused at once, not at the first notification.

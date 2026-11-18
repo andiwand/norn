@@ -17,7 +17,9 @@ proxy every request comes from the proxy, so "the home network" can't be told ap
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import contextlib
 import hashlib
 import hmac
 import json
@@ -25,6 +27,7 @@ import logging
 import re
 import secrets
 import time
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -87,6 +90,7 @@ def device_name(agent: str) -> str:
                 (r"Android", "Android"),
                 (r"Mac OS X|Macintosh", "Mac"),
                 (r"Windows", "Windows"),
+                (r"CrOS", "Chromebook"),
                 (r"Linux", "Linux"),
             )
             if re.search(pattern, agent)
@@ -99,6 +103,7 @@ def device_name(agent: str) -> str:
             for pattern, name in (
                 (r"Edg/", "Edge"),
                 (r"Firefox/|FxiOS", "Firefox"),
+                (r"SamsungBrowser/", "Samsung Internet"),
                 (r"Chrome/|CriOS", "Chrome"),
                 (r"Safari/", "Safari"),
                 (r"curl/", "curl"),
@@ -139,6 +144,7 @@ class Who:
     role: Role
     session: str | None = None  # the session's id
     token: str | None = None  # the API token's id
+    renew: str | None = None  # the cookie's token, to send again (the session was just used)
 
 
 @dataclass
@@ -149,7 +155,8 @@ class Auth:
     sessions: dict[str, Session] = field(default_factory=dict)  # by token digest
     tokens: dict[str, Token] = field(default_factory=dict)  # by token digest
     _failures: dict[str, tuple[int, float]] = field(default_factory=dict)  # name -> (count, until)
-    _written: float = 0.0
+    # Open WebSockets and who opened them: closed when that access ends (signed out, removed).
+    sockets: dict[int, tuple[Any, Who | None]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.sessions = {k: Session(**v) for k, v in self._read("sessions.json").items()}
@@ -178,7 +185,6 @@ class Auth:
     def _save(self) -> None:
         self._write("sessions.json", {k: vars(s) for k, s in self.sessions.items()})
         self._write("tokens.json", {k: vars(t) for k, t in self.tokens.items()})
-        self._written = time.time()
 
     def _expire(self) -> None:
         old = time.time() - SESSION_DAYS * 86400
@@ -209,34 +215,28 @@ class Auth:
         return token
 
     def end_session(self, token: str) -> None:
-        if self.sessions.pop(_digest(token), None):
+        if session := self.sessions.pop(_digest(token), None):
             self._save()
+            self.kick(lambda who: who is not None and who.session == session.id)
 
     def end_sessions(self, user: str, keep: str | None = None, session_id: str | None = None) -> int:
         """End a user's sessions: all, all but `keep` (a session id), or just `session_id`."""
-        before = len(self.sessions)
-        self.sessions = {
-            k: s
-            for k, s in self.sessions.items()
-            if s.user != user or s.id == keep or (session_id is not None and s.id != session_id)
+        ending = {
+            s.id
+            for s in self.sessions.values()
+            if s.user == user and s.id != keep and (session_id is None or s.id == session_id)
         }
-        if len(self.sessions) != before:
+        if ending:
+            self.sessions = {k: s for k, s in self.sessions.items() if s.id not in ending}
             self._save()
-        return before - len(self.sessions)
-
-    def rename_user(self, old: str, new: str) -> None:
-        for s in self.sessions.values():
-            if s.user == old:
-                s.user = new
-        for t in self.tokens.values():
-            if t.user == old:
-                t.user = new
-        self._save()
+            self.kick(lambda who: who is not None and who.session in ending)
+        return len(ending)
 
     def forget_user(self, user: str) -> None:
         self.sessions = {k: s for k, s in self.sessions.items() if s.user != user}
         self.tokens = {k: t for k, t in self.tokens.items() if t.user != user}
         self._save()
+        self.kick(lambda who: who is not None and who.name == user)
 
     # Tokens
     def new_token(self, user: str, name: str) -> tuple[Token, str]:
@@ -253,22 +253,43 @@ class Auth:
             if t.id == token_id and (user is None or t.user == user):
                 del self.tokens[key]
                 self._save()
+                self.kick(lambda who: who is not None and who.token == token_id)
                 return True
         return False
 
+    # Open WebSockets
+    @contextlib.contextmanager
+    def watch(self, ws: Any, who: Who | None) -> Iterator[None]:
+        """While a WebSocket is open: closed (4401) when the access it was opened with ends."""
+        self.sockets[id(ws)] = (ws, who)
+        try:
+            yield
+        finally:
+            self.sockets.pop(id(ws), None)
+
+    def kick(self, match: Callable[[Who | None], bool]) -> None:
+        for key, (ws, who) in list(self.sockets.items()):
+            if match(who):
+                self.sockets.pop(key, None)
+                task = asyncio.ensure_future(_close(ws))
+                _closing.add(task)
+                task.add_done_callback(_closing.discard)
+
     # Who is it
-    def by_session(self, token: str) -> Session | None:
+    def by_session(self, token: str) -> tuple[Session | None, bool]:
+        """The session of a cookie, and whether it was just renewed (then the cookie is too)."""
         session = self.sessions.get(_digest(token))
         if session is None:
-            return None
+            return None, False
         now = time.time()
         if now - session.seen > SESSION_DAYS * 86400:
             self.end_session(token)
-            return None
+            return None, False
         if now - session.seen > SEEN_EVERY:
             session.seen = now
             self._save()
-        return session
+            return session, True
+        return session, False
 
     def by_token(self, secret: str) -> Token | None:
         token = self.tokens.get(_digest(secret))
@@ -328,3 +349,11 @@ def allowed(role: Role, method: str, path: str) -> bool:
     if method in ("GET", "HEAD", "WS"):
         return not any(re.fullmatch(p, path) for p in ADMIN_READS)
     return _matches(VIEWER_WRITES, method, path)
+
+
+_closing: set[asyncio.Future[None]] = set()  # closes under way (kept, so they aren't collected)
+
+
+async def _close(ws: Any) -> None:
+    with contextlib.suppress(Exception):
+        await ws.close(code=4401)

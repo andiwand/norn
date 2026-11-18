@@ -83,7 +83,9 @@
 		driverName = known ? found.driver : 'onvif';
 		const props = (known ?? drivers.find((d) => d.name === 'onvif'))?.options.properties ?? {};
 		const next: Record<string, string> = { host: found.host };
-		if (props.port && found.port !== props.port.default) next.port = String(found.port);
+		// The port found is ONVIF's; other drivers' `port` means their own (HTTP, ...): their default.
+		if (driverName === 'onvif' && props.port && found.port !== props.port.default)
+			next.port = String(found.port);
 		options = next;
 		if (!name.trim())
 			name =

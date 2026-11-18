@@ -8,16 +8,16 @@ other people's devices (and the rules) are for admins.
 from __future__ import annotations
 
 import base64
-import ipaddress
 from typing import Any
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
+from .auth import device_name
 from .auth_api import who_of
 from .hub import Hub
-from .notify import Device, device_name
+from .notify import Device
 
 # --- Who asks (auth_api's middleware put it on the request). Without sign-in everyone is an
 # admin without a name.
@@ -33,12 +33,6 @@ def is_admin(request: Request) -> bool:
     """Whether the user may change the rules and other people's devices."""
     who = who_of(request)
     return who is None or who.role == "admin"
-
-
-def require_admin(request: Request) -> None:
-    """Only for admins (raises 403 otherwise)."""
-    if not is_admin(request):
-        raise HTTPException(403, "Only an admin may do this")
 
 
 # ---
@@ -63,18 +57,24 @@ class DeviceChange(BaseModel):
     cameras: list[str] | None = None
 
 
+# The browsers' push services: a subscription must name one of these, so Norn never posts to
+# an address in the house (or anywhere else a subscription might name).
+PUSH_SERVICES = (
+    "fcm.googleapis.com",  # Chrome, Edge, Samsung Internet, Opera (Android and desktop)
+    ".push.services.mozilla.com",  # Firefox
+    ".push.apple.com",  # Safari: macOS, and iOS from the installed app
+    ".notify.windows.com",  # Edge on Windows (WNS)
+)
+
+
 def push_endpoint(url: str) -> str:
-    """A push service's address: https, on a name. Not an address in the house (Norn would post
-    to whatever a subscription names)."""
+    """A push service's address: https, at one of the browsers' push services."""
     parts = urlsplit(url)
-    host = parts.hostname or ""
-    if parts.scheme != "https" or not host or host == "localhost" or host.endswith(".local"):
+    host = (parts.hostname or "").lower()
+    known = any(host == s or (s.startswith(".") and host.endswith(s)) for s in PUSH_SERVICES)
+    if parts.scheme != "https" or not known or parts.port not in (None, 443):
         raise HTTPException(422, "not a push service's address")
-    try:
-        ipaddress.ip_address(host)
-    except ValueError:
-        return url
-    raise HTTPException(422, "not a push service's address")
+    return url
 
 
 def push_keys(keys: dict[str, str]) -> dict[str, str]:

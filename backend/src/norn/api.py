@@ -261,10 +261,13 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
 
     @api.put("/settings")
     async def put_settings(body: SettingsBody, request: Request) -> dict[str, Any]:
-        # Viewers switch away mode (leaving the house), nothing else.
+        # Viewers switch away mode (leaving the house) and plan an absence; what it records,
+        # and every other setting, is for admins.
         who = who_of(request)
-        if who and who.role != "admin" and body.model_dump(exclude_none=True).keys() - {"away"}:
-            raise HTTPException(403, "Only an admin may change the settings")
+        if who and who.role != "admin":
+            away_only = body.model_fields_set <= {"away"} and body.away is not None
+            if not away_only or body.away.model_fields_set - {"active", "start", "end"}:
+                raise HTTPException(403, "Only an admin may change the settings")
         # Fields left out keep their value, instead of falling back to the default.
         sections: dict[str, BaseModel] = {
             name: type(value).model_validate(
@@ -772,20 +775,22 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
     @api.websocket("/events")
     async def events(ws: WebSocket) -> None:
         await ws.accept()
-        async with hub.bus.subscribe() as queue:
-            receiver = asyncio.create_task(_drain(ws))
-            try:
-                while not receiver.done():
-                    getter = asyncio.create_task(queue.get())
-                    done, _ = await asyncio.wait({getter, receiver}, return_when=asyncio.FIRST_COMPLETED)
-                    if getter in done:
-                        await ws.send_json(getter.result())
-                    else:
-                        getter.cancel()
-            except (WebSocketDisconnect, RuntimeError):
-                pass
-            finally:
-                receiver.cancel()
+        # Closed at once when the access it was opened with ends (signed out, removed).
+        with auth.watch(ws, ws.scope.get("state", {}).get("who")):
+            async with hub.bus.subscribe() as queue:
+                receiver = asyncio.create_task(_drain(ws))
+                try:
+                    while not receiver.done():
+                        getter = asyncio.create_task(queue.get())
+                        done, _ = await asyncio.wait({getter, receiver}, return_when=asyncio.FIRST_COMPLETED)
+                        if getter in done:
+                            await ws.send_json(getter.result())
+                        else:
+                            getter.cancel()
+                except (WebSocketDisconnect, RuntimeError):
+                    pass
+                finally:
+                    receiver.cancel()
 
     @api.websocket("/stream")
     async def stream(ws: WebSocket, camera: str, stream: str = "main") -> None:
@@ -799,10 +804,12 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
             stream = "main"
         await ws.accept()
         try:
-            async with websockets.connect(
-                hub.go2rtc.ws_url(stream_name(camera, stream)), max_size=None, open_timeout=5
-            ) as upstream:
-                await _pipe(ws, upstream, hub.gop(camera, stream))
+            watching = auth.watch(ws, ws.scope.get("state", {}).get("who"))
+            with watching:  # the video stops when the access it was opened with ends
+                async with websockets.connect(
+                    hub.go2rtc.ws_url(stream_name(camera, stream)), max_size=None, open_timeout=5
+                ) as upstream:
+                    await _pipe(ws, upstream, hub.gop(camera, stream))
         except (OSError, websockets.WebSocketException) as e:
             log.info("stream %s/%s: %s", camera, stream, e)
         finally:
