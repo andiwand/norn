@@ -159,7 +159,7 @@
 						title="Install Norn as an app"
 						aria-label="Install Norn as an app"><Download class="size-4" /></button
 					>
-				{:else if !install.installed && !path.startsWith('/help')}
+				{:else if !install.installed}
 					<a
 						href="/help#install"
 						class="icon-btn size-8 shrink-0 text-muted"
