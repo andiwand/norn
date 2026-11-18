@@ -1,6 +1,7 @@
 <script lang="ts">
 	// How to reach Norn from elsewhere, and where things are.
 	import { store } from '#lib/state.svelte.js';
+	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 	import SettingsSection from '#lib/components/SettingsSection.svelte';
 	import Webhook from '@lucide/svelte/icons/webhook';
 	import FileCode from '@lucide/svelte/icons/file-code';
@@ -16,9 +17,15 @@
 <svelte:head><title>Help · Norn</title></svelte:head>
 
 <div class="mx-auto max-w-3xl space-y-5">
-	<div>
-		<h1 class="page-title">Help</h1>
-		<p class="page-intro">Connecting Norn to other things, and where to find more.</p>
+	<div class="flex items-start gap-2">
+		<!-- On phones this page opens from Settings: the way back. -->
+		<a href="/settings" class="-ml-2 icon-btn shrink-0 md:hidden" aria-label="Back to Settings"
+			><ArrowLeft class="size-5" /></a
+		>
+		<div>
+			<h1 class="page-title">Help</h1>
+			<p class="page-intro">Connecting Norn to other things, and where to find more.</p>
+		</div>
 	</div>
 
 	<div id="install">

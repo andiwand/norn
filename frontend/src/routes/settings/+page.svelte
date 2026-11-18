@@ -15,6 +15,25 @@
 	import HardDrive from '@lucide/svelte/icons/hard-drive';
 	import Archive from '@lucide/svelte/icons/archive';
 	import CloudDownload from '@lucide/svelte/icons/cloud-download';
+	import Activity from '@lucide/svelte/icons/activity';
+	import CircleHelp from '@lucide/svelte/icons/circle-help';
+	import ChevronRight from '@lucide/svelte/icons/chevron-right';
+	import Download from '@lucide/svelte/icons/download';
+
+	const MORE = [
+		{
+			href: '/diagnostics',
+			label: 'Diagnostics',
+			hint: 'Version, CPU and memory, storage, the log',
+			icon: Activity
+		},
+		{
+			href: '/help',
+			label: 'Help',
+			hint: 'Connecting other things, where to find more',
+			icon: CircleHelp
+		}
+	];
 
 	const TABS = [
 		['recording', 'Recording'],
@@ -72,18 +91,43 @@
 		Kept in <code class="font-mono text-text">config.yaml</code>: edit it by hand or here; both keep
 		the other's changes.
 	</p>
-	<!-- Phones have no room for these in the bottom bar. -->
-	<div class="-mt-2 flex gap-1.5 md:hidden">
-		<a class="chip" href="/diagnostics">Diagnostics</a>
-		<a class="chip" href="/help">Help</a>
+	<!-- Phones have no room for these in the bottom bar: they open from here, as a menu. -->
+	<nav class="-mt-1 divide-y divide-line overflow-hidden card md:hidden" aria-label="More">
+		{#each MORE as item (item.href)}
+			<a href={item.href} class="flex items-center gap-3 px-4 py-3 active:bg-surface-3">
+				<item.icon class="size-5 shrink-0 text-muted" />
+				<span class="min-w-0 flex-1">
+					<span class="block text-sm font-medium">{item.label}</span>
+					<span class="block truncate text-xs text-muted">{item.hint}</span>
+				</span>
+				<ChevronRight class="size-4 shrink-0 text-muted" />
+			</a>
+		{/each}
 		{#if !install.installed}
 			{#if install.offered}
-				<button class="chip chip-active" onclick={() => install.install()}>Install app</button>
+				<button
+					class="flex w-full items-center gap-3 px-4 py-3 text-left active:bg-surface-3"
+					onclick={() => install.install()}
+				>
+					<Download class="size-5 shrink-0 text-accent" />
+					<span class="min-w-0 flex-1">
+						<span class="block text-sm font-medium">Install the app</span>
+						<span class="block truncate text-xs text-muted">Its own icon, full screen</span>
+					</span>
+				</button>
 			{:else}
-				<a class="chip" href="/help#install">Install app</a>
+				<a href="/help#install" class="flex items-center gap-3 px-4 py-3 active:bg-surface-3">
+					<Download class="size-5 shrink-0 text-muted" />
+					<span class="min-w-0 flex-1">
+						<span class="block text-sm font-medium">Install the app</span>
+						<span class="block truncate text-xs text-muted">How to add Norn to the home screen</span
+						>
+					</span>
+					<ChevronRight class="size-4 shrink-0 text-muted" />
+				</a>
 			{/if}
 		{/if}
-	</div>
+	</nav>
 
 	{#if form && defaults}
 		{#if tab === 'recording'}

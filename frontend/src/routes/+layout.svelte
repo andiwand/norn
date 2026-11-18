@@ -74,7 +74,10 @@
 			href: '/settings',
 			label: 'Settings',
 			icon: Settings,
-			match: (p: string) => p.startsWith('/settings')
+			match: (p: string) => p.startsWith('/settings'),
+			// On phones Diagnostics and Help open from Settings, so they belong to it there.
+			phoneMatch: (p: string) =>
+				p.startsWith('/settings') || p.startsWith('/diagnostics') || p.startsWith('/help')
 		},
 		// Not in the phone's bottom bar: Settings links to them there.
 		{
@@ -198,7 +201,7 @@
 		class="pb-safe fixed inset-x-0 bottom-0 z-30 flex border-t border-line bg-bg/85 pt-1.5 backdrop-blur-xl md:hidden"
 	>
 		{#each nav.filter((item) => !item.desktop) as item (item.href)}
-			{@const active = item.match(path)}
+			{@const active = (item.phoneMatch ?? item.match)(path)}
 			<a
 				href={item.href}
 				class="flex flex-1 flex-col items-center gap-0.5 py-0.5 text-[10px] font-medium {active

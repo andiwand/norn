@@ -1,6 +1,7 @@
 <script lang="ts">
 	// How Norn is doing: its version, go2rtc, what it costs, what it stores, and its log.
 	import { store } from '#lib/state.svelte.js';
+	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 	import SettingsSection from '#lib/components/SettingsSection.svelte';
 	import ResourceUsage from '#lib/components/ResourceUsage.svelte';
 	import StorageStages from '#lib/components/StorageStages.svelte';
@@ -23,9 +24,15 @@
 <svelte:head><title>Diagnostics · Norn</title></svelte:head>
 
 <div class="mx-auto max-w-3xl space-y-5">
-	<div>
-		<h1 class="page-title">Diagnostics</h1>
-		<p class="page-intro">What Norn runs, what it costs, and what it stores.</p>
+	<div class="flex items-start gap-2">
+		<!-- On phones this page opens from Settings: the way back. -->
+		<a href="/settings" class="-ml-2 icon-btn shrink-0 md:hidden" aria-label="Back to Settings"
+			><ArrowLeft class="size-5" /></a
+		>
+		<div>
+			<h1 class="page-title">Diagnostics</h1>
+			<p class="page-intro">What Norn runs, what it costs, and what it stores.</p>
+		</div>
 	</div>
 
 	<section class="grid gap-4 sm:grid-cols-2">
