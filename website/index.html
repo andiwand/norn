@@ -2,177 +2,345 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Norn — all your home cameras in one place</title>
-<meta name="description" content="Norn is a lightweight, self-hosted hub for home cameras. Live video in any browser, the camera's own controls, and recording — without re-encoding.">
-<meta name="theme-color" content="#06080d">
-<meta property="og:title" content="Norn — all your home cameras in one place">
-<meta property="og:description" content="A lightweight, self-hosted hub for home cameras. Open source.">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Norn · all your home cameras in one app</title>
+<meta name="description" content="Norn is a self-hosted hub for home cameras: live video in any browser, the controls of each camera's own app, an AI that tells a person from a shadow, and recordings you can find. Open source, local, no cloud.">
+<meta name="theme-color" content="#06080d" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f3f5f9" media="(prefers-color-scheme: light)">
+<meta property="og:title" content="Norn">
+<meta property="og:description" content="All your home cameras in one calm app. Self-hosted and open source.">
+<meta property="og:image" content="https://andiwand.github.io/norn/img/live-desktop.webp">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300..800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="style.css">
+<script src="site.js" defer></script>
 </head>
-<body>
-<header class="nav">
-  <div class="wrap nav-inner">
-    <a class="brand" href="#"><img src="favicon.svg" alt="" width="30" height="30"> Norn</a>
-    <nav>
-      <a href="#features">Features</a>
-      <a href="#how">How it works</a>
-      <a href="#start">Get started</a>
-      <a class="gh" href="https://github.com/andiwand/norn">GitHub</a>
-    </nav>
+<body data-chapter="hero">
+<a class="skip" href="#main">Skip to the content</a>
+
+<!-- The stage, fixed behind the tour on wide screens: a browser and a phone whose screens change
+     with the chapter (body[data-chapter]). On phones each chapter shows its own picture. -->
+<div id="stage" aria-hidden="true">
+  <div class="glow"></div>
+  <div class="device browser">
+    <div class="browser-bar"><i></i><i></i><i></i><span class="url">norn.local:8000</span></div>
+    <div class="screen">
+      <img data-for="live" src="img/live-desktop.webp" width="1360" height="850" alt="">
+      <img data-for="camera ai" src="img/camera-desktop.webp" width="1360" height="850" alt="" loading="lazy">
+      <img data-for="recordings" src="img/recordings-desktop.webp" width="1360" height="850" alt="" loading="lazy">
+      <img data-for="timeline" src="img/timeline-desktop.webp" width="1360" height="850" alt="" loading="lazy">
+    </div>
   </div>
+  <div class="device phone">
+    <div class="island"></div>
+    <div class="screen">
+      <img data-for="live hero" src="img/live-phone.webp" width="725" height="1568" alt="">
+      <img data-for="camera ai recordings timeline phone" src="img/camera-phone.webp" width="725" height="1568" alt="" loading="lazy">
+    </div>
+    <div class="push" data-for="phone">
+      <span class="push-app"><img src="favicon.svg" alt="" width="18" height="18"> Norn <small>now</small></span>
+      <b>Person at Front door</b>
+      <span>Seen by the camera and Norn · 21:47</span>
+    </div>
+  </div>
+</div>
+
+<nav id="rail" aria-label="Chapters">
+  <a href="#live" data-chapter="live"><span>Live</span></a>
+  <a href="#camera" data-chapter="camera"><span>Camera</span></a>
+  <a href="#ai" data-chapter="ai"><span>Detection</span></a>
+  <a href="#recordings" data-chapter="recordings"><span>Recordings</span></a>
+  <a href="#timeline" data-chapter="timeline"><span>Timeline</span></a>
+  <a href="#phone" data-chapter="phone"><span>Phone</span></a>
+</nav>
+
+<header class="topbar">
+  <a class="brand" href="#top"><img src="favicon.svg" alt="" width="28" height="28"><span>Norn</span></a>
+  <nav class="topbar-links" aria-label="Sections">
+    <a href="#live">Tour</a>
+    <a href="#cameras">Cameras</a>
+    <a href="#how">How it works</a>
+    <a href="https://github.com/andiwand/norn">GitHub</a>
+  </nav>
+  <a class="button small primary" href="#install">Install</a>
 </header>
 
-<main>
-<section class="hero wrap">
-  <p class="pill"><span class="dot"></span> Open source · self-hosted · early preview</p>
-  <h1>All your home cameras.<br><span class="grad">One calm place.</span></h1>
-  <p class="lead">Norn brings every camera in your home into one fast, modern web app. Live video on your phone and desktop, the controls of the camera's own app, and recordings — on a Raspberry Pi, with almost no CPU.</p>
-  <div class="cta">
-    <a class="btn primary" href="#start">Get started</a>
-    <a class="btn" href="https://github.com/andiwand/norn">View on GitHub</a>
-  </div>
+<main id="main">
 
-  <div class="mock" aria-hidden="true">
-    <div class="mock-bar"><span></span><span></span><span></span><div class="mock-url">norn.local:8000</div></div>
-    <div class="mock-body">
-      <div class="mock-grid">
-        <div class="tile"><em class="rec">REC</em><time>14:32:07</time><b>Front door</b></div>
-        <div class="tile"><time>14:32:07</time><b>Garden</b></div>
-        <div class="tile"><time>14:32:07</time><b>Driveway</b></div>
-        <div class="tile"><time>14:32:07</time><b>Living room</b></div>
+<section class="hero" id="top" data-chapter="hero">
+  <div class="hero-inner">
+    <div class="logo-glow"><img src="favicon.svg" alt="" width="88" height="88"></div>
+    <h1>Norn</h1>
+    <p class="tagline">All your home cameras. <b>One calm app.</b></p>
+    <p class="lead">Live video on your phone and desktop, the controls of each camera's own app, an AI that tells a person from a shadow, and recordings you can actually find. On your own hardware, a Raspberry Pi is enough, with no cloud and no account.</p>
+    <div class="cta">
+      <a class="button primary" href="#install">Install in two minutes <span aria-hidden="true">→</span></a>
+      <a class="button" href="https://github.com/andiwand/norn">Source on GitHub</a>
+    </div>
+    <p class="pills"><span>Open source, MIT</span><span>Local, no cloud</span><span>Docker or PyPI</span><span>Home Assistant</span></p>
+  </div>
+  <!-- A recording timeline with its playhead: what Norn shows all day. -->
+  <div class="ruler" aria-hidden="true">
+    <div class="ruler-track">
+      <span class="clip" style="left:7%;width:2%"></span>
+      <span class="clip" style="left:16%;width:1%"></span>
+      <span class="clip warm" style="left:30%;width:4%"></span>
+      <span class="clip" style="left:51%;width:1.5%"></span>
+      <span class="clip warm" style="left:62%;width:2%"></span>
+      <span class="clip" style="left:77%;width:3%"></span>
+      <span class="playhead"><em>21:47</em></span>
+    </div>
+    <div class="ruler-ticks"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>now</span></div>
+  </div>
+  <figure class="inline-shot hero-shot"><img src="img/live-desktop.webp" width="1360" height="850" alt="Norn's Live view: a grid of cameras with their names, the recording badge, and what each one detects."></figure>
+  <p class="scroll-hint">A tour of Norn <span aria-hidden="true">↓</span></p>
+</section>
+
+<!-- The tour: one chapter per screen. The card sticks while the stage shows its screen. -->
+<section class="chapter" id="live" data-chapter="live">
+  <article class="card">
+    <p class="kicker"><span class="number">01</span> Live</p>
+    <h2>All <b>at a glance</b></h2>
+    <p>Live video in the browser over WebRTC, with MSE and HLS where WebRTC can't go. It starts in about a tenth of a second, from a picture kept ready, and the quality adapts to the connection. A Reolink, a Hikvision and a twelve-year-old Foscam, side by side.</p>
+    <dl class="readout"><div><dt>First frame</dt><dd>0.1 s</dd></div><div><dt>Re-encoding</dt><dd>none</dd></div><div><dt>Per stream</dt><dd>a few % of a core</dd></div></dl>
+    <figure class="inline-shot"><img src="img/live-desktop.webp" width="1360" height="850" loading="lazy" decoding="async" alt="Norn's Live view: a grid of cameras with their names, the recording badge, and what each one detects."></figure>
+  </article>
+</section>
+
+<section class="chapter" id="camera" data-chapter="camera">
+  <article class="card">
+    <p class="kicker"><span class="number">02</span> The camera</p>
+    <h2>Every <b>control</b></h2>
+    <p>The video at the camera's own shape. Under it the switches you use every day: infrared, the light, privacy, the camera's alarm. Beside it, tabs to steer it, change its settings, set what records, and see the device and its firmware.</p>
+    <ul class="ticks">
+      <li>Pan, tilt and zoom with a pad or the arrow keys</li>
+      <li>Presets with a picture, patrol, following people</li>
+      <li>Firmware: installed, newest, and the update</li>
+    </ul>
+    <figure class="inline-shot"><img src="img/camera-desktop.webp" width="1360" height="850" loading="lazy" decoding="async" alt="The camera page: the video, quick switches under it, and the Steer tab with the pan and tilt pad beside it."></figure>
+  </article>
+</section>
+
+<section class="chapter" id="ai" data-chapter="ai">
+  <article class="card">
+    <p class="kicker"><span class="number">03</span> Detection</p>
+    <h2>AI <b>you can see</b></h2>
+    <p>Norn finds people, vehicles and animals itself, with a small model on the CPU, and draws a box with its certainty on the video. What stands still, a parked car or a sheet on a chair, stops counting after a minute.</p>
+    <ul class="ticks">
+      <li>Each detection says who saw it: the camera, Norn, or both</li>
+      <li>When a camera's own AI reports a person, Norn looks too, and marks or skips the clips it can't confirm</li>
+      <li>Certainty, confirmation delay and schedules for every camera</li>
+    </ul>
+    <figure class="inline-shot detect">
+      <div class="detect-frame">
+        <span class="box solid" style="left:14%;top:20%;width:22%;height:68%"><em>Person 92 %</em></span>
+        <span class="box solid" style="left:50%;top:52%;width:36%;height:32%"><em>Vehicle 81 %</em></span>
+        <span class="box dashed" style="left:62%;top:8%;width:33%;height:34%"><em>Person 61 % · not moving</em></span>
       </div>
-      <div class="mock-side">
-        <div class="mock-card rec-btn">● Record clip</div>
-        <div class="mock-card pad"><div class="ring"><i></i></div><div class="zoom"><i></i><i></i></div></div>
-        <div class="mock-card rows"><i></i><i></i><i></i></div>
-      </div>
+      <figcaption>Solid: it records. Dashed: Norn sees it, but doesn't count it.</figcaption>
+    </figure>
+  </article>
+</section>
+
+<section class="chapter" id="recordings" data-chapter="recordings">
+  <article class="card">
+    <p class="kicker"><span class="number">04</span> Recordings</p>
+    <h2>Events, <b>not files</b></h2>
+    <p>Clips close together become one event: "Person at the driveway, 21 clips, 04:33 to 05:59", with Play all, Keep and Delete. A heat map shows when things happened on every camera, over a day or a week.</p>
+    <ul class="ticks">
+      <li>Clips start seconds before their trigger, from a buffer in RAM</li>
+      <li>Continuous recording, and pictures on a timer</li>
+      <li>Plain MP4 and JPEG files in day folders; old ones expire by age, size or free space</li>
+    </ul>
+    <figure class="inline-shot"><img src="img/recordings-desktop.webp" width="1360" height="850" loading="lazy" decoding="async" alt="The Recordings page: a heat map of cameras by hour, then the events of the day, each with its clips."></figure>
+  </article>
+</section>
+
+<section class="chapter" id="timeline" data-chapter="timeline">
+  <article class="card">
+    <p class="kicker"><span class="number">05</span> Timeline</p>
+    <h2>Any <b>moment</b></h2>
+    <p>All recordings on one time axis. Point at a moment and see every camera as it was then; drag to go back by an hour, a day or a week. On the phone, time moves under your finger and the playhead stays put.</p>
+    <figure class="inline-shot"><img src="img/timeline-desktop.webp" width="1360" height="850" loading="lazy" decoding="async" alt="The timeline: a picture of each camera at the playhead's moment, and a track per camera with its clips and pictures."></figure>
+  </article>
+</section>
+
+<section class="chapter" id="phone" data-chapter="phone">
+  <article class="card">
+    <p class="kicker"><span class="number">06</span> On your phone</p>
+    <h2>Home, <b>anywhere</b></h2>
+    <p>Install Norn to the home screen: its own icon, full screen, a bottom bar for the thumb. A notification with a picture tells you when someone is at the door, for the cameras and detections you pick, only while you're away if you like.</p>
+    <ul class="ticks">
+      <li>Everyone in the household signs in as themselves</li>
+      <li>Away mode records every detection while nobody is home</li>
+    </ul>
+    <figure class="inline-shot phone-shot"><img src="img/camera-phone.webp" width="725" height="1568" loading="lazy" decoding="async" alt="Norn on a phone: a camera's video, its quick switches and the tabs below."></figure>
+  </article>
+</section>
+
+<!-- After the tour: plain sections on the page's own ground. -->
+<div class="rest" data-chapter="rest">
+
+<section class="wrap more" aria-labelledby="more-title">
+  <h2 id="more-title" class="section-title">More <b>in the box</b></h2>
+  <div class="grid">
+    <div><h3>Home Assistant</h3><p>Turn on MQTT and every camera appears by itself: detections, recording, controls, presets, and away mode as a switch.</p></div>
+    <div><h3>Finds your cameras</h3><p>Add camera looks for ONVIF cameras in your network and fills in the address. Every stream is probed, so you pick what works.</p></div>
+    <div><h3>Circles</h3><p>Group cameras: one trigger records them all, they share settings, and the controls they have in common are set at once.</p></div>
+    <div><h3>Triggers where they matter</h3><p>What records and how long: for all cameras, a circle, one camera, or one pan/tilt preset. The gate view records people, the yard view animals.</p></div>
+    <div><h3>A YAML file, no database</h3><p>Everything is in <code>config.yaml</code>. Edit it by hand or in the app: Norn keeps your comments and picks up changes while it runs.</p></div>
+    <div><h3>Diagnostics</h3><p>What each camera and each part of Norn costs in CPU and memory, a forecast of the storage, and the log.</p></div>
+  </div>
+</section>
+
+<section id="cameras" class="wrap cameras">
+  <h2 class="section-title">Your <b>cameras</b></h2>
+  <p class="section-lead">Each brand has a driver that speaks its own language, for what ONVIF can't do: the spotlight, the siren, the AI events, firmware. Any camera with an RTSP stream works for video and recording.</p>
+  <div class="brands">
+    <div class="brand-group">
+      <h3><span class="state ok"></span>Tested on real cameras</h3>
+      <ul>
+        <li><b>Reolink</b><span>video, PTZ, presets, AI events and their sensitivity, firmware updates</span></li>
+        <li><b>Hikvision</b><span>video, image settings, motion and smart events</span></li>
+        <li><b>supra, older Foscam</b><span>video, pan and tilt, presets, infrared, motion alarm</span></li>
+        <li><b>ONVIF</b><span>streams, PTZ, presets, imaging settings</span></li>
+        <li><b>Any RTSP camera</b><span>video and recording</span></li>
+      </ul>
+    </div>
+    <div class="brand-group">
+      <h3><span class="state wip"></span>Written from the manufacturer's documentation</h3>
+      <ul>
+        <li><b>Dahua, Amcrest</b><span>video, PTZ, presets, events</span></li>
+        <li><b>Axis</b><span>video, PTZ, presets</span></li>
+        <li><b>Foscam since 2014</b><span>video, PTZ, infrared, flip</span></li>
+        <li><b>TP-Link Tapo</b><span>video, pan and tilt, privacy mode</span></li>
+        <li><b>UniFi Protect</b><span>video, presets, events</span></li>
+      </ul>
+      <p class="help">Own one of these? <a href="https://github.com/andiwand/norn/issues">Tell us how it goes</a>. A camera tried at home is worth more than any spec sheet.</p>
     </div>
   </div>
 </section>
 
-<section id="features" class="wrap">
-  <h2 class="section-title">Everything your cameras do, in one app</h2>
-  <p class="section-lead">Watch, control and record every camera in your home from one place, instead of one app per brand.</p>
-  <div class="norns">
-    <article><span class="rune"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 13 5.2 3.5a.5.5 0 0 0 .8-.4V7.9a.5.5 0 0 0-.8-.4L16 11"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg></span><h3>Live</h3><p>Live video in the browser over WebRTC, with MSE and HLS as fallbacks. It starts in about a tenth of a second, the quality adapts to the connection, and a stills view watches many cameras on almost no bandwidth.</p></article>
-    <article><span class="rune"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="2"/><path d="M7 3v18M17 3v18M2 8h5M2 16h5M17 8h5M17 16h5"/></svg></span><h3>Recordings</h3><p>Plain MP4 and JPEG files in day folders: continuous, clips that start seconds before their trigger, pictures on a timer. A timeline shows them all, and every camera at the moment you point at; old ones expire, by age, size or free space, unless you pin them.</p></article>
-    <article><span class="rune"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/><path d="M3.3 15.3A1 1 0 0 0 4 17h16a1 1 0 0 0 .7-1.7C19.4 14 18 12.5 18 8a6 6 0 0 0-12 0c0 4.5-1.4 6-2.7 7.3"/></svg></span><h3>Detection</h3><p>The cameras' own motion and AI events, and Norn's own: motion, and people, vehicles and animals with a small AI model on the CPU. On a schedule, or all the time while you're away.</p></article>
-  </div>
-
-  <div class="features">
-    <div><h3>Full camera control</h3><p>Pan, tilt, zoom, night vision, spotlight, siren — whatever the camera offers, and firmware updates. Each driver describes its controls, and the UI builds itself from them.</p></div>
-    <div><h3>Presets, patrol, follow</h3><p>Named views with a picture and their own settings. Patrol through them, turn a camera to the gate when someone is at the door, or follow people while recording.</p></div>
-    <div><h3>Circles</h3><p>Group cameras: one trigger records them all, they share settings, and the controls they have in common are set at once.</p></div>
-    <div><h3>Light on the CPU</h3><p>Video is repackaged, not transcoded; FFmpeg only steps in where it must, and only while someone watches. Diagnostics shows what each part costs and a forecast of the storage; the top bar, how full the disk is.</p></div>
-    <div><h3>Triggers where they matter</h3><p>What records, how long a clip runs and how much comes before it: for all cameras, a circle, one camera, or one pan/tilt preset — the gate view can record people, the yard view animals.</p></div>
-    <div><h3>Home Assistant</h3><p>Turn on MQTT in the settings and every camera appears in Home Assistant by itself: detections, recording, controls, presets, and away mode as a switch. Streams and stills to copy, too; the camera keeps one connection, to Norn.</p></div>
-    <div><h3>An app on your phone</h3><p>Install Norn to the home screen: its own icon, full screen, a bottom bar made for the thumb, and a timeline you scrub with a finger.</p></div>
-    <div><h3>A YAML file, no database</h3><p>Everything lives in <code>config.yaml</code>. Edit it by hand or in the app — Norn keeps your comments and picks up changes while it runs.</p></div>
-    <div><h3>Local, and open</h3><p>Runs in your network, with no account and no cloud. One image for amd64 and arm64, or a PyPI package. MIT licensed.</p></div>
-  </div>
-</section>
-
-<section id="how" class="wrap">
-  <h2 class="section-title">How it works</h2>
-  <p class="section-lead">Norn stays out of the video path. It controls the cameras and lets <a href="https://github.com/AlexxIT/go2rtc">go2rtc</a> move the video.</p>
+<section id="how" class="wrap how-section">
+  <h2 class="section-title">How <b>it works</b></h2>
+  <p class="section-lead">Norn controls the cameras, and <a href="https://github.com/AlexxIT/go2rtc">go2rtc</a> moves the video. go2rtc reads each camera once and hands the same stream to every browser and to the recorder, repackaged, never re-encoded. Norn does everything else: the controls, the detection, the recordings and the app.</p>
   <figure class="how">
     <svg class="diagram wide" viewBox="0 0 880 300" role="img" aria-label="Video goes from the cameras through go2rtc to the browser. Norn controls the cameras and records from go2rtc.">
 <defs><marker id="av" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="mv"/></marker><marker id="ac" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="mc"/></marker></defs>
-<path class="v" d="M190 130 C 270 130, 280 65, 352 65" marker-end="url(#av)"/>
-<path class="v" d="M525 65 C 600 65, 610 130, 687 130" marker-end="url(#av)"/>
-<path class="v" d="M440 110 L 440 187" marker-end="url(#av)"/>
+<path class="v flow" d="M190 130 C 270 130, 280 65, 352 65" marker-end="url(#av)"/>
+<path class="v flow" d="M525 65 C 600 65, 610 130, 687 130" marker-end="url(#av)"/>
+<path class="v flow" d="M440 110 L 440 187" marker-end="url(#av)"/>
 <path class="c" d="M193 170 C 270 170, 280 235, 355 235" marker-start="url(#ac)"/>
-<path class="c" d="M525 235 C 600 235, 610 170, 687 170" marker-start="url(#ac)" />
+<path class="c" d="M525 235 C 600 235, 610 170, 687 170" marker-start="url(#ac)"/>
 <text class="l v" x="250" y="66">video, read once</text>
 <text class="l v" x="630" y="66">WebRTC · MSE · HLS</text>
 <text class="l v start" x="452" y="154">recording</text>
-<text class="l c" x="290" y="270">PTZ · settings</text>
+<text class="l c" x="290" y="270">PTZ · settings · events</text>
 <text class="l c" x="595" y="270">app · API</text>
-<rect class="box " x="20" y="100" width="170" height="100" rx="16"/><text class="t" x="105.0" y="146.0">Cameras</text><text class="s" x="105.0" y="168.0">RTSP · ONVIF · vendor</text>
-<rect class="box accent" x="355" y="20" width="170" height="90" rx="16"/><text class="t" x="440.0" y="61.0">go2rtc</text><text class="s" x="440.0" y="83.0">relays the video</text>
-<rect class="box " x="355" y="190" width="170" height="90" rx="16"/><text class="t" x="440.0" y="231.0">Norn</text><text class="s" x="440.0" y="253.0">controls · records</text>
-<rect class="box " x="690" y="100" width="170" height="100" rx="16"/><text class="t" x="775.0" y="146.0">Browser</text><text class="s" x="775.0" y="168.0">phone · desktop</text>
+<rect class="box" x="20" y="100" width="170" height="100" rx="16"/><text class="t" x="105" y="146">Cameras</text><text class="s" x="105" y="168">RTSP · ONVIF · vendor</text>
+<rect class="box accent" x="355" y="20" width="170" height="90" rx="16"/><text class="t" x="440" y="61">go2rtc</text><text class="s" x="440" y="83">relays the video</text>
+<rect class="box" x="355" y="190" width="170" height="90" rx="16"/><text class="t" x="440" y="231">Norn</text><text class="s" x="440" y="253">controls · detects · records</text>
+<rect class="box" x="690" y="100" width="170" height="100" rx="16"/><text class="t" x="775" y="146">Browser</text><text class="s" x="775" y="168">phone · desktop</text>
 </svg>
     <svg class="diagram narrow" viewBox="0 0 360 600" role="img" aria-label="Video goes from the cameras through go2rtc to the browser. Norn controls the cameras and records from go2rtc.">
-<defs><marker id="av" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="mv"/></marker><marker id="ac" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="mc"/></marker></defs>
-<path class="v" d="M150 90 C 150 160, 85 170, 85 247" marker-end="url(#av)"/>
-<path class="v" d="M85 340 C 85 420, 150 430, 150 507" marker-end="url(#av)"/>
-<path class="v" d="M160 295 L 197 295" marker-end="url(#av)"/>
+<path class="v flow" d="M150 90 C 150 160, 85 170, 85 247" marker-end="url(#av)"/>
+<path class="v flow" d="M85 340 C 85 420, 150 430, 150 507" marker-end="url(#av)"/>
+<path class="v flow" d="M160 295 L 197 295" marker-end="url(#av)"/>
 <path class="c" d="M210 93 C 210 160, 275 170, 275 250" marker-start="url(#ac)"/>
 <path class="c" d="M275 340 C 275 420, 210 430, 210 507" marker-end="url(#ac)"/>
 <text class="l v" x="60" y="160">video</text>
 <text class="l c" x="300" y="160">control</text>
-<rect class="box " x="95" y="10" width="170" height="80" rx="16"/><text class="t" x="180.0" y="46.0">Cameras</text><text class="s" x="180.0" y="68.0">RTSP · ONVIF</text>
-<rect class="box accent" x="10" y="250" width="150" height="90" rx="16"/><text class="t" x="85.0" y="291.0">go2rtc</text><text class="s" x="85.0" y="313.0">relays video</text>
-<rect class="box " x="200" y="250" width="150" height="90" rx="16"/><text class="t" x="275.0" y="291.0">Norn</text><text class="s" x="275.0" y="313.0">controls · records</text>
-<rect class="box " x="95" y="510" width="170" height="80" rx="16"/><text class="t" x="180.0" y="546.0">Browser</text><text class="s" x="180.0" y="568.0">phone · desktop</text>
+<rect class="box" x="95" y="10" width="170" height="80" rx="16"/><text class="t" x="180" y="46">Cameras</text><text class="s" x="180" y="68">RTSP · ONVIF</text>
+<rect class="box accent" x="10" y="250" width="150" height="90" rx="16"/><text class="t" x="85" y="291">go2rtc</text><text class="s" x="85" y="313">relays video</text>
+<rect class="box" x="200" y="250" width="150" height="90" rx="16"/><text class="t" x="275" y="291">Norn</text><text class="s" x="275" y="313">controls · records</text>
+<rect class="box" x="95" y="510" width="170" height="80" rx="16"/><text class="t" x="180" y="546">Browser</text><text class="s" x="180" y="568">phone · desktop</text>
 </svg>
     <figcaption><span class="key v"></span>video, never re-encoded <span class="key c"></span>control</figcaption>
   </figure>
-  <div class="how-notes">
-    <p><b>go2rtc</b> reads each camera once and hands the same stream to every browser and to the recorder, repackaged, not re-encoded.</p>
-    <p><b>Norn</b> talks to the cameras for everything else: pan, tilt, zoom, presets and settings. It also runs the recorder and serves the app.</p>
-    <p><b>Your browser</b> gets live video straight from go2rtc and everything else from Norn, through one address.</p>
+</section>
+
+<section class="wrap private">
+  <div class="private-card">
+    <div>
+      <h2 class="section-title">Private <b>by design</b></h2>
+      <p>Norn runs on your hardware, in your network. It never phones home and needs no account with anyone. For access from outside, everyone in the household gets their own sign-in, and Norn goes behind the HTTPS you already have: Caddy, nginx, or <code>tailscale serve</code>.</p>
+    </div>
+    <ul class="checks">
+      <li>Camera passwords never leave the server, and the log removes them</li>
+      <li>Reolink cameras stay closed: Norn speaks their own protocol and opens no ports</li>
+      <li>Firmware without updates is flagged, with what to do about it</li>
+    </ul>
   </div>
 </section>
 
-<section id="start" class="wrap">
-  <h2 class="section-title">Get started</h2>
-  <div class="start">
-    <div>
-      <h3>Docker (recommended)</h3>
-      <p>Save this as <code>compose.yaml</code> and run <code>docker compose up -d</code>. Then open <code>http://&lt;host&gt;:8000</code>. A demo camera is there to try things out.</p>
-<pre><code>services:
+<section id="install" class="wrap install">
+  <h2 class="section-title">Install <b>in minutes</b></h2>
+  <ol class="steps">
+    <li>
+      <h3>Start Norn</h3>
+      <div class="tabs" role="tablist" aria-label="How to install">
+        <button role="tab" id="tab-docker" aria-selected="true" aria-controls="pane-docker">Docker</button>
+        <button role="tab" id="tab-pypi" aria-selected="false" aria-controls="pane-pypi" tabindex="-1">Python</button>
+      </div>
+      <div class="pane" id="pane-docker" role="tabpanel" aria-labelledby="tab-docker">
+        <p>Save as <code>compose.yaml</code> and run <code>docker compose up -d</code>. One image for amd64 and arm64, with go2rtc and FFmpeg inside.</p>
+        <div class="code"><button class="copy" type="button">Copy</button><pre><code>services:
   norn:
     image: ghcr.io/andiwand/norn:latest
     restart: unless-stopped
     network_mode: host
     environment:
-      TZ: Etc/UTC # your time zone
+      TZ: Europe/Vienna # your time zone
     volumes:
       - ./config:/config
       - ./recordings:/recordings
       - ./temp:/temp
-    shm_size: 256m</code></pre>
-    </div>
-    <div>
-      <h3>Add a camera</h3>
-      <p>Click <em>Add camera</em> in the app, or write it into <code>config/config.yaml</code>:</p>
-<pre><code>cameras:
+    shm_size: 256m</code></pre></div>
+      </div>
+      <div class="pane" id="pane-pypi" role="tabpanel" aria-labelledby="tab-pypi" hidden>
+        <p>With <code>go2rtc</code> and <code>ffmpeg</code> on the PATH. The <code>detect</code> extra adds Norn's AI.</p>
+        <div class="code"><button class="copy" type="button">Copy</button><pre><code>uvx --from "norn-hub[detect]" norn</code></pre></div>
+      </div>
+    </li>
+    <li>
+      <h3>Open it</h3>
+      <p>Go to <code>http://&lt;host&gt;:8000</code> on your phone or computer. A demo camera is there to try things out, and the app installs to the home screen.</p>
+    </li>
+    <li>
+      <h3>Add your cameras</h3>
+      <p><em>Add camera</em> finds ONVIF cameras in your network. Pick the brand, enter the camera's password, and Norn probes every stream. Or write them into <code>config.yaml</code>:</p>
+      <div class="code"><button class="copy" type="button">Copy</button><pre><code>cameras:
   front-door:
     name: Front door
-    driver: rtsp
-    url: rtsp://user:pass@192.168.1.20/stream1
-    substream: rtsp://user:pass@192.168.1.20/stream2
-    record: continuous</code></pre>
-      <p>Drivers for Hikvision, Reolink, ONVIF, Dahua/Amcrest, Axis, Foscam, TP-Link Tapo and UniFi Protect, and any camera with RTSP.</p>
-      <h3>Without Docker</h3>
-      <p>With <code>go2rtc</code> and <code>ffmpeg</code> on the PATH:</p>
-<pre><code>uvx --from norn-hub norn</code></pre>
-    </div>
+    driver: reolink
+    host: 192.168.1.20
+    password: …</code></pre></div>
+    </li>
+  </ol>
+</section>
+
+<section class="finale">
+  <h2>Try <b>Norn</b></h2>
+  <div class="cta">
+    <a class="button primary large" href="#install">Install Norn <span aria-hidden="true">→</span></a>
+    <a class="button large" href="https://github.com/andiwand/norn">Star it on GitHub</a>
+  </div>
+  <div class="facts">
+    <div><strong>0.1 s</strong><span>to the first frame</span></div>
+    <div><strong>0</strong><span>re-encoding of camera video</span></div>
+    <div><strong>9</strong><span>brand drivers, and any RTSP camera</span></div>
+    <div><strong>0</strong><span>accounts, clouds or subscriptions</span></div>
   </div>
 </section>
 
-<section class="wrap roadmap">
-  <h2 class="section-title">Where it's going</h2>
-  <ul>
-    <li class="done">Live view with adaptive quality, recording with pre-recording, a timeline</li>
-    <li class="done">Drivers for popular brands, firmware updates, stream probing</li>
-    <li class="done">Detection by the cameras and by Norn, schedules, away mode, circles</li>
-    <li class="done">Presets, patrol, reactions and following for pan/tilt cameras</li>
-    <li class="done">Home Assistant, triggers per camera and preset, installing as an app</li>
-    <li>HTTPS and sign-in built in, for access from outside the home</li>
-    <li>Notifications on the phone when something is detected</li>
-    <li>Testing more brands on real cameras, ONVIF discovery in the app</li>
-  </ul>
-</section>
-</main>
-
 <footer class="wrap foot">
   <span><img src="favicon.svg" alt="" width="18" height="18"> Norn · MIT License</span>
-  <a href="https://github.com/andiwand/norn">github.com/andiwand/norn</a>
+  <span class="foot-links"><a href="https://github.com/andiwand/norn">GitHub</a><a href="https://github.com/andiwand/norn/blob/main/CHANGELOG.md">Changelog</a><a href="https://github.com/andiwand/norn/issues">Issues</a></span>
 </footer>
+
+</div>
+</main>
 </body>
 </html>
