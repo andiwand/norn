@@ -24,15 +24,17 @@
 <svelte:head><title>Diagnostics · Norn</title></svelte:head>
 
 <div class="mx-auto max-w-3xl space-y-5">
-	<div class="flex items-start gap-2">
-		<!-- On phones this page opens from Settings: the way back. -->
-		<a href="/settings" class="-ml-2 icon-btn shrink-0 md:hidden" aria-label="Back to Settings"
-			><ArrowLeft class="size-5" /></a
-		>
-		<div>
+	<div>
+		<!-- On phones this page opens from Settings: the way back, centred on the title's line. -->
+		<div class="flex items-center gap-1">
+			<a
+				href="/settings"
+				class="-my-1 -ml-2 icon-btn shrink-0 md:hidden"
+				aria-label="Back to Settings"><ArrowLeft class="size-5" /></a
+			>
 			<h1 class="page-title">Diagnostics</h1>
-			<p class="page-intro">What Norn runs, what it costs, and what it stores.</p>
 		</div>
+		<p class="page-intro">What Norn runs, what it costs, and what it stores.</p>
 	</div>
 
 	<section class="grid gap-4 sm:grid-cols-2">
