@@ -40,6 +40,7 @@ from .base import (
     Preset,
     PtzCommand,
     Stream,
+    request,
     sign,
     userinfo,
 )
@@ -133,12 +134,7 @@ class FoscamDriver(Driver):
             await asyncio.sleep(2)
 
     async def _get(self, path: str, **params: Any) -> str:
-        try:
-            response = await self._client.get(path, params=params or None)
-        except httpx.HTTPError as e:
-            raise DriverError(f"{self.options.host}: {e}") from e
-        if response.status_code == 401:
-            raise DriverError("wrong username or password")
+        response = await request(self._client, "GET", path, params=params or None)
         if response.status_code >= 400:
             raise DriverError(f"{path}: HTTP {response.status_code}")
         return response.text

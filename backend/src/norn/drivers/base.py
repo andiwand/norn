@@ -15,6 +15,7 @@ from enum import StrEnum
 from typing import Any, ClassVar, Literal
 from urllib.parse import quote
 
+import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -140,6 +141,30 @@ def sign(x: float, dead: float = 0.2) -> int:
 def userinfo(username: str, password: str) -> str:
     """`user:password@` for a stream URL, percent-encoded (go2rtc reads it from the URL)."""
     return f"{quote(username, safe='')}:{quote(password, safe='')}@"
+
+
+async def request(
+    client: httpx.AsyncClient,
+    method: str,
+    path: str,
+    *,
+    refused: str = "wrong username or password",
+    **kwargs: Any,
+) -> httpx.Response:
+    """A request to a camera's web API. A network error or refused credentials (401) raise
+    DriverError; any other answer comes back, for the driver to check the vendor's own way."""
+    try:
+        response = await client.request(method, path, **kwargs)
+    except httpx.HTTPError as e:
+        raise DriverError(f"{client.base_url.host}: {e}") from e
+    if response.status_code == 401:
+        raise DriverError(refused)
+    return response
+
+
+def failed(path: str, response: httpx.Response) -> DriverError:
+    """An error answer: the start of its text, else its status."""
+    return DriverError(f"{path}: {response.text.strip()[:80] or f'HTTP {response.status_code}'}")
 
 
 def parse_table(text: str) -> dict[str, str]:

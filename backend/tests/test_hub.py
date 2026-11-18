@@ -1,4 +1,4 @@
-"""The hub: config errors at start, and drivers whose streams come late."""
+"""The hub: config errors at start, drivers whose streams come late, resource readings."""
 
 from __future__ import annotations
 
@@ -47,3 +47,9 @@ async def test_streams_from_a_driver_go_out_again(settings: Settings) -> None:
 
 async def test_reachable_takes_odd_addresses() -> None:
     assert await reachable("http://fe80::1:80/") is None
+
+
+async def test_resources_measure_at_most_every_few_seconds(settings: Settings) -> None:
+    hub = Hub(settings)
+    first = await hub.resources()
+    assert await hub.resources() is first  # a second page asking at once gets the same window

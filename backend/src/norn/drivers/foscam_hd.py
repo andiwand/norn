@@ -38,6 +38,7 @@ from .base import (
     Preset,
     PtzCommand,
     Stream,
+    request,
     sign,
     userinfo,
 )
@@ -108,12 +109,8 @@ class FoscamHdDriver(Driver):
 
     async def _cmd(self, cmd: str, **params: Any) -> dict[str, str]:
         o = self.options
-        try:
-            response = await self.client.get(
-                "CGIProxy.fcgi", params={"cmd": cmd, "usr": o.username, "pwd": o.password, **params}
-            )
-        except httpx.HTTPError as e:
-            raise DriverError(f"{o.host}: {e}") from e
+        params = {"cmd": cmd, "usr": o.username, "pwd": o.password, **params}
+        response = await request(self.client, "GET", "CGIProxy.fcgi", params=params)
         result = parse_result(response.text)
         code = result.get("result")
         if response.status_code >= 400 or code is None:

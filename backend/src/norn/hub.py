@@ -68,6 +68,7 @@ LOW_SOURCE = (
 )
 HOLD_INTERVAL = 5  # seconds between two extensions of a clip while a detection lasts
 STORAGE_CACHE = 15  # seconds a storage report stays fresh; it walks the folders
+RESOURCES_INTERVAL = 4  # seconds at least between two CPU measurements (each covers the time since the last)
 
 
 def stream_name(camera_id: str, stream_id: str) -> str:
@@ -197,6 +198,7 @@ class Hub:
         self._holds: dict[str, asyncio.Task[None]] = {}
         self._resources = Resources()
         self._resources_lock = asyncio.Lock()
+        self._resources_last: dict[str, Any] | None = None
         # Instant live video: each tile's stream kept ready from its newest keyframe; other
         # streams while watched, and a while after.
         self.gops: dict[str, GopCache] = {}
@@ -560,9 +562,13 @@ class Hub:
         return data
 
     async def resources(self) -> dict[str, Any]:
-        # One measurement at a time: CPU is counted between two calls.
+        # CPU is counted between two measurements: one at a time, and at most one every few
+        # seconds (others get the last one), so pages that ask at once don't read tiny windows.
         async with self._resources_lock:
-            return await asyncio.to_thread(self._resources.report)
+            last = self._resources_last
+            if last is None or time.time() - last["time"] >= RESOURCES_INTERVAL:
+                self._resources_last = last = await asyncio.to_thread(self._resources.report)
+            return last
 
     async def forecast(self) -> dict[str, Any]:
         """How much each trigger records per day, and where that leads (forecast.py)."""

@@ -33,7 +33,9 @@ from .base import (
     Preset,
     PtzCommand,
     Stream,
+    failed,
     parse_table,
+    request,
     userinfo,
 )
 
@@ -100,14 +102,9 @@ class AxisDriver(Driver):
         await self._request("GET", "com/ptz.cgi", params={"camera": 1, "setserverpresetname": slot})
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
-        try:
-            response = await self.client.request(method, path, **kwargs)
-        except httpx.HTTPError as e:
-            raise DriverError(f"{self.options.host}: {e}") from e
-        if response.status_code == 401:
-            raise DriverError("wrong username or password")
+        response = await request(self.client, method, path, **kwargs)
         if response.status_code >= 400 or response.text.lstrip().startswith("# Error"):
-            raise DriverError(f"{path}: {response.text.strip()[:80] or response.status_code}")
+            raise failed(path, response)
         return response
 
     async def _params(self, group: str) -> dict[str, str]:

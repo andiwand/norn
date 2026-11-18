@@ -37,6 +37,7 @@ from .base import (
     NotSupportedError,
     Option,
     Stream,
+    request,
     userinfo,
 )
 
@@ -225,17 +226,8 @@ class HikvisionDriver(Driver):
 
     async def _request(self, method: str, path: str, content: str | None = None) -> str:
         path = path.format(ch=self.options.channel)
-        try:
-            response = await self._client.request(
-                method,
-                path,
-                content=content,
-                headers={"Content-Type": "application/xml"} if content else None,
-            )
-        except httpx.HTTPError as e:
-            raise DriverError(f"{self.options.host}: {e}") from e
-        if response.status_code == 401:
-            raise DriverError("wrong username or password")
+        headers = {"Content-Type": "application/xml"} if content else None
+        response = await request(self._client, method, path, content=content, headers=headers)
         if response.status_code >= 400 or (
             "<statusCode>" in response.text and xml_value(response.text, "statusCode") not in ("1", None)
         ):

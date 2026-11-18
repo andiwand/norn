@@ -35,6 +35,8 @@ from .base import (
     Preset,
     PtzCommand,
     Stream,
+    failed,
+    request,
 )
 
 API = "/proxy/protect/integration/v1"
@@ -75,14 +77,11 @@ class UnifiDriver(Driver):
         self.data: dict[str, Any] = {}
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
-        try:
-            response = await self.client.request(method, path, **kwargs)
-        except httpx.HTTPError as e:
-            raise DriverError(f"{self.options.host}: {e}") from e
-        if response.status_code in (401, 403):
+        response = await request(self.client, method, path, refused="the API key was refused", **kwargs)
+        if response.status_code == 403:
             raise DriverError("the API key was refused")
         if response.status_code >= 400:
-            raise DriverError(f"{path}: HTTP {response.status_code} {response.text[:80]}")
+            raise failed(path, response)
         return response.json() if response.content else None
 
     async def _find(self) -> str:

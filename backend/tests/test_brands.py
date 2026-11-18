@@ -296,3 +296,19 @@ async def test_tapo_pauses_after_a_failed_login(monkeypatch: pytest.MonkeyPatch)
 
 def test_hikvision_event_kinds() -> None:
     assert make("hikvision", host="10.0.0.3", password="p").event_kinds() == ["motion", "person", "vehicle"]
+
+
+async def test_request_errors() -> None:
+    from norn.drivers.base import DriverError, request
+
+    def answer(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/down":
+            raise httpx.ConnectError("refused")
+        return httpx.Response(401 if req.url.path == "/secret" else 500, text="Error: bad")
+
+    async with httpx.AsyncClient(base_url="http://cam.local", transport=httpx.MockTransport(answer)) as c:
+        with pytest.raises(DriverError, match=r"cam\.local: refused"):
+            await request(c, "GET", "/down")
+        with pytest.raises(DriverError, match="wrong username or password"):
+            await request(c, "GET", "/secret")
+        assert (await request(c, "GET", "/other")).status_code == 500  # the driver's to check

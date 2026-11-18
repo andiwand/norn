@@ -36,7 +36,9 @@ from .base import (
     Preset,
     PtzCommand,
     Stream,
+    failed,
     parse_table,
+    request,
     sign,
     userinfo,
 )
@@ -118,14 +120,9 @@ class DahuaDriver(Driver):
             await self._get("ptz.cgi", action="setPresetName", channel=channel, arg1=slot, arg2=name)
 
     async def _get(self, path: str, **params: Any) -> str:
-        try:
-            response = await self.client.get(path, params=params)
-        except httpx.HTTPError as e:
-            raise DriverError(f"{self.options.host}: {e}") from e
-        if response.status_code == 401:
-            raise DriverError("wrong username or password")
+        response = await request(self.client, "GET", path, params=params)
         if response.status_code >= 400 or response.text.strip().startswith("Error"):
-            raise DriverError(f"{path}: {response.text.strip()[:80] or response.status_code}")
+            raise failed(path, response)
         return response.text
 
     async def _config(self, name: str) -> dict[str, str]:
