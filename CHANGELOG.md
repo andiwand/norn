@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.8.0 — 2026-11-18
+
+- Camera page, new: the video at the camera's own shape (4:3 without black bars), never taller
+  than the screen. Norn's AI draws what it sees on it: a box per person, vehicle or animal
+  with its certainty, dashed where Norn ignores it (not confirmed yet, or not moving). A
+  button on the video hides the boxes.
+- Under the video, the switches used every day (infrared, day/night, the light, privacy, the
+  camera's motion alarm, ...), and the activity: the clips of the last day, 3 days or week on
+  a strip and as tiles, or the timeline of this camera. Beside it (on phones below it) the
+  tabs Steer, Settings, Recording and Device; the tab is in the URL. Zoom buttons only for
+  cameras that zoom.
+- Recordings, new: Events first (clips close together form one event, with Play all, Keep and
+  Delete), a heat map of the last day, 3 days or week, then Timeline, Continuous and
+  Pictures, one filter row for all of them. The timeline has a playhead: the moment shown, as
+  a line through every track, that stays put while the window moves.
+- Who detected it: the badge on the video says "Person · camera", "· Norn" or both, and clips
+  note it. When a camera's own AI reports a person, vehicle or animal, Norn's AI looks too
+  (`check_camera`, "The cameras' own AI" on Triggers): clips it didn't confirm are marked as
+  likely false alarms, or, with "Only if Norn agrees", don't record at all.
+- Detection: the boxes of a still object (a sheet on a chair in infrared, a parked car) no
+  longer count as moving because they wobble, so they stop starting clips after a minute.
+  Certainty and "confirm after" can be set per camera, the certainty in percent everywhere.
+- supra and other Foscam-compatible cameras: an Infrared control (off, or auto in the dark).
+- Phones: Diagnostics, Help and Install open from a menu in Settings, with a way back; the
+  header keeps its install button on the Help page.
+
 ## 0.7.3 — 2026-11-18
 
 - MQTT is set in config.yaml (`mqtt:`) or in Settings → MQTT: on or off, broker, user, password,
