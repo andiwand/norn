@@ -269,7 +269,7 @@ export interface Info {
 	rtsp: { port: number; shared: boolean };
 	recording_available: boolean;
 	recording: RecordingSettings;
-	/** MQTT, for Home Assistant: off unless NORN_MQTT is set. */
+	/** MQTT, for Home Assistant: Settings → MQTT (by default from NORN_MQTT). */
 	mqtt: MqttStatus;
 	/** Away mode: `now` is whether it is on at the moment (switched on, or planned). */
 	away: AwaySettings & { now: boolean };
@@ -324,11 +324,29 @@ export interface RecordingSettings {
 	schedule: Window[];
 }
 
+/** MQTT, for Home Assistant. The defaults come from the NORN_MQTT* environment variables. */
+export interface MqttSettings {
+	enabled: boolean;
+	host: string;
+	/** 0: 1883, or 8883 with TLS. */
+	port: number;
+	tls: boolean;
+	username: string;
+	/** Never sent back (always empty); left empty, the one Norn has stays. */
+	password: string;
+	prefix: string;
+	discovery: boolean;
+	discovery_prefix: string;
+	/** Each camera's still this often; 0: none. */
+	stills_seconds: number;
+}
+
 export interface SettingsValues {
 	recording: RecordingSettings;
 	firmware: { check_hours: number };
 	away: AwaySettings;
 	detection: DetectionSettings;
+	mqtt: MqttSettings;
 }
 
 export interface StorageStage {
@@ -404,6 +422,8 @@ export interface Storage {
 export interface SettingsData {
 	values: SettingsValues;
 	defaults: SettingsValues;
+	/** Per section, the secrets that are set (their values are never sent). */
+	secrets: { mqtt: string[] };
 }
 
 export interface NornEvent {

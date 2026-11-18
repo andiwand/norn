@@ -92,6 +92,9 @@ image or the PyPI package `norn-hub`. The name may change later.
   - `api.py`: the API under `/api`, the WebSocket `/api/stream` that forwards to go2rtc (so the
     browser needs only port 8000 plus 8555 for WebRTC media), `/api/events`, and the web app with
     an index.html fallback.
+  - `mqtt.py`: Home Assistant over MQTT discovery. Its settings are config.yaml's `mqtt`
+    (`MqttOverride`) over defaults from the `NORN_MQTT*` variables (`mqtt.defaults`); the hub
+    makes a new `Mqtt` when they change. The API never returns the password.
   - `settings.py`: process settings from `NORN_*` environment variables. Camera and recording
     settings belong in config.yaml, not here.
 - `frontend/`: SvelteKit 3 + Svelte 5 runes + Tailwind 4, built as a static single-page app

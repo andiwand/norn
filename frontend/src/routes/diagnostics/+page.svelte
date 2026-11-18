@@ -68,15 +68,17 @@
 			</div>
 			<p class="mt-1 text-xs break-words text-muted">
 				{#if !mqtt?.enabled}
-					For Home Assistant: set NORN_MQTT to a broker, like
-					<code class="font-mono">mqtt://user:password@homeassistant.local</code>.
+					For Home Assistant: turn it on in <a class="underline" href="/settings?tab=mqtt"
+						>Settings → MQTT</a
+					>.
 				{:else if mqtt.connected}
 					{mqtt.broker}{mqtt.since ? ` · since ${when(mqtt.since)}` : ''} · topics under
 					<code class="font-mono">{mqtt.prefix}/</code>{mqtt.discovery
 						? ', in Home Assistant by discovery'
 						: ''}.
 				{:else}
-					{mqtt.broker}: {mqtt.error ?? 'connecting'}. Norn tries again by itself.
+					{mqtt.broker ? `${mqtt.broker}: ` : ''}{mqtt.error ?? 'connecting'}. Norn tries again by
+					itself.
 				{/if}
 			</p>
 			{#if mqtt?.last_error}

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- MQTT is set in config.yaml (`mqtt:`) or in Settings → MQTT: on or off, broker, user, password,
+  topic prefix, discovery and stills. The NORN_MQTT* environment variables are its defaults.
+  Norn connects again when the settings change, without a restart.
+
 ## 0.7.2 — 2026-11-18
 
 - Reolink: the sensitivity and the delay of the camera's AI for each kind it detects (person,

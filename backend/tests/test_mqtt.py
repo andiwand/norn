@@ -10,6 +10,7 @@ from dataclasses import replace
 
 import pytest
 
+from norn.config import MqttSettings
 from norn.drivers.base import DeviceInfo, Event
 from norn.hub import Hub
 from norn.mqtt import Broker, Mqtt
@@ -156,7 +157,7 @@ async def test_stills(hub: Hub, broker: dict[str, str], settings: Settings) -> N
     await hub.mqtt.sync()
     assert not any(t.startswith("homeassistant/camera/") for t in broker)
 
-    mqtt = Mqtt(replace(settings, mqtt_url="mqtt://broker.local", mqtt_stills=2), hub)
+    mqtt = Mqtt(MqttSettings(enabled=True, host="broker.local", stills_seconds=2), hub)
     assert mqtt.stills == 5  # at least 5 s
     camera = json.loads(mqtt.desired()["homeassistant/camera/norn/yard_still/config"])
     assert camera["topic"] == "norn/camera/yard/still"
@@ -210,7 +211,7 @@ async def test_offline_camera(hub: Hub, broker: dict[str, str]) -> None:
 
 
 async def test_status(hub: Hub, settings: Settings) -> None:
-    assert Mqtt(settings, hub).status() == {"enabled": False}
+    assert Mqtt(MqttSettings(), hub).status() == {"enabled": False}
     status = hub.mqtt.status()
     assert status["enabled"] and status["broker"] == "broker.local:1883" and not status["connected"]
     assert "p@ss" not in json.dumps(status)

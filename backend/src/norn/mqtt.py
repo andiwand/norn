@@ -1,9 +1,10 @@
 """MQTT, for Home Assistant and other home automation.
 
-Norn connects to a broker (NORN_MQTT) and publishes what the hub knows: each camera's
-detections, whether it records, whether it is online, its controls and its Norn presets, and away
-mode. It listens for commands on `.../set` topics: record a clip, go to a preset, set a control,
-turn away mode on or off.
+Norn connects to a broker (the `mqtt` section of config.yaml, whose defaults come from NORN_MQTT
+and the other NORN_MQTT_* variables) and publishes what the hub knows: each camera's detections,
+whether it records, whether it is online, its controls and its Norn presets, and away mode. It
+listens for commands on `.../set` topics: record a clip, go to a preset, set a control, turn away
+mode on or off.
 
 With Home Assistant's MQTT discovery, every camera appears in Home Assistant as a device with its
 entities, with nothing to copy. The entities come from what the drivers declare, like the web app:
@@ -21,7 +22,7 @@ The topics, under the prefix (default `norn`):
     norn/camera/<id>/record/set                   PRESS, STOP, or {"trigger": ..., "seconds": ...}
     norn/camera/<id>/preset, .../preset/set       a Norn preset's name
     norn/camera/<id>/control/<id>, .../set        the control's value (ON / OFF, a label, a number)
-    norn/camera/<id>/still                        a JPEG every NORN_MQTT_STILLS seconds (not retained)
+    norn/camera/<id>/still                        a JPEG every `stills_seconds` (not retained)
     norn/circle/<id>/record/set                   like a camera's
 
 A command that fails (the camera is offline, the value is wrong) sets `norn/error`, which Home
@@ -51,7 +52,7 @@ from urllib.parse import unquote, urlsplit
 from pydantic import ValidationError
 
 from . import __version__
-from .config import AwaySettings, short_error
+from .config import AwaySettings, MqttSettings, short_error
 from .drivers.base import Control
 from .labels import LABELS
 
@@ -107,6 +108,39 @@ class Broker:
             password=unquote(parts.password) if parts.password else None,
         )
 
+    @classmethod
+    def of(cls, options: MqttSettings) -> Broker | None:
+        """The broker the settings name; None: MQTT is off (or has no host)."""
+        if not options.enabled or not options.host:
+            return None
+        return cls(
+            host=options.host,
+            port=options.port or (8883 if options.tls else 1883),
+            tls=options.tls,
+            username=options.username or None,
+            password=(options.password or None) if options.username else None,
+        )
+
+
+def defaults(settings: Settings) -> MqttSettings:
+    """The MQTT settings from the environment (NORN_MQTT, ...): config.yaml's `mqtt` section
+    changes them."""
+    broker = Broker.parse(settings.mqtt_url) if settings.mqtt_url else None
+    discovery = settings.mqtt_discovery.lower() != "off"
+    return MqttSettings(
+        enabled=broker is not None,
+        host=broker.host if broker else "",
+        # The port only if it isn't the usual one, so turning TLS on changes it too.
+        port=broker.port if broker and broker.port != (8883 if broker.tls else 1883) else 0,
+        tls=broker.tls if broker else False,
+        username=(broker.username or "") if broker else "",
+        password=(broker.password or "") if broker else "",
+        prefix=settings.mqtt_prefix,
+        discovery=discovery,
+        discovery_prefix=settings.mqtt_discovery if discovery else "homeassistant",
+        stills_seconds=settings.mqtt_stills,
+    )
+
 
 def slug(value: str) -> str:
     """A topic level and discovery object id: no wildcards, no slashes."""
@@ -156,13 +190,14 @@ def preset_names(camera: Camera) -> dict[str, str]:
 
 
 class Mqtt:
-    def __init__(self, settings: Settings, hub: Hub) -> None:
+    def __init__(self, options: MqttSettings, hub: Hub) -> None:
         self.hub = hub
-        self.broker = Broker.parse(settings.mqtt_url) if settings.mqtt_url else None
-        self.prefix = settings.mqtt_prefix
-        self.discovery = None if settings.mqtt_discovery.lower() == "off" else settings.mqtt_discovery
+        self.options = options
+        self.broker = Broker.of(options)
+        self.prefix = options.prefix
+        self.discovery = options.discovery_prefix if options.discovery else None
         # Stills every so many seconds (0: none); at least 5 s, a still is a whole JPEG.
-        self.stills = max(5, settings.mqtt_stills) if settings.mqtt_stills > 0 else 0
+        self.stills = max(5, options.stills_seconds) if options.stills_seconds > 0 else 0
         self.connected = False
         self.error: str | None = None  # why the last connection failed
         self.since: float | None = None  # when it connected, or failed
@@ -188,6 +223,8 @@ class Mqtt:
     def status(self) -> dict[str, Any]:
         """For Diagnostics (GET /api/info)."""
         if not self.broker:
+            if self.options.enabled:
+                return {"enabled": True, "connected": False, "error": "no broker: set its host"}
             return {"enabled": False}
         return {
             "enabled": True,

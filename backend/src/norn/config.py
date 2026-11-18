@@ -249,6 +249,49 @@ class FirmwareSettings(BaseModel):
     check_hours: int = Field(24, ge=0, le=24 * 90)
 
 
+TOPIC_LEVEL = r"^[A-Za-z0-9_-]+$"  # one MQTT topic level: the topics Norn parses have no room for more
+HOST = r"^[^\s/@]*$"  # a host name or address, nothing else (no mqtt://, no user)
+
+
+class MqttSettings(BaseModel):
+    """MQTT, for Home Assistant and other home automation (mqtt.py). The defaults come from the
+    NORN_MQTT* environment variables (`mqtt.defaults`); config.yaml has what differs from them
+    (`MqttOverride`)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    host: str = Field("", pattern=HOST)
+    port: int = Field(0, ge=0, le=65535)  # 0: 1883, or 8883 with TLS
+    tls: bool = False
+    username: str = ""
+    password: str = ""
+    prefix: str = Field("norn", pattern=TOPIC_LEVEL)  # Norn's topics: <prefix>/...
+    discovery: bool = True  # Home Assistant's MQTT discovery
+    discovery_prefix: str = Field("homeassistant", pattern=TOPIC_LEVEL)
+    stills_seconds: int = Field(0, ge=0, le=86400)  # each camera's still this often; 0: none
+
+
+class MqttOverride(BaseModel):
+    """The `mqtt` section of config.yaml: what differs from the environment's defaults."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool | None = None
+    host: str | None = Field(None, pattern=HOST)
+    port: int | None = Field(None, ge=0, le=65535)
+    tls: bool | None = None
+    username: str | None = None
+    password: str | None = None
+    prefix: str | None = Field(None, pattern=TOPIC_LEVEL)
+    discovery: bool | None = None
+    discovery_prefix: str | None = Field(None, pattern=TOPIC_LEVEL)
+    stills_seconds: int | None = Field(None, ge=0, le=86400)
+
+    def over(self, defaults: MqttSettings) -> MqttSettings:
+        return defaults.model_copy(update=self.model_dump(exclude_none=True))
+
+
 class CameraConfig(BaseModel):
     """One camera. Fields besides these are options of its driver (url, host, ...)."""
 
@@ -342,10 +385,13 @@ class Config(BaseModel):
     firmware: FirmwareSettings = Field(default_factory=FirmwareSettings)
     away: AwaySettings = Field(default_factory=AwaySettings)
     detection: DetectionSettings = Field(default_factory=DetectionSettings)
+    mqtt: MqttOverride = Field(default_factory=MqttOverride)
     circles: dict[str, CircleConfig] = Field(default_factory=dict)
     cameras: dict[str, CameraConfig] = Field(default_factory=dict)
 
-    @field_validator("recording", "firmware", "away", "detection", "cameras", "circles", mode="before")
+    @field_validator(
+        "recording", "firmware", "away", "detection", "mqtt", "cameras", "circles", mode="before"
+    )
     @classmethod
     def _none_is_empty(cls, value: Any) -> Any:
         return {} if value is None else value

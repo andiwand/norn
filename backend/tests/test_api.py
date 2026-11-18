@@ -132,6 +132,38 @@ def test_settings_round_trip(client: TestClient, settings: Settings) -> None:
     assert client.put("/api/settings", json={"nope": {}}).status_code == 422
 
 
+def test_mqtt_settings(settings: Settings) -> None:
+    # The environment's broker is the default; config.yaml keeps only what differs from it.
+    env = dataclasses.replace(settings, mqtt_url="mqtt://norn:hunter2@127.0.0.1:1", mqtt_prefix="home")
+    with TestClient(create_app(env)) as client:
+        hub = client.app.state.hub  # type: ignore[attr-defined]
+        data = client.get("/api/settings").json()
+        assert data["defaults"]["mqtt"]["host"] == "127.0.0.1" and data["values"]["mqtt"]["enabled"]
+        assert "hunter2" not in str(data) and data["secrets"] == {"mqtt": ["password"]}
+        assert hub.mqtt.broker.password == "hunter2"
+
+        response = client.put("/api/settings", json={"mqtt": {"prefix": "norn", "stills_seconds": 10}})
+        assert response.status_code == 200, response.text
+        text = settings.config_path.read_text()
+        assert "mqtt:\n  prefix: norn\n  stills_seconds: 10\n" in text and "hunter2" not in text
+        assert hub.mqtt.prefix == "norn" and hub.mqtt.stills == 10  # connected again, with them
+        assert hub.mqtt.broker.password == "hunter2"  # an empty password keeps the one there is
+
+        assert client.put("/api/settings", json={"mqtt": {"enabled": False}}).status_code == 200
+        assert hub.mqtt.broker is None and client.get("/api/info").json()["mqtt"] == {"enabled": False}
+        # Back at the defaults: out of the file.
+        client.put("/api/settings", json={"mqtt": {"enabled": True, "prefix": "home", "stills_seconds": 0}})
+        assert "mqtt" not in settings.config_path.read_text()
+
+    with TestClient(create_app(settings)) as client:  # no broker in the environment
+        assert client.put("/api/settings", json={"mqtt": {"enabled": True}}).status_code == 422
+        assert client.put("/api/settings", json={"mqtt": {"host": "mqtt://x"}}).status_code == 422
+        body = {"mqtt": {"enabled": True, "host": "127.0.0.1", "port": 1, "password": "pw"}}
+        assert client.put("/api/settings", json=body).status_code == 200
+        assert "password: pw" in settings.config_path.read_text()
+        assert client.get("/api/info").json()["mqtt"]["broker"] == "127.0.0.1:1"
+
+
 def test_config_reload_from_disk(client: TestClient, settings: Settings) -> None:
     settings.config_path.write_text("cameras:\n  yard:\n    name: Yard\n    driver: demo\n")
     deadline = time.time() + 5

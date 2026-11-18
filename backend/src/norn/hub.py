@@ -25,6 +25,7 @@ from .config import (
     Config,
     ConfigError,
     ConfigStore,
+    MqttSettings,
     NornPreset,
     short_error,
 )
@@ -47,6 +48,7 @@ from .go2rtc import Go2rtc, Go2rtcUnavailableError
 from .gop import GopCache
 from .labels import LABELS
 from .mqtt import Mqtt
+from .mqtt import defaults as mqtt_defaults
 from .pilot import Pilot
 from .probe import StreamProbe, probe_all, probeable
 from .recorder import Recorder, ffprobe_of
@@ -206,11 +208,27 @@ class Hub:
         # Frames of recordings for the timeline: a few at a time, the latest kept.
         self._frames: OrderedDict[tuple[Path, float], bytes] = OrderedDict()
         self._frame_slots = asyncio.Semaphore(2)
-        self.mqtt = Mqtt(settings, self)  # Home Assistant and other home automation, if NORN_MQTT is set
+        # Home Assistant and other home automation: config.yaml's `mqtt`, over the environment's.
+        self.mqtt_defaults = mqtt_defaults(settings)
+        self.mqtt = Mqtt(self.mqtt_defaults, self)
 
     @property
     def config(self) -> Config:
         return self.store.config
+
+    def mqtt_settings(self) -> MqttSettings:
+        return self.config.mqtt.over(self.mqtt_defaults)
+
+    async def _apply_mqtt(self) -> None:
+        """Connect again if the MQTT settings changed."""
+        options = self.mqtt_settings()
+        if options == self.mqtt.options:
+            return
+        await self.mqtt.stop()
+        self.mqtt = Mqtt(options, self)
+        await self.mqtt.start()
+        log.info("MQTT %s", f"to {self.mqtt.broker.host}" if self.mqtt.broker else "off")
+        self.bus.publish("mqtt.changed", {"connected": False})
 
     async def start(self) -> None:
         try:
@@ -228,6 +246,7 @@ class Hub:
         self._away_task = asyncio.create_task(self._watch_away(), name="away")
         if self.go2rtc.enabled:
             self._gop_task = asyncio.create_task(self._keep_gops(), name="gop-keeper")
+        self.mqtt = Mqtt(self.mqtt_settings(), self)
         await self.mqtt.start()
         log.info("Norn %s with %d cameras", __version__, len(self.cameras))
 
@@ -808,6 +827,7 @@ class Hub:
             log.warning("away mode %s", "on" if away else "off")
             self.bus.publish("away.changed", {"away": away})
         await self.recorder.apply(self.config, streams, self.transcoded(), away)
+        await self._apply_mqtt()
         self.bus.publish("cameras.changed")
         # Read new cameras right away instead of at the next poll.
         self._background(self.refresh_devices(only_new=True), "refresh-devices")

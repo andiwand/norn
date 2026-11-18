@@ -1,5 +1,5 @@
 <script lang="ts">
-	// Norn's settings, in tabs: recording, firmware. One form for all of them, with Save and
+	// Norn's settings, in tabs: recording, firmware, MQTT. One form for all of them, with Save and
 	// Discard at the top. What records is on Triggers; Diagnostics and Help are pages too.
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
@@ -9,13 +9,17 @@
 	import SaveBar from '#lib/components/SaveBar.svelte';
 	import SettingsSection from '#lib/components/SettingsSection.svelte';
 	import NumberSetting from '#lib/components/NumberSetting.svelte';
+	import TextSetting from '#lib/components/TextSetting.svelte';
+	import ChoiceSetting from '#lib/components/ChoiceSetting.svelte';
+	import HouseWifi from '@lucide/svelte/icons/house-wifi';
 	import HardDrive from '@lucide/svelte/icons/hard-drive';
 	import Archive from '@lucide/svelte/icons/archive';
 	import CloudDownload from '@lucide/svelte/icons/cloud-download';
 
 	const TABS = [
 		['recording', 'Recording'],
-		['firmware', 'Firmware']
+		['firmware', 'Firmware'],
+		['mqtt', 'MQTT']
 	] as const;
 	type Tab = (typeof TABS)[number][0];
 	const tab = $derived<Tab>(
@@ -34,6 +38,11 @@
 	const defaults = $derived(settings.defaults);
 
 	const info = $derived(store.info);
+	const mqtt = $derived(info?.mqtt);
+	const ON_OFF: [boolean, string][] = [
+		[true, 'On'],
+		[false, 'Off']
+	];
 </script>
 
 <svelte:head><title>Settings · Norn</title></svelte:head>
@@ -128,6 +137,80 @@
 					unit="min"
 				/>
 			</SettingsSection>
+		{:else if tab === 'mqtt'}
+			<SettingsSection
+				title="MQTT"
+				description="For Home Assistant and other home automation: Norn publishes each camera's detections, recording, controls and presets to an MQTT broker and takes commands from it. With discovery, the cameras appear in Home Assistant by themselves."
+				icon={HouseWifi}
+			>
+				{#snippet aside()}
+					{#if mqtt?.enabled}
+						<span class="text-xs {mqtt.connected ? 'text-success' : 'text-danger'}"
+							>{mqtt.connected ? 'Connected' : (mqtt.error ?? 'Connecting')}</span
+						>
+					{/if}
+				{/snippet}
+				<ChoiceSetting label="MQTT" bind:value={form.mqtt.enabled} choices={ON_OFF} />
+				<TextSetting
+					label="Broker"
+					hint="Its host name or address, like homeassistant.local."
+					bind:value={form.mqtt.host}
+					fallback={defaults.mqtt.host}
+					placeholder="homeassistant.local"
+				/>
+				<NumberSetting
+					label="Port"
+					hint="0: 1883, or 8883 with TLS."
+					bind:value={form.mqtt.port}
+					fallback={defaults.mqtt.port}
+					max={65535}
+				/>
+				<ChoiceSetting label="TLS" bind:value={form.mqtt.tls} choices={ON_OFF} />
+				<TextSetting
+					label="User"
+					bind:value={form.mqtt.username}
+					fallback={defaults.mqtt.username}
+				/>
+				<TextSetting
+					label="Password"
+					type="password"
+					hint={settings.secrets?.mqtt.includes('password') ? 'Set. Left empty, it stays.' : ''}
+					bind:value={form.mqtt.password}
+					placeholder={settings.secrets?.mqtt.includes('password') ? 'Unchanged' : ''}
+				/>
+				<TextSetting
+					label="Topic prefix"
+					hint="Norn's topics start with it. Letters, digits, _ and -."
+					bind:value={form.mqtt.prefix}
+					fallback={defaults.mqtt.prefix}
+				/>
+				<ChoiceSetting
+					label="Home Assistant discovery"
+					hint="The cameras appear in Home Assistant with their entities."
+					bind:value={form.mqtt.discovery}
+					choices={ON_OFF}
+				/>
+				{#if form.mqtt.discovery}
+					<TextSetting
+						label="Discovery prefix"
+						hint="Home Assistant's; the same there."
+						bind:value={form.mqtt.discovery_prefix}
+						fallback={defaults.mqtt.discovery_prefix}
+					/>
+				{/if}
+				<NumberSetting
+					label="Stills"
+					hint="Send each camera's picture this often, for a camera entity (at least 5 s). 0: none."
+					bind:value={form.mqtt.stills_seconds}
+					fallback={defaults.mqtt.stills_seconds}
+					max={86400}
+					unit="s"
+				/>
+			</SettingsSection>
+			<p class="px-1 text-xs text-muted">
+				The defaults come from the <code class="font-mono">NORN_MQTT</code> environment variables; config.yaml
+				keeps what differs from them. Norn connects again when you save.
+			</p>
 		{:else}
 			<SettingsSection
 				title="Firmware updates"

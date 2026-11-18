@@ -6,6 +6,7 @@ import { store } from './state.svelte';
 export class SettingsForm {
 	saved = $state<SettingsValues | null>(null);
 	defaults = $state<SettingsValues | null>(null);
+	secrets = $state<SettingsData['secrets'] | null>(null);
 	form = $state<SettingsValues | null>(null);
 	saving = $state(false);
 	dirty = $derived(!!this.form && JSON.stringify(this.form) !== JSON.stringify(this.saved));
@@ -42,6 +43,7 @@ export class SettingsForm {
 	take(data: SettingsData) {
 		this.saved = data.values;
 		this.defaults = data.defaults;
+		this.secrets = data.secrets;
 		this.form = structuredClone(data.values);
 	}
 

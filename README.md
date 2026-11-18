@@ -19,66 +19,51 @@ the controls of the camera's own app, and records.</p>
 
 ---
 
-> Norn is an early preview. Support for cameras grows one real camera at a time. See
-> [PLAN.md](PLAN.md).
+> Norn is an early preview. Camera support grows one real camera at a time; see [PLAN.md](PLAN.md).
 
-| Driver      | Cameras                                             | Video        | Control                                                         | Tested on a real camera |
-| ----------- | --------------------------------------------------- | ------------ | --------------------------------------------------------------- | ----------------------- |
-| `reolink`   | Reolink (over Reolink's app protocol, no HTTP needed) | RTSP H.264 | pan/tilt, presets, IR, status light, siren, tracking, motion and AI events, firmware | yes (E1 Pro)            |
-| `hikvision` | Hikvision and relabels (Annke, HiLook, …)           | RTSP H.264   | day/night, WDR, flip, colour, motion detection and events, firmware file | yes (DS-2CD2042WD-I)    |
-| `foscam`    | Foscam CGI: supra IPC-1A / IPC-100HD, Wansview, …   | MJPEG (HTTP) | pan/tilt, presets, resolution, brightness, flip, motion alarm   | yes (supra)             |
-| `dahua`     | Dahua, Amcrest, Lorex                               | RTSP         | pan/tilt/zoom, presets, day/night, flip, motion detection       | not yet                 |
-| `axis`      | Axis                                                | RTSP H.264   | pan/tilt/zoom, presets, day/night, firmware file                | not yet                 |
-| `foscam-hd` | Foscam HD (since about 2014)                        | RTSP H.264   | pan/tilt/zoom, presets, IR, mirror, flip                        | not yet                 |
-| `tapo`      | TP-Link Tapo                                        | RTSP H.264   | pan/tilt, presets, night vision, privacy, siren, firmware       | not yet                 |
-| `unifi`     | UniFi Protect cameras (through the console's API)   | RTSPS        | status light, microphone, PTZ presets                           | not yet                 |
-| `onvif`     | any ONVIF camera                                    | RTSP         | PTZ, presets, day/night, image                                  | yes (Reolink, ONVIF)    |
-| `rtsp`      | anything with an RTSP URL                           | RTSP         | –                                                               |                         |
-| `demo`      | a test pattern with pretend controls                | FFmpeg       | everything, pretend                                             |                         |
+| Driver      | Cameras                                         | Video        | Control                                                              | Tested      |
+| ----------- | ----------------------------------------------- | ------------ | -------------------------------------------------------------------- | ----------- |
+| `reolink`   | Reolink (app protocol, no HTTP needed)          | RTSP H.264   | pan/tilt, presets, IR, status light, siren, tracking, motion and AI events, firmware | E1 Pro |
+| `hikvision` | Hikvision and relabels (Annke, HiLook, …)       | RTSP H.264   | day/night, WDR, flip, colour, motion events, firmware file           | DS-2CD2042WD-I |
+| `foscam`    | Foscam CGI: supra IPC-1A / IPC-100HD, Wansview, … | MJPEG (HTTP) | pan/tilt, presets, resolution, brightness, flip, motion alarm      | supra       |
+| `onvif`     | any ONVIF camera                                | RTSP         | PTZ, presets, day/night, image                                       | Reolink     |
+| `dahua`     | Dahua, Amcrest, Lorex                           | RTSP         | pan/tilt/zoom, presets, day/night, flip, motion detection            | not yet     |
+| `axis`      | Axis                                            | RTSP H.264   | pan/tilt/zoom, presets, day/night, firmware file                     | not yet     |
+| `foscam-hd` | Foscam HD (since about 2014)                    | RTSP H.264   | pan/tilt/zoom, presets, IR, mirror, flip                             | not yet     |
+| `tapo`      | TP-Link Tapo                                    | RTSP H.264   | pan/tilt, presets, night vision, privacy, siren, firmware            | not yet     |
+| `unifi`     | UniFi Protect (through the console's API)       | RTSPS        | status light, microphone, PTZ presets                                | not yet     |
+| `rtsp`      | anything with an RTSP URL                       | RTSP         | –                                                                    |             |
+| `demo`      | a test pattern with pretend controls            | FFmpeg       | everything, pretend                                                  |             |
 
-Drivers marked "not yet" follow the vendor's documented API and have tests with its answers, but
-nobody has run them against the real camera yet. Reports and fixes are welcome.
+"Not yet" drivers follow the vendor's documented API and are tested against its answers, not a
+real camera. Reports and fixes are welcome.
 
-Each camera page shows what the camera reports about itself (model, firmware, uptime, …) and
-whether newer firmware exists.
-
-- **Live video** in any browser over WebRTC, with MSE and HLS as fallbacks. It starts in about
-  a tenth of a second (Norn keeps the newest keyframe ready), the quality adapts to the
-  connection, and a stills view watches many cameras on little bandwidth.
-- **Camera controls**: pan, tilt, zoom, presets, and whatever settings the camera has. Each driver
-  describes its controls; the web app builds itself from that. Norn tests each camera's streams
-  (also third and fourth ones) and whether they work at the same time.
+- **Live video** in any browser over WebRTC (MSE and HLS as fallbacks). It starts in about a
+  tenth of a second, adapts to the connection, and a stills view watches many cameras cheaply.
+- **Camera controls**: pan, tilt, zoom, presets and whatever settings the camera has, plus its
+  device info and firmware updates. The web app builds itself from what each driver declares.
 - **Detection**: the cameras' own motion and AI events, and Norn's own on stills (motion; people,
-  vehicles and animals with a small AI model). Triggers on a schedule, and an away mode. What
-  records can be set for all cameras, and per circle, camera or pan/tilt preset.
-- **Pan/tilt**: Norn presets with a picture and their own settings, a default preset to return
-  to, patrol, reactions to detections, following people. A preset can record its own way
-  (`triggers`, `clip_seconds`, `prebuffer_seconds` under the preset) while the camera is there.
-- **No re-encoding.** [go2rtc](https://github.com/AlexxIT/go2rtc) reads each camera once and
-  repackages the stream for every viewer and the recorder. FFmpeg transcodes only a stream a
-  browser can't play.
-- **Recordings** as plain MP4 and JPEG files in day folders: continuous, clips from a button or
-  webhook that start a few seconds *before* the trigger, and pictures on a timer. A timeline
-  shows them all, with what triggered each, and every camera at the moment you point at.
-  Automatic recordings expire by age, size or free space; clips you record by hand, or pin,
-  stay.
-- **Circles**: groups of cameras with one trigger, shared settings, and controls set on all at
-  once.
-- **Home Assistant**: over MQTT, each camera appears in Home Assistant by itself, with its
-  detections, recording, controls and presets, and away mode as a switch. Each camera's page
-  also has its streams to copy. See [Home Assistant](#home-assistant).
-- **An app on your phone**: install the web app to the home screen (see
-  [Install as an app](#install-as-an-app)).
-- **A YAML file, no database.** Edit `config.yaml` by hand or in the app; both keep the other's
+  vehicles and animals with a small AI model). Triggers on a schedule, and an away mode.
+- **Pan/tilt**: Norn presets with a picture and their own recording settings, patrol, reactions
+  to detections, following people.
+- **No re-encoding**: [go2rtc](https://github.com/AlexxIT/go2rtc) reads each camera once and
+  repackages the stream; FFmpeg transcodes only what a browser can't play.
+- **Recordings** as plain MP4 and JPEG files: continuous, clips that start seconds *before* their
+  trigger, and pictures on a timer, on one timeline. Automatic ones expire by age, size or free
+  space; manual and pinned ones stay.
+- **Circles**: groups of cameras with one trigger, shared settings and shared controls.
+- **Home Assistant** over MQTT discovery, or with streams to copy. See
+  [Home Assistant](#home-assistant).
+- **An app on your phone**: see [Install as an app](#install-as-an-app).
+- **A YAML file, no database**: edit `config.yaml` by hand or in the app; both keep the other's
   changes, comments included.
-- **Local.** No account, no cloud, no telemetry.
+- **Local**: no account, no cloud, no telemetry.
 
 ## Quick start
 
-With Docker (Linux host; amd64 or arm64):
+With Docker (Linux; amd64 or arm64), using [compose.yaml](compose.yaml):
 
 ```yaml
-# compose.yaml
 services:
   norn:
     image: ghcr.io/andiwand/norn:latest
@@ -97,59 +82,60 @@ services:
 docker compose up -d
 ```
 
-Open `http://<host>:8000`. A demo camera shows a test pattern, so you can try everything before
-you add a real camera.
+Open `http://<host>:8000`. A demo camera lets you try everything before adding a real one.
 
 Host networking lets WebRTC reach the browser directly. On Docker Desktop (macOS, Windows), map
-the ports instead: `8000:8000`, `8555:8555/tcp`, `8555:8555/udp`. Video then falls back to MSE.
+`8000:8000`, `8555:8555/tcp` and `8555:8555/udp` instead.
 
-Without Docker, with `go2rtc` and `ffmpeg` on the PATH:
-
-```sh
-uvx --from norn-hub norn
-```
+Without Docker, with `go2rtc` and `ffmpeg` on the PATH: `uvx --from norn-hub norn`.
 
 ## Configuration
 
-`config.yaml` (in `/config` in the container):
+Everything is in `config.yaml` (`/config` in the container), editable in the app too. Settings
+left out keep their defaults:
 
 ```yaml
 recording:
-  retention_days: 14 # automatic recordings expire after this; 0 keeps them forever
-  max_gb: 500 # also keep them under this size (oldest automatic ones go first); 0: no limit
-  min_free_gb: 20 # and keep this much free on the disk; 0: no limit
+  retention_days: 14 # automatic recordings expire after this; 0: never
+  max_gb: 500 # and are kept under this size, oldest first; 0: no limit
+  min_free_gb: 20 # and leave this much free on the disk; 0: no limit
   segment_minutes: 10 # length of one file of a continuous recording
   clip_seconds: 30 # length of a triggered clip
-  prebuffer_seconds: 10 # a clip starts this long before its trigger; 0 turns it off
-  picture_seconds: 0 # a picture of every camera this often; 0 turns it off
-  triggers: [motion] # what the cameras detect that starts a clip: motion, person, vehicle, ...
+  prebuffer_seconds: 10 # a clip starts this long before its trigger
+  picture_seconds: 0 # a picture of every camera this often; 0: off
+  triggers: [motion] # what starts a clip: motion, person, vehicle, ...
   schedule: # when detections record; none: always
-    - { days: [mon, tue, wed, thu, fri], from: "20:00", to: "07:00" } # weeknights
-    - { days: [sat, sun], from: "00:00", to: "23:59" }
+    - { days: [mon, tue, wed, thu, fri], from: "20:00", to: "07:00" }
 
 away: # holiday mode: detections record at any time; also a switch in the header
   start: 2026-12-20T15:00 # planned; or `active: true` for now
   end: 2027-01-03T12:00
   triggers: [motion, person]
-  picture_seconds: 60 # pictures while away; 0: as usual
+  picture_seconds: 60 # 0: as usual
 
 firmware:
-  check_hours: 24 # how often to ask the vendors for new firmware; 0 never
+  check_hours: 24 # 0: never
 
-detection: # Norn's own detection, on a still of each camera every few seconds
-  motion: true # compare stills (no extra packages)
-  objects: true # people, vehicles, animals: pip install 'norn-hub[detect]' (in the Docker image)
+detection: # Norn's own, on a still of each camera
+  motion: true
+  objects: true # people, vehicles, animals: needs norn-hub[detect] (in the Docker image)
   every_seconds: 2
-  min_score: 0.5 # how sure the AI must be about an object
-  confirm_seconds: 0 # an object counts once seen this long (less noise at night); 0: at once
-  stills: auto # keyframe (nearly free), live (every frame, exact), auto
+  min_score: 0.5 # how sure the AI must be
+  confirm_seconds: 0 # an object counts once seen this long; 0: at once
+  stills: auto # keyframe (nearly free), live (every frame), auto
 
-circles: # groups of cameras
+mqtt: # see Home Assistant below
+  enabled: true
+  host: homeassistant.local
+  username: norn
+  password: secret
+
+circles:
   outside:
     name: Outside
     cameras: [front-door, garden]
-    picture_seconds: 300 # settings for these cameras; a camera's own setting wins
-    together: true # when one camera here detects a trigger, all of them record
+    picture_seconds: 300 # settings for these cameras; a camera's own wins
+    together: true # one camera's trigger records all of them
 
 cameras:
   front-door: # the id: the key here and the folder of its recordings
@@ -157,11 +143,8 @@ cameras:
     driver: rtsp
     url: rtsp://user:password@192.168.1.20:554/stream1
     substream: rtsp://user:password@192.168.1.20:554/stream2 # optional, for the grid
-    record: continuous # off (default) or continuous
-    enabled: true # default
-    auto_update: false # install new firmware by itself, where the driver can
-    picture_seconds: 60 # this camera's own (also clip_seconds, prebuffer_seconds, triggers, schedule)
-    ready_streams: [sub] # streams kept ready, so live video starts at once; default: the small one
+    record: continuous # default: off
+    picture_seconds: 60 # its own (also clip_seconds, prebuffer_seconds, triggers, schedule)
 
   garden:
     name: Garden
@@ -171,28 +154,25 @@ cameras:
     password: secret # quote it if it starts with a special character
 ```
 
-The settings of the process come from environment variables:
+The process itself is set with environment variables:
 
-| Variable           | Default                   | What                                                          |
-| ------------------ | ------------------------- | ------------------------------------------------------------- |
-| `NORN_CONFIG`      | `data/config/config.yaml` | The config file (`/config/config.yaml` in the image).         |
-| `NORN_RECORDINGS`  | `data/recordings`         | The recordings folder (`/recordings` in the image).           |
-| `NORN_TEMP`        | `data/tmp`                | What is being recorded (`/temp`); best a local disk.          |
-| `NORN_BUFFER`      | `/dev/shm/norn`           | The pre-recording buffer; RAM if /dev/shm has 128 MB or more, else `<temp>/.norn/buffer`. |
-| `NORN_PORT`        | `8000`                    | The port of the web app and the API.                          |
-| `NORN_WEBRTC_PORT` | `8555`                    | The port of WebRTC media, TCP and UDP.                        |
-| `NORN_LOG_FILE`    | `<config>/.norn/logs/norn.log` | The log file (rotated, 5 × 5 MB); `off` for none.   |
-| `NORN_LOG_LEVEL`   | `info`                    | `debug`, `info`, `warning` or `error`.                        |
-| `NORN_GO2RTC`      | `managed`                 | `managed` (Norn runs go2rtc), `external`, or `off`.           |
-| `NORN_GO2RTC_API`  | `http://127.0.0.1:1984`   | The API of go2rtc; set it for an `external` go2rtc.           |
-| `NORN_RTSP_SHARE`  | `0`                       | `1`: serve the RTSP streams to the network (Home Assistant).  |
-| `NORN_MQTT`        |                           | An MQTT broker, `mqtt://user:password@host:1883` (`mqtts://` for TLS). |
-| `NORN_MQTT_PREFIX` | `norn`                    | The first level of Norn's MQTT topics (letters, digits, `_`, `-`). |
-| `NORN_MQTT_DISCOVERY` | `homeassistant`        | Home Assistant's discovery prefix (one level, like the prefix); `off` for none. |
-| `NORN_MQTT_STILLS` | `0`                       | Send each camera's still over MQTT every so many seconds (at least 5); `0` for none. |
-| `NORN_GO2RTC_BIN`  | `go2rtc`                  | The go2rtc binary.                                            |
-| `NORN_FFMPEG`      | `ffmpeg`                  | The FFmpeg binary.                                            |
-| `TZ`               |                           | The time zone of the recordings' file names.                  |
+| Variable              | Default                        | What                                                       |
+| --------------------- | ------------------------------ | ---------------------------------------------------------- |
+| `NORN_CONFIG`         | `data/config/config.yaml`      | The config file (`/config/config.yaml` in the image).      |
+| `NORN_RECORDINGS`     | `data/recordings`              | Finished recordings (`/recordings`); can be a NAS.         |
+| `NORN_TEMP`           | `data/tmp`                     | What is being recorded (`/temp`); best a local disk.       |
+| `NORN_BUFFER`         | `/dev/shm/norn`                | The pre-recording buffer: RAM if /dev/shm has 128 MB, else `<temp>/.norn/buffer`. |
+| `NORN_PORT`           | `8000`                         | The web app and the API.                                   |
+| `NORN_WEBRTC_PORT`    | `8555`                         | WebRTC media, TCP and UDP.                                 |
+| `NORN_RTSP_SHARE`     | `0`                            | `1`: serve the RTSP streams (port 8554) to the network.    |
+| `NORN_LOG_FILE`       | `<config>/.norn/logs/norn.log` | Rotated, 5 × 5 MB; `off` for none.                         |
+| `NORN_LOG_LEVEL`      | `info`                         | `debug`, `info`, `warning` or `error`.                     |
+| `NORN_GO2RTC`         | `managed`                      | `managed` (Norn runs go2rtc), `external`, or `off`.        |
+| `NORN_GO2RTC_API`     | `http://127.0.0.1:1984`        | go2rtc's API, for an `external` one.                       |
+| `NORN_GO2RTC_BIN`, `NORN_FFMPEG` | `go2rtc`, `ffmpeg`  | The binaries.                                              |
+| `NORN_MQTT`           |                                | Default broker, `mqtt://user:password@host:1883` (`mqtts://` for TLS). |
+| `NORN_MQTT_PREFIX`, `NORN_MQTT_DISCOVERY`, `NORN_MQTT_STILLS` | `norn`, `homeassistant`, `0` | Defaults for the MQTT settings below. |
+| `TZ`                  |                                | The time zone of file names, schedules and away times.     |
 
 ### Recordings
 
@@ -203,124 +183,100 @@ recordings/front-door/2026-11-15/14-32-07_manual.mp4     the video
                                  14-35-00_interval.jpg   a picture on the timer
 ```
 
-Recordings go through three stages: each camera's last seconds wait in RAM (`NORN_BUFFER`), what
-is being recorded is written to `NORN_TEMP`, and finished files move to `NORN_RECORDINGS`, which
-can be a NAS. Diagnostics shows what each stage holds, a forecast per trigger (measured from the
-last week, or estimated from the settings and each camera's bitrate), and what Norn costs in CPU
-and memory; the top bar shows how full the disk is and how busy the CPU is.
+The last seconds of each camera wait in RAM (`NORN_BUFFER`), recordings are written to
+`NORN_TEMP` and moved to `NORN_RECORDINGS` when finished. Diagnostics shows each stage, a
+storage forecast, and Norn's CPU and memory.
 
-Start a clip from anything that sends HTTP, like Home Assistant or a doorbell:
+Start a clip from anything that sends HTTP (`POST /api/circles/<id>/record` for a circle; the
+whole API is at `/api/docs`):
 
 ```sh
 curl -X POST http://norn.local:8000/api/cameras/front-door/record \
   -H 'Content-Type: application/json' -d '{"trigger": "doorbell", "seconds": 30}'
 ```
 
-A circle has its own webhook, `POST /api/circles/<id>/record`, which records all its cameras.
-The whole API is documented at `/api/docs`.
-
 ### Home Assistant
 
-Home Assistant can use the cameras through Norn instead of directly: each camera keeps one
-connection, to Norn, and its password stays in Norn. A camera's page has a **Connect** panel
-with its addresses and a `configuration.yaml` to copy (buttons to record and turn to presets,
-sensors for recording and detections).
+Through Norn, each camera keeps one connection, and its password stays in Norn.
 
-- Video: start Norn with `NORN_RTSP_SHARE=1`, then add a **Generic Camera** with the stream
-  `rtsp://<norn>:<rtsp port>/<camera id>` (`<camera id>_sub` for the small stream) and the
-  still image `http://<norn>/api/cameras/<camera id>/still.jpg`.
-- Without RTSP: an **MJPEG IP Camera** with `http://<norn>/api/cameras/<camera id>/stills`.
-
-#### MQTT
-
-With a broker (in Home Assistant, the Mosquitto add-on), Norn publishes what it knows and takes
-commands, and Home Assistant's MQTT discovery adds everything by itself: no YAML to copy.
-Start Norn with the broker's address:
+**MQTT** (in Home Assistant, the Mosquitto add-on): turn it on in **Settings → MQTT** or in
+`config.yaml`, and Home Assistant's discovery adds everything by itself:
 
 ```yaml
-environment:
-  NORN_MQTT: mqtt://norn:secret@homeassistant.local
+mqtt:
+  enabled: true
+  host: homeassistant.local
+  port: 0 # 0: 1883, or 8883 with TLS
+  tls: false
+  username: norn
+  password: secret
+  prefix: norn # Norn's topics start with it
+  discovery: true # Home Assistant's MQTT discovery
+  discovery_prefix: homeassistant
+  stills_seconds: 0 # each camera's still this often (at least 5), as a camera entity; 0: none
 ```
 
-Home Assistant then shows a **Norn** device with an **Away mode** switch and a record button for
-each circle, and one device per camera with:
+The defaults come from `NORN_MQTT` and the other `NORN_MQTT_*` variables, so a broker set there
+works with no `mqtt` section. Norn connects again when the settings change.
 
-- a sensor for each kind of detection (motion, person, vehicle, ...), on while it lasts;
-- **Recording** and **Online** sensors;
-- **Record clip** and **Stop clip** buttons;
-- **Preset**, to turn a pan/tilt camera to one of its Norn presets;
-- the camera's controls, as Norn shows them: switches, selects, numbers and buttons.
+Home Assistant then shows a **Norn** device (**Away mode** switch, a record button per circle,
+**Last error**) and one device per camera with a sensor per kind of detection, **Recording** and
+**Online** sensors, **Record clip** and **Stop clip** buttons, a **Preset** select, and the
+camera's controls as switches, selects, numbers and buttons. While a camera doesn't answer, its
+controls, presets and still are unavailable. A failed command shows as **Last error** and the
+entity returns to the camera's real state.
 
-Away mode goes both ways: an automation can turn it on when everyone has left, and others can
-follow it when it changes in Norn (by hand or as planned).
+The topics, for other home automation (retained; `ON`/`OFF`):
 
-While a camera doesn't answer, its controls, presets and still show as unavailable in Home
-Assistant; its sensors and record buttons stay. While config.yaml has an error, Norn leaves the
-devices it had in Home Assistant alone. A command that fails shows as the Norn device's
-**Last error**, and the entity goes back to the camera's real state. Diagnostics shows whether
-Norn is connected to the broker, and the last failed command.
-
-MQTT carries no video: for that, add a Generic Camera (above). It can carry still pictures:
-with `NORN_MQTT_STILLS=10`, each camera also gets a **Still** camera entity with a new picture
-every 10 seconds. That is off by default, since each picture is a whole JPEG through the broker.
-
-The topics, for other home automation (states are retained; `ON`/`OFF` for on and off):
-
-| Topic                                  | What                                                       |
-| -------------------------------------- | ---------------------------------------------------------- |
-| `norn/status`                          | `online` or `offline`.                                     |
-| `norn/error`, `norn/error/attributes`  | The last command that failed: why, and the command and time. |
-| `norn/camera/<id>/available`           | `online` or `offline`: whether the camera answers Norn.    |
-| `norn/away`, `norn/away/set`           | Away mode.                                                 |
-| `norn/camera/<id>/event/<kind>`        | A detection (`motion`, `person`, ...).                     |
-| `norn/camera/<id>/recording`           | Whether the camera records.                                |
-| `norn/camera/<id>/online`              | Whether the camera answers.                                |
-| `norn/camera/<id>/record/set`          | `PRESS` starts a clip, `STOP` ends it; or `{"trigger": "doorbell", "seconds": 30}` (5 to 3600 seconds). |
-| `norn/camera/<id>/preset`, `.../set`   | The Norn preset, by name.                                  |
+| Topic                                      | What                                                   |
+| ------------------------------------------ | ------------------------------------------------------ |
+| `norn/status`                              | `online` or `offline`.                                 |
+| `norn/error`, `norn/error/attributes`      | The last failed command: why, what and when.           |
+| `norn/away`, `norn/away/set`               | Away mode.                                             |
+| `norn/camera/<id>/available`               | `online` or `offline`: whether the camera answers Norn. |
+| `norn/camera/<id>/online`, `.../recording` | Whether the camera answers, and records.               |
+| `norn/camera/<id>/event/<kind>`            | A detection (`motion`, `person`, ...).                 |
+| `norn/camera/<id>/record/set`              | `PRESS`, `STOP`, or `{"trigger": "doorbell", "seconds": 30}` (5 to 3600). |
+| `norn/camera/<id>/preset`, `.../set`       | The Norn preset, by name.                              |
 | `norn/camera/<id>/control/<id>`, `.../set` | A control: `ON`/`OFF`, an option's label, or a number. |
-| `norn/circle/<id>/record/set`          | Like a camera's: all the circle's cameras.                 |
-| `norn/camera/<id>/still`               | A JPEG, with `NORN_MQTT_STILLS` (not retained).            |
+| `norn/circle/<id>/record/set`              | Like a camera's, for all the circle's cameras.         |
+| `norn/camera/<id>/still`                   | A JPEG, with `stills_seconds` (not retained).          |
 
-Anyone who can publish to the broker can control the cameras through these topics, so give the
-broker passwords.
+Anyone who can publish to the broker controls the cameras: give it passwords.
+
+**Video**: MQTT carries none. Start Norn with `NORN_RTSP_SHARE=1` and add a **Generic Camera**
+with `rtsp://<norn>:8554/<camera id>` (`<camera id>_sub` for the small stream) and the still
+`http://<norn>:8000/api/cameras/<camera id>/still.jpg`; or, without RTSP, an **MJPEG IP Camera**
+with `http://<norn>:8000/api/cameras/<camera id>/stills`. A camera's **Connect** panel has these
+addresses and a `configuration.yaml` to copy.
 
 ### Install as an app
 
-Norn installs like an app, with its own icon and without the browser's bars. The button with
-the arrow in the top bar does it, or explains how:
+The arrow button in the top bar installs Norn, or explains how:
 
-- **iPhone, iPad**: in Safari, Share, then Add to Home Screen. **Mac**: in Safari, File, then
-  Add to Dock.
-- **Android, desktop Chrome and Edge**: the browser's Install app. These browsers install only
-  from an HTTPS address, so over `http://<host>:8000` they offer just a shortcut. Put Norn behind
-  HTTPS with a certificate the phone trusts, for example with
-  [Tailscale Serve](https://tailscale.com/kb/1312/serve) (`tailscale serve --bg 8000`) or a
-  reverse proxy such as Caddy. A proxy must pass WebSockets (`/api/stream`, `/api/events`).
+- **iPhone, iPad**: Safari, Share, Add to Home Screen. **Mac**: Safari, File, Add to Dock.
+- **Android, Chrome, Edge**: the browser's Install app, which needs HTTPS (over plain HTTP you get
+  a shortcut). For example [Tailscale Serve](https://tailscale.com/kb/1312/serve)
+  (`tailscale serve --bg 8000`) or a reverse proxy like Caddy that passes WebSockets.
 
-> Norn has no sign-in yet. Run it in your home network only, not open to the internet. The same
-> goes for the shared RTSP streams.
+> Norn has no sign-in yet. Keep it, and the shared RTSP streams, inside your home network.
 
 ## Development
 
-The repository: `backend/` (Python, FastAPI), `frontend/` (SvelteKit, Tailwind), `website/` (the
-GitHub Pages site). [AGENTS.md](AGENTS.md) explains the architecture.
+`backend/` (Python, FastAPI), `frontend/` (SvelteKit, Tailwind), `website/` (GitHub Pages).
+[AGENTS.md](AGENTS.md) explains the architecture.
 
 ```sh
-# Backend, on http://localhost:8000 (needs go2rtc and ffmpeg for video; NORN_GO2RTC=off without)
-cd backend && uv run norn
+cd backend && uv run norn                          # http://localhost:8000; NORN_GO2RTC=off without go2rtc
+cd frontend && npm install && npm run dev          # http://localhost:5173, with hot reload
 
-# Web app with hot reload, on http://localhost:5173, using the backend above
-cd frontend && npm install && npm run dev
-
-# Checks
 cd backend && uv run ruff check . && uv run ruff format --check . && uv run pytest
 cd frontend && npm run lint && npm run check && npm test
 
-# Everything in Docker
 docker build -t norn . && docker run --rm -p 8000:8000 norn
 ```
 
 ## License
 
-MIT. Norn bundles [go2rtc](https://github.com/AlexxIT/go2rtc) (MIT) and FFmpeg (GPL build from
-[static-ffmpeg](https://github.com/wader/static-ffmpeg)) in its Docker image.
+MIT. The Docker image bundles [go2rtc](https://github.com/AlexxIT/go2rtc) (MIT) and FFmpeg (GPL
+build from [static-ffmpeg](https://github.com/wader/static-ffmpeg)).

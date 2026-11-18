@@ -34,6 +34,8 @@ from .config import (
     ConfigError,
     DetectionSettings,
     FirmwareSettings,
+    MqttOverride,
+    MqttSettings,
     RecordingSettings,
     short_error,
 )
@@ -92,6 +94,9 @@ class SettingsBody(BaseModel):
     firmware: FirmwareSettings | None = None
     away: AwaySettings | None = None
     detection: DetectionSettings | None = None
+    # Over the environment's defaults (NORN_MQTT, ...). The password is never sent back; left
+    # out or empty, it stays.
+    mqtt: MqttSettings | None = None
 
 
 class PresetBody(BaseModel):
@@ -215,11 +220,30 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
         }
 
     def settings_json() -> dict[str, Any]:
-        sections = {name: getattr(hub.config, name) for name in SettingsBody.model_fields}
-        return {
-            "values": {name: value.model_dump(by_alias=True) for name, value in sections.items()},
-            "defaults": {name: type(value)().model_dump(by_alias=True) for name, value in sections.items()},
-        }
+        sections = {name: getattr(hub.config, name) for name in SettingsBody.model_fields if name != "mqtt"}
+        values = {name: value.model_dump(by_alias=True) for name, value in sections.items()}
+        defaults = {name: type(value)().model_dump(by_alias=True) for name, value in sections.items()}
+        mqtt = hub.mqtt_settings()
+        values["mqtt"] = mqtt.model_dump() | {"password": ""}
+        defaults["mqtt"] = hub.mqtt_defaults.model_dump() | {"password": ""}
+        # The secrets that are set, which the form shows as such (without their values).
+        secrets = {"mqtt": ["password"] if mqtt.password else []}
+        return {"values": values, "defaults": defaults, "secrets": secrets}
+
+    def mqtt_override(body: MqttSettings) -> MqttOverride:
+        """What config.yaml keeps of the MQTT settings: what differs from the environment's, and
+        what the file has at that value already (written by hand, maybe with a comment)."""
+        changes = body.model_dump(exclude_unset=True)
+        if not changes.get("password"):
+            changes.pop("password", None)
+        options = hub.mqtt_settings().model_copy(update=changes)
+        if options.enabled and not options.host:
+            raise ConfigError("mqtt.host: the broker's address is needed to connect")
+        defaults = hub.mqtt_defaults.model_dump()
+        written = hub.config.mqtt.model_dump(exclude_none=True)
+        return MqttOverride.model_validate(
+            {k: v for k, v in options.model_dump().items() if v != defaults[k] or written.get(k) == v}
+        )
 
     @api.get("/settings")
     async def get_settings() -> dict[str, Any]:
@@ -228,7 +252,7 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
     @api.put("/settings")
     async def put_settings(body: SettingsBody) -> dict[str, Any]:
         # Fields left out keep their value, instead of falling back to the default.
-        sections = {
+        sections: dict[str, BaseModel] = {
             name: type(value).model_validate(
                 {
                     **getattr(hub.config, name).model_dump(by_alias=True),
@@ -236,8 +260,10 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
                 }
             )
             for name, value in body
-            if value is not None
+            if value is not None and name != "mqtt"
         }
+        if body.mqtt is not None:
+            sections["mqtt"] = mqtt_override(body.mqtt)
         await hub.put_settings(sections)
         return settings_json()
 
