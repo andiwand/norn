@@ -27,6 +27,7 @@ from .config import (
     ConfigStore,
     MqttSettings,
     NornPreset,
+    UserConfig,
     short_error,
 )
 from .detect import OBJECT_KINDS, OBJECT_SIZE, Detection, Detectors, MotionDetector, Tracker, gray_from_bgr
@@ -730,6 +731,14 @@ class Hub:
         async with self._lock:
             self.store.order_cameras(ids)
             await self._apply()
+
+    async def put_user(self, name: str, user: UserConfig) -> None:
+        async with self._lock:
+            self.store.put_user(name, user)
+
+    async def remove_user(self, name: str) -> None:
+        async with self._lock:
+            self.store.remove_user(name)
 
     async def put_settings(self, sections: dict[str, BaseModel]) -> None:
         async with self._lock:

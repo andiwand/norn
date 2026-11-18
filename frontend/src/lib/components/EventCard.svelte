@@ -286,7 +286,7 @@
 					: 'Pin: Norn keeps them, whatever the limits'}
 				>{#if allPinned}<PinOff class="size-4" />Unpin{:else}<Pin class="size-4" />Keep{/if}</button
 			>
-			{#if deletable.length}
+			{#if deletable.length && store.isAdmin}
 				<button
 					class="btn-ghost h-9 text-danger"
 					bind:this={askButton}
@@ -297,7 +297,7 @@
 						: ` ${deletable.length}`}</button
 				>
 			{/if}
-			{#if detected}
+			{#if detected && store.isAdmin}
 				<a
 					href="/cameras/{event.camera}?tab=recording"
 					class="ml-auto flex h-9 min-w-9 items-center justify-center gap-1.5 rounded-xl px-2 text-sm font-medium text-accent hover:bg-accent/10"

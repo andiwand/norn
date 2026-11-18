@@ -16,6 +16,7 @@
 	import PinOff from '@lucide/svelte/icons/pin-off';
 	import Download from '@lucide/svelte/icons/download';
 	import LifetimeRing from './LifetimeRing.svelte';
+	import { store } from '../state.svelte';
 
 	let {
 		recording,
@@ -142,7 +143,7 @@
 					title="Download"><Download class="size-4" /></a
 				>
 			{/if}
-			{#if ondelete}
+			{#if ondelete && store.isAdmin}
 				<button
 					class="tile-action {armed ? 'w-auto bg-danger px-2' : 'hover:bg-danger'}"
 					onclick={clickDelete}

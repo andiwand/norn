@@ -26,6 +26,9 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from starlette.websockets import WebSocketState
 
 from . import __version__, logs
+from .auth import Auth
+from .auth_api import AuthMiddleware, who_of
+from .auth_api import router as auth_router
 from .config import (
     CAMERA_ID,
     AwaySettings,
@@ -177,6 +180,10 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
     app = FastAPI(title="Norn", version=__version__, lifespan=lifespan, docs_url="/api/docs",
                   openapi_url="/api/openapi.json", redoc_url=None)  # fmt: skip
     app.state.hub = hub
+    auth = Auth(settings.runtime_dir)
+    app.state.auth = auth
+    app.add_middleware(AuthMiddleware, auth=auth, hub=hub)
+    app.include_router(auth_router(auth, hub))
     api = APIRouter(prefix="/api")
 
     def camera_or_404(camera_id: str) -> None:
@@ -250,7 +257,11 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
         return settings_json()
 
     @api.put("/settings")
-    async def put_settings(body: SettingsBody) -> dict[str, Any]:
+    async def put_settings(body: SettingsBody, request: Request) -> dict[str, Any]:
+        # Viewers switch away mode (leaving the house), nothing else.
+        who = who_of(request)
+        if who and who.role != "admin" and body.model_dump(exclude_none=True).keys() - {"away"}:
+            raise HTTPException(403, "Only an admin may change the settings")
         # Fields left out keep their value, instead of falling back to the default.
         sections: dict[str, BaseModel] = {
             name: type(value).model_validate(

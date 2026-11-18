@@ -236,6 +236,42 @@ export interface SeenObject {
 	status: 'counts' | 'unconfirmed' | 'still';
 }
 
+export type Role = 'admin' | 'viewer';
+
+/** Whether sign-in is on (there are users), and who is signed in here. */
+export interface AuthStatus {
+	enabled: boolean;
+	user: { name: string; role: Role } | null;
+}
+
+export interface User {
+	name: string;
+	role: Role;
+	/** Signed-in devices and API tokens. */
+	devices: number;
+	tokens: number;
+	/** The user signed in here. */
+	you: boolean;
+}
+
+/** A signed-in device (times in seconds since 1970). */
+export interface Device {
+	id: string;
+	device: string;
+	created: number;
+	seen: number;
+	current: boolean;
+}
+
+export interface ApiToken {
+	id: string;
+	name: string;
+	created: number;
+	used: number | null;
+	/** Only right after it was made: the secret, shown once. */
+	token?: string;
+}
+
 export interface Recording {
 	id: string;
 	camera: string;
@@ -465,12 +501,19 @@ export class ApiError extends Error {
 	}
 }
 
+// What happens when the server says "sign in first" (the store shows the sign-in page).
+let unauthorized: () => void = () => {};
+export function onUnauthorized(handler: () => void) {
+	unauthorized = handler;
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
 	const response = await fetch(`/api${path}`, {
 		method,
 		headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
 		body: body === undefined ? undefined : JSON.stringify(body)
 	});
+	if (response.status === 401 && !path.startsWith('/auth')) unauthorized();
 	if (!response.ok) {
 		let message = response.statusText;
 		try {
@@ -511,6 +554,26 @@ function query(params: Record<string, string | number | undefined>): string {
 }
 
 export const api = {
+	// Sign-in
+	auth: () => request<AuthStatus>('GET', '/auth'),
+	login: (name: string, password: string) =>
+		request<{ name: string; role: Role }>('POST', '/auth/login', { name, password }),
+	logout: () => request<void>('POST', '/auth/logout'),
+	changePassword: (current: string, password: string) =>
+		request<void>('PUT', '/auth/password', { current, password }),
+	devices: () => request<Device[]>('GET', '/auth/sessions'),
+	endDevice: (id: string) => request<void>('DELETE', `/auth/sessions/${enc(id)}`),
+	tokens: () => request<ApiToken[]>('GET', '/auth/tokens'),
+	newToken: (name: string) => request<ApiToken>('POST', '/auth/tokens', { name }),
+	removeToken: (id: string) => request<void>('DELETE', `/auth/tokens/${enc(id)}`),
+	users: () => request<User[]>('GET', '/users'),
+	firstUser: (name: string, password: string) =>
+		request<{ name: string; role: Role }>('POST', '/users/first', { name, password }),
+	addUser: (name: string, password: string, role: Role) =>
+		request<User>('POST', '/users', { name, password, role }),
+	changeUser: (name: string, change: { role?: Role; password?: string }) =>
+		request<User>('PUT', `/users/${enc(name)}`, change),
+	removeUser: (name: string) => request<void>('DELETE', `/users/${enc(name)}`),
 	info: () => request<Info>('GET', '/info'),
 	settings: () => request<SettingsData>('GET', '/settings'),
 	/** Fields left out keep their value. */

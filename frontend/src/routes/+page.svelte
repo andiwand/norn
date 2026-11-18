@@ -154,12 +154,12 @@
 			<button class="btn-primary" onclick={done} disabled={savingOrder}
 				>{savingOrder ? 'Saving…' : 'Done'}</button
 			>
-		{:else if store.cameras.length > 1}
+		{:else if store.cameras.length > 1 && store.isAdmin}
 			<button class="btn-ghost" onclick={arrange} title="Change the order of the cameras"
 				><ArrowDownUp class="size-4" /><span class="hidden sm:inline">Arrange</span></button
 			>
 		{/if}
-		{#if !arranging}
+		{#if !arranging && store.isAdmin}
 			<a href="/cameras/new" class="btn-primary"
 				><Plus class="size-4" /><span class="hidden sm:inline">Add camera</span></a
 			>
@@ -206,7 +206,9 @@
 		>
 		<h2 class="text-lg font-semibold">No cameras yet</h2>
 		<p class="mt-2 text-sm text-muted">Add your first camera to see it here.</p>
-		<a href="/cameras/new" class="mt-6 btn-primary"><Plus class="size-4" />Add camera</a>
+		{#if store.isAdmin}
+			<a href="/cameras/new" class="mt-6 btn-primary"><Plus class="size-4" />Add camera</a>
+		{/if}
 	</div>
 {:else}
 	<div class="grid gap-4 {columns[density]}">

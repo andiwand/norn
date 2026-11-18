@@ -262,7 +262,7 @@
 		{:else if loaded}
 			<p class="mt-3 text-sm text-muted">
 				{reason}
-				{#if store.info?.recording_available && camera.enabled}
+				{#if store.info?.recording_available && camera.enabled && store.isAdmin}
 					<button class="text-accent hover:underline" onclick={onsettings}
 						>Recording settings</button
 					>

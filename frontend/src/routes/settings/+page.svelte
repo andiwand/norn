@@ -7,6 +7,8 @@
 	import { install } from '#lib/install.svelte.js';
 	import { SettingsForm } from '#lib/settings-form.svelte.js';
 	import SaveBar from '#lib/components/SaveBar.svelte';
+	import UsersSettings from '#lib/components/UsersSettings.svelte';
+	import AccountSettings from '#lib/components/AccountSettings.svelte';
 	import SettingsSection from '#lib/components/SettingsSection.svelte';
 	import NumberSetting from '#lib/components/NumberSetting.svelte';
 	import TextSetting from '#lib/components/TextSetting.svelte';
@@ -35,17 +37,26 @@
 		}
 	];
 
-	const TABS = [
+	// Admins see every tab; a viewer only their account. Users: who may sign in (also to
+	// turn sign-in on); Account: once someone is signed in.
+	const ALL = [
 		['recording', 'Recording'],
 		['firmware', 'Firmware'],
-		['mqtt', 'MQTT']
+		['mqtt', 'MQTT'],
+		['users', 'Users'],
+		['account', 'Account']
 	] as const;
-	type Tab = (typeof TABS)[number][0];
-	const tab = $derived<Tab>(
-		TABS.find(([id]) => id === page.url.searchParams.get('tab'))?.[0] ?? 'recording'
+	type Tab = (typeof ALL)[number][0];
+	const TABS = $derived(
+		ALL.filter(([id]) => (id === 'account' ? !!store.auth?.user : store.isAdmin))
 	);
+	const first = $derived<Tab>(TABS[0]?.[0] ?? 'account');
+	const tab = $derived<Tab>(
+		TABS.find(([id]) => id === page.url.searchParams.get('tab'))?.[0] ?? first
+	);
+	const saves = $derived(tab !== 'users' && tab !== 'account');
 	function show(next: Tab) {
-		goto(next === 'recording' ? '/settings' : `/settings?tab=${next}`, {
+		goto(next === first ? '/settings' : `/settings?tab=${next}`, {
 			replace: true,
 			reset: false
 		});
@@ -73,8 +84,13 @@
 		saving={settings.saving}
 		onsave={() => settings.save()}
 		ondiscard={() => settings.reset()}
+		{saves}
 	>
-		<div class="flex rounded-xl bg-surface-3 p-1" role="tablist" aria-label="Settings">
+		<div
+			class="flex rounded-xl bg-surface-3 p-1 {TABS.length > 1 ? '' : 'hidden'}"
+			role="tablist"
+			aria-label="Settings"
+		>
 			{#each TABS as [id, label] (id)}
 				<button
 					role="tab"
@@ -89,7 +105,7 @@
 	</SaveBar>
 	<!-- Phones have no room for these in the bottom bar: they open from here, as a menu. -->
 	<nav class="-mt-1 divide-y divide-line overflow-hidden card md:hidden" aria-label="More">
-		{#each MORE as item (item.href)}
+		{#each MORE.filter((item) => store.isAdmin || item.href !== '/diagnostics') as item (item.href)}
 			<a href={item.href} class="flex items-center gap-3 px-4 py-3 active:bg-surface-3">
 				<item.icon class="size-5 shrink-0 text-muted" />
 				<span class="min-w-0 flex-1">
@@ -125,7 +141,11 @@
 		{/if}
 	</nav>
 
-	{#if form && defaults}
+	{#if tab === 'users'}
+		<UsersSettings />
+	{:else if tab === 'account'}
+		<AccountSettings />
+	{:else if form && defaults}
 		{#if tab === 'recording'}
 			<SettingsSection
 				title="Keeping recordings"

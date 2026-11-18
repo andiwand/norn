@@ -98,17 +98,19 @@
 				['recording', 'Recording'],
 				['device', 'Device']
 			] as [Tab, string][]
-		).filter(([t]) => t !== 'steer' || caps.has('ptz'))
+		).filter(([t]) => (t === 'steer' ? caps.has('ptz') : store.isAdmin))
 	);
+	// A viewer of a camera that doesn't move has no tabs: the video takes the width.
+	const sideways = $derived(tabs.length > 0);
 	const tab = $derived.by<Tab>(() => {
 		const wanted = page.url.searchParams.get('tab');
-		return tabs.find(([t]) => t === wanted)?.[0] ?? tabs[0][0];
+		return tabs.find(([t]) => t === wanted)?.[0] ?? tabs[0]?.[0] ?? 'steer';
 	});
 	let tabBar = $state<HTMLElement | null>(null);
 
 	async function show(next: Tab, { scroll = false, focus = false } = {}) {
 		const url = new URL(page.url.href);
-		if (next === tabs[0][0]) url.searchParams.delete('tab');
+		if (next === tabs[0]?.[0]) url.searchParams.delete('tab');
 		else url.searchParams.set('tab', next);
 		await goto(url, { replace: true, reset: false });
 		await tick();
@@ -212,13 +214,15 @@
 				><ExternalLink class="size-4" /><span class="hidden sm:inline">Camera page</span></a
 			>
 		{/if}
-		<a
-			href="/cameras/{camera.id}/edit"
-			class="btn-ghost shrink-0"
-			title="Name, address, password, streams"
-			aria-label="Edit the camera"
-			><Pencil class="size-4" /><span class="hidden sm:inline">Edit</span></a
-		>
+		{#if store.isAdmin}
+			<a
+				href="/cameras/{camera.id}/edit"
+				class="btn-ghost shrink-0"
+				title="Name, address, password, streams"
+				aria-label="Edit the camera"
+				><Pencil class="size-4" /><span class="hidden sm:inline">Edit</span></a
+			>
+		{/if}
 	</div>
 
 	{#if camera.error}
@@ -232,7 +236,9 @@
 	<!-- Wide screens: the video and the activity on the left, the tabs beside them. Phones: the
 	     video, the tabs (what's done with the camera), then the activity. -->
 	<div
-		class="grid items-start gap-x-6 gap-y-4 lg:grid-cols-[minmax(0,1fr)_24rem] lg:grid-rows-[auto_1fr]"
+		class="grid items-start gap-x-6 gap-y-4 {sideways
+			? 'lg:grid-cols-[minmax(0,1fr)_24rem] lg:grid-rows-[auto_1fr]'
+			: ''}"
 	>
 		<div class="min-w-0 space-y-4 lg:col-start-1 lg:row-start-1">
 			<!-- The video at its own shape (4:3 has no black bars), never taller than the screen. -->
@@ -356,7 +362,7 @@
 				</div>
 			</div>
 
-			{#if camera.enabled}
+			{#if camera.enabled && store.isAdmin}
 				<QuickControls {controls} onchange={setControl} />
 			{/if}
 		</div>
@@ -364,162 +370,168 @@
 		<!-- The tabs: beside the video (they stay in view while it plays); on phones below it, the
 		     tab bar sticking under the header. All tabs stay mounted: an unsaved form in one
 		     survives a look at another. -->
-		<aside
-			class="min-w-0 lg:sticky lg:top-20 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:max-h-[calc(100dvh-6rem)] lg:overflow-y-auto lg:overscroll-contain lg:rounded-2xl"
-		>
-			<div
-				bind:this={tabBar}
-				class="sticky top-12 z-10 -mx-3 scroll-mt-12 bg-bg/90 px-3 py-2 backdrop-blur-xl sm:-mx-6 sm:px-6 md:top-14 md:scroll-mt-14 lg:top-0 lg:mx-0 lg:px-0 lg:pt-0"
+		{#if sideways}
+			<aside
+				class="min-w-0 lg:sticky lg:top-20 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:max-h-[calc(100dvh-6rem)] lg:overflow-y-auto lg:overscroll-contain lg:rounded-2xl"
 			>
 				<div
-					class="flex rounded-xl border border-line bg-surface-2 p-1"
-					role="tablist"
-					aria-label="About this camera"
-					tabindex="-1"
-					onkeydown={onTabKey}
+					bind:this={tabBar}
+					class="{tabs.length > 1
+						? ''
+						: 'hidden'} sticky top-12 z-10 -mx-3 scroll-mt-12 bg-bg/90 px-3 py-2 backdrop-blur-xl sm:-mx-6 sm:px-6 md:top-14 md:scroll-mt-14 lg:top-0 lg:mx-0 lg:px-0 lg:pt-0"
 				>
-					{#each tabs as [t, label] (t)}
-						<button
-							role="tab"
-							id="tab-{t}"
-							data-tab={t}
-							aria-selected={tab === t}
-							aria-controls="panel-{t}"
-							tabindex={tab === t ? 0 : -1}
-							class="h-9 flex-1 rounded-lg px-2 text-sm font-medium transition {tab === t
-								? 'bg-surface text-text shadow'
-								: 'text-muted hover:text-text'}"
-							onclick={() => show(t)}>{label}</button
-						>
-					{/each}
-				</div>
-			</div>
-
-			<div class="space-y-4 pt-2 lg:pb-1">
-				{#if caps.has('ptz')}
 					<div
-						id="panel-steer"
+						class="flex rounded-xl border border-line bg-surface-2 p-1"
+						role="tablist"
+						aria-label="About this camera"
+						tabindex="-1"
+						onkeydown={onTabKey}
+					>
+						{#each tabs as [t, label] (t)}
+							<button
+								role="tab"
+								id="tab-{t}"
+								data-tab={t}
+								aria-selected={tab === t}
+								aria-controls="panel-{t}"
+								tabindex={tab === t ? 0 : -1}
+								class="h-9 flex-1 rounded-lg px-2 text-sm font-medium transition {tab === t
+									? 'bg-surface text-text shadow'
+									: 'text-muted hover:text-text'}"
+								onclick={() => show(t)}>{label}</button
+							>
+						{/each}
+					</div>
+				</div>
+
+				<div class="space-y-4 pt-2 lg:pb-1">
+					{#if caps.has('ptz')}
+						<div
+							id="panel-steer"
+							role="tabpanel"
+							aria-labelledby="tab-steer"
+							hidden={tab !== 'steer'}
+							class="space-y-4"
+						>
+							<section class="{section} p-4">
+								<PtzPad camera={camera.id} zoom={caps.has('zoom')} />
+								<p class="mt-3 text-center text-xs text-muted">
+									Hold an arrow to move. With the mouse over the video, the arrow keys work too{caps.has(
+										'zoom'
+									)
+										? ', and + and − zoom'
+										: ''}.
+								</p>
+								{#if presets.length}
+									<h3 class="mt-5 mb-2 text-xs font-medium text-muted">The camera's presets</h3>
+									<div class="flex flex-wrap gap-2">
+										{#each presets as preset (preset.id)}
+											<button
+												class="chip h-9"
+												onclick={() =>
+													store.attempt(
+														() => api.ptz(id, { action: 'goto', preset: preset.id }),
+														`Going to “${preset.name}”`
+													)}
+											>
+												<MapPin class="size-3.5" />{preset.name}
+											</button>
+										{/each}
+									</div>
+								{/if}
+								<NornPresets {camera} {controls} editable={store.isAdmin} />
+							</section>
+							{#if store.isAdmin}
+								<section class={section}>
+									<h2 class={sectionTitle}>Patrol & following</h2>
+									<div class="px-4 pb-4">
+										{#key camera.id}<PtzAutomation {camera} />{/key}
+									</div>
+								</section>
+							{/if}
+						</div>
+					{/if}
+
+					<div
+						id="panel-settings"
 						role="tabpanel"
-						aria-labelledby="tab-steer"
-						hidden={tab !== 'steer'}
+						aria-labelledby="tab-settings"
+						hidden={tab !== 'settings'}
 						class="space-y-4"
 					>
-						<section class="{section} p-4">
-							<PtzPad camera={camera.id} zoom={caps.has('zoom')} />
-							<p class="mt-3 text-center text-xs text-muted">
-								Hold an arrow to move. With the mouse over the video, the arrow keys work too{caps.has(
-									'zoom'
-								)
-									? ', and + and − zoom'
-									: ''}.
-							</p>
-							{#if presets.length}
-								<h3 class="mt-5 mb-2 text-xs font-medium text-muted">The camera's presets</h3>
-								<div class="flex flex-wrap gap-2">
-									{#each presets as preset (preset.id)}
-										<button
-											class="chip h-9"
-											onclick={() =>
-												store.attempt(
-													() => api.ptz(id, { action: 'goto', preset: preset.id }),
-													`Going to “${preset.name}”`
-												)}
-										>
-											<MapPin class="size-3.5" />{preset.name}
-										</button>
+						{#each groups as [group, items] (group)}
+							<section class={section}>
+								<h2 class={sectionTitle}>{group}</h2>
+								<div class="divide-y divide-line px-4 pb-2">
+									{#each items as control (control.id)}
+										<div class="py-2">
+											<ControlField {control} onchange={(v) => setControl(control, v)} />
+										</div>
 									{/each}
 								</div>
-							{/if}
-							<NornPresets {camera} {controls} />
-						</section>
+							</section>
+						{:else}
+							<section class="{section} p-5 text-sm text-muted">
+								{#if !camera.enabled}
+									This camera is disabled.
+								{:else if caps.has('controls')}
+									Loading the camera's settings…
+								{:else}
+									Norn can't change settings of this camera.{#if camera.web_url}
+										Its own page may: <a
+											href={camera.web_url}
+											target="_blank"
+											rel="noopener noreferrer"
+											class="text-accent hover:underline">open it</a
+										>.{/if}
+								{/if}
+							</section>
+						{/each}
+					</div>
+
+					<div
+						id="panel-recording"
+						role="tabpanel"
+						aria-labelledby="tab-recording"
+						hidden={tab !== 'recording'}
+					>
 						<section class={section}>
-							<h2 class={sectionTitle}>Patrol & following</h2>
+							<h2 class={sectionTitle}>Recording & detection</h2>
 							<div class="px-4 pb-4">
-								{#key camera.id}<PtzAutomation {camera} />{/key}
+								<!-- Anew for another camera, or when presets come or go. -->
+								{#key `${camera.id}:${Object.keys(camera.presets_norn ?? {}).join()}`}
+									<CameraRecording {camera} />
+								{/key}
 							</div>
 						</section>
 					</div>
-				{/if}
 
-				<div
-					id="panel-settings"
-					role="tabpanel"
-					aria-labelledby="tab-settings"
-					hidden={tab !== 'settings'}
-					class="space-y-4"
-				>
-					{#each groups as [group, items] (group)}
-						<section class={section}>
-							<h2 class={sectionTitle}>{group}</h2>
-							<div class="divide-y divide-line px-4 pb-2">
-								{#each items as control (control.id)}
-									<div class="py-2">
-										<ControlField {control} onchange={(v) => setControl(control, v)} />
-									</div>
-								{/each}
-							</div>
-						</section>
-					{:else}
-						<section class="{section} p-5 text-sm text-muted">
-							{#if !camera.enabled}
-								This camera is disabled.
-							{:else if caps.has('controls')}
-								Loading the camera's settings…
-							{:else}
-								Norn can't change settings of this camera.{#if camera.web_url}
-									Its own page may: <a
-										href={camera.web_url}
-										target="_blank"
-										rel="noopener noreferrer"
-										class="text-accent hover:underline">open it</a
-									>.{/if}
-							{/if}
-						</section>
-					{/each}
-				</div>
-
-				<div
-					id="panel-recording"
-					role="tabpanel"
-					aria-labelledby="tab-recording"
-					hidden={tab !== 'recording'}
-				>
-					<section class={section}>
-						<h2 class={sectionTitle}>Recording & detection</h2>
-						<div class="px-4 pb-4">
-							<!-- Anew for another camera, or when presets come or go. -->
-							{#key `${camera.id}:${Object.keys(camera.presets_norn ?? {}).join()}`}
-								<CameraRecording {camera} />
-							{/key}
-						</div>
-					</section>
-				</div>
-
-				<div
-					id="panel-device"
-					role="tabpanel"
-					aria-labelledby="tab-device"
-					hidden={tab !== 'device'}
-					class="space-y-4"
-				>
-					<DeviceCard {camera} />
-					<section class={section}>
-						<h2 class={sectionTitle}>Connect</h2>
-						<div class="px-4 pb-4"><CameraConnect {camera} {controls} /></div>
-					</section>
-					<a
-						href="/cameras/{camera.id}/edit"
-						class="flex items-center gap-3 card px-4 py-3 text-sm hover:bg-surface-2"
+					<div
+						id="panel-device"
+						role="tabpanel"
+						aria-labelledby="tab-device"
+						hidden={tab !== 'device'}
+						class="space-y-4"
 					>
-						<Pencil class="size-4 text-muted" />
-						<span class="flex-1">
-							<span class="block font-medium">Edit the camera</span>
-							<span class="block text-xs text-muted">Name, address, password, streams</span>
-						</span>
-					</a>
+						<DeviceCard {camera} />
+						<section class={section}>
+							<h2 class={sectionTitle}>Connect</h2>
+							<div class="px-4 pb-4"><CameraConnect {camera} {controls} /></div>
+						</section>
+						<a
+							href="/cameras/{camera.id}/edit"
+							class="flex items-center gap-3 card px-4 py-3 text-sm hover:bg-surface-2"
+						>
+							<Pencil class="size-4 text-muted" />
+							<span class="flex-1">
+								<span class="block font-medium">Edit the camera</span>
+								<span class="block text-xs text-muted">Name, address, password, streams</span>
+							</span>
+						</a>
+					</div>
 				</div>
-			</div>
-		</aside>
+			</aside>
+		{/if}
 
 		<div class="min-w-0 lg:col-start-1 lg:row-start-2">
 			<CameraActivity

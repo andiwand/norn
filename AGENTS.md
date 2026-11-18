@@ -103,6 +103,11 @@ image or the PyPI package `norn-hub`. The name may change later.
   - `mqtt.py`: Home Assistant over MQTT discovery. Its settings are config.yaml's `mqtt`
     (`MqttOverride`) over defaults from the `NORN_MQTT*` variables (`mqtt.defaults`); the hub
     makes a new `Mqtt` when they change. The API never returns the password.
+  - `auth.py` / `auth_api.py`: sign-in. Off until `users:` in config.yaml has someone; then
+    `AuthMiddleware` lets nobody into /api (WebSockets too) without a session cookie
+    (`.norn/sessions.json`, hashed) or an API token (`.norn/tokens.json`). Roles: `admin`, and
+    `viewer` (reads, and the writes in `auth.VIEWER_WRITES`). New routes that change something
+    are admin-only by default; add one to `VIEWER_WRITES` only when a viewer should do it.
   - `settings.py`: process settings from `NORN_*` environment variables. Camera and recording
     settings belong in config.yaml, not here.
 - `frontend/`: SvelteKit 3 + Svelte 5 runes + Tailwind 4, built as a static single-page app

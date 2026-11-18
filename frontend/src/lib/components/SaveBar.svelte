@@ -9,6 +9,7 @@
 		saving,
 		onsave,
 		ondiscard,
+		saves = true,
 		children
 	}: {
 		title: string;
@@ -16,6 +17,8 @@
 		saving: boolean;
 		onsave: () => void;
 		ondiscard: () => void;
+		/** Whether this tab has things to save (a tab that acts at once has no Save). */
+		saves?: boolean;
 		children?: Snippet;
 	} = $props();
 
@@ -50,7 +53,10 @@
 		<!-- On a phone the tabs get a row of their own. -->
 		<div class="order-last w-full sm:order-none sm:w-auto">{@render children()}</div>
 	{/if}
-	<span class="ml-auto flex shrink-0 items-center gap-2">
+	<span
+		class="ml-auto flex shrink-0 items-center gap-2 {saves ? '' : 'invisible'}"
+		aria-hidden={!saves}
+	>
 		<span class="hidden text-xs sm:inline {dirty ? 'font-medium text-accent' : 'text-muted'}">
 			{dirty ? 'Unsaved changes' : 'All saved'}
 		</span>

@@ -384,6 +384,15 @@ Override = Literal["picture_seconds", "prebuffer_seconds", "clip_seconds", "trig
 PRESET_OVERRIDES = frozenset({"prebuffer_seconds", "clip_seconds", "triggers"})
 
 
+class UserConfig(BaseModel):
+    """Someone who may sign in (auth.py). `password` is a scrypt hash, never the password."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    role: Literal["admin", "viewer"] = "viewer"
+    password: str
+
+
 class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -394,15 +403,17 @@ class Config(BaseModel):
     mqtt: MqttOverride = Field(default_factory=MqttOverride)
     circles: dict[str, CircleConfig] = Field(default_factory=dict)
     cameras: dict[str, CameraConfig] = Field(default_factory=dict)
+    # Who may sign in; none: no sign-in (Norn trusts its network).
+    users: dict[str, UserConfig] = Field(default_factory=dict)
 
     @field_validator(
-        "recording", "firmware", "away", "detection", "mqtt", "cameras", "circles", mode="before"
+        "recording", "firmware", "away", "detection", "mqtt", "cameras", "circles", "users", mode="before"
     )
     @classmethod
     def _none_is_empty(cls, value: Any) -> Any:
         return {} if value is None else value
 
-    @field_validator("cameras", "circles")
+    @field_validator("cameras", "circles", "users")
     @classmethod
     def _valid_ids(cls, value: dict[str, Any]) -> dict[str, Any]:
         check_ids(value)
@@ -795,6 +806,13 @@ class ConfigStore:
 
     def remove_camera(self, camera_id: str) -> Config:
         return self._remove_entry("cameras", camera_id)
+
+    def put_user(self, name: str, user: UserConfig) -> Config:
+        # The role always written: who is an admin should be plain in the file.
+        return self._put_entry("users", name, user.model_dump())
+
+    def remove_user(self, name: str) -> Config:
+        return self._remove_entry("users", name)
 
     @_edit
     def _remove_entry(self, section: str, entry_id: str) -> Config:

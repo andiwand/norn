@@ -259,7 +259,20 @@ The arrow button in the top bar installs Norn, or explains how:
   a shortcut). For example [Tailscale Serve](https://tailscale.com/kb/1312/serve)
   (`tailscale serve --bg 8000`) or a reverse proxy like Caddy that passes WebSockets.
 
-> Norn has no sign-in yet. Keep it, and the shared RTSP streams, inside your home network.
+### Sign-in
+
+Off until you add the first user in **Settings → Users**: then everyone signs in, at home too.
+Turn it on before you open Norn to the internet, behind a reverse proxy with HTTPS (Norn doesn't
+serve HTTPS itself). Two roles:
+
+- **Admin**: changes everything, adds and removes users.
+- **Viewer**: watches live and recorded video, steers pan/tilt cameras, records a clip, keeps
+  recordings, switches away mode.
+
+Users are in `config.yaml` (`users:`, with a password hash). Each device stays signed in while
+it's used at least once a month; **Settings → Account** lists them and signs them out. Webhooks
+and scripts use an API token from there: `Authorization: Bearer <token>`. Shared RTSP streams
+(`NORN_RTSP_SHARE`) have no sign-in: keep them inside your home network.
 
 ## Development
 

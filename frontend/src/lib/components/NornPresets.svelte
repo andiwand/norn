@@ -11,10 +11,19 @@
 	import Star from '@lucide/svelte/icons/star';
 	import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 
-	let { camera, controls }: { camera: Camera; controls: Control[] } = $props();
+	let {
+		camera,
+		controls,
+		editable = true
+	}: {
+		camera: Camera;
+		controls: Control[];
+		/** Saving, replacing, deleting and the default; without, only going to them. */
+		editable?: boolean;
+	} = $props();
 
 	const presets = $derived(Object.entries(camera.presets_norn ?? {}));
-	const canSave = $derived(camera.capabilities.includes('preset-save'));
+	const canSave = $derived(editable && camera.capabilities.includes('preset-save'));
 	const settable = $derived(controls.filter((c) => c.kind !== 'button'));
 
 	let adding = $state(false);
@@ -123,43 +132,47 @@
 								>{/if}</span
 						>
 					</button>
-					<button
-						class="absolute top-1 left-1 tile-action transition {isDefault ? 'text-accent' : hover}"
-						aria-label={isDefault ? 'No default preset' : `Make “${preset.name}” the default`}
-						aria-pressed={isDefault}
-						title={isDefault
-							? 'The default: Norn returns here when nothing else steers the camera'
-							: 'Make it the default: Norn returns here when nothing else steers the camera'}
-						onclick={() => setDefault(id)}
-						><Star class="size-4 {isDefault ? 'fill-current' : ''}" /></button
-					>
-					<span class="absolute top-1 right-1 flex gap-1">
-						{#if canSave}
-							<button
-								class="tile-action transition {confirming === `replace:${id}`
-									? 'w-auto! bg-accent px-2 text-xs font-medium'
-									: hover}"
-								aria-label={confirming === `replace:${id}`
-									? `Really replace ${preset.name} with this view`
-									: `Replace ${preset.name} with this view`}
-								title="Save what the camera shows now (and the preset's settings as they are now) into this preset"
-								onclick={() => replace(id)}
-								>{#if confirming === `replace:${id}`}Replace?{:else}<RefreshCw
-										class="size-4"
-									/>{/if}</button
-							>
-						{/if}
+					{#if editable}
 						<button
-							class="tile-action transition hover:bg-danger {confirming === `delete:${id}`
-								? 'w-auto! bg-danger px-2 text-xs font-medium'
+							class="absolute top-1 left-1 tile-action transition {isDefault
+								? 'text-accent'
 								: hover}"
-							aria-label={confirming === `delete:${id}`
-								? `Really delete ${preset.name}`
-								: `Delete ${preset.name}`}
-							onclick={() => remove(id)}
-							>{#if confirming === `delete:${id}`}Delete?{:else}<X class="size-4" />{/if}</button
+							aria-label={isDefault ? 'No default preset' : `Make “${preset.name}” the default`}
+							aria-pressed={isDefault}
+							title={isDefault
+								? 'The default: Norn returns here when nothing else steers the camera'
+								: 'Make it the default: Norn returns here when nothing else steers the camera'}
+							onclick={() => setDefault(id)}
+							><Star class="size-4 {isDefault ? 'fill-current' : ''}" /></button
 						>
-					</span>
+						<span class="absolute top-1 right-1 flex gap-1">
+							{#if canSave}
+								<button
+									class="tile-action transition {confirming === `replace:${id}`
+										? 'w-auto! bg-accent px-2 text-xs font-medium'
+										: hover}"
+									aria-label={confirming === `replace:${id}`
+										? `Really replace ${preset.name} with this view`
+										: `Replace ${preset.name} with this view`}
+									title="Save what the camera shows now (and the preset's settings as they are now) into this preset"
+									onclick={() => replace(id)}
+									>{#if confirming === `replace:${id}`}Replace?{:else}<RefreshCw
+											class="size-4"
+										/>{/if}</button
+								>
+							{/if}
+							<button
+								class="tile-action transition hover:bg-danger {confirming === `delete:${id}`
+									? 'w-auto! bg-danger px-2 text-xs font-medium'
+									: hover}"
+								aria-label={confirming === `delete:${id}`
+									? `Really delete ${preset.name}`
+									: `Delete ${preset.name}`}
+								onclick={() => remove(id)}
+								>{#if confirming === `delete:${id}`}Delete?{:else}<X class="size-4" />{/if}</button
+							>
+						</span>
+					{/if}
 				</div>
 			{/each}
 		</div>

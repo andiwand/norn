@@ -1,6 +1,8 @@
 // The app's shared state: the cameras, the server info, the live event stream, and toasts.
 import {
 	api,
+	onUnauthorized,
+	type AuthStatus,
 	type Camera,
 	type Circle,
 	type Control,
@@ -50,6 +52,8 @@ class Store {
 	// complete and then updates in place.
 	controls = $state<Record<string, CameraControls>>(readStoredJson(CONTROLS_KEY, {}));
 	info = $state<Info | null>(null);
+	/** Sign-in: on or off, and who is signed in here; null until asked. */
+	auth = $state<AuthStatus | null>(null);
 	connected = $state(false);
 	loaded = $state(false);
 	toasts = $state<Toast[]>([]);
@@ -74,11 +78,65 @@ class Store {
 		return this.circles.find((c) => c.id === id);
 	}
 
+	/** Everything may be changed here: an admin is signed in, or sign-in is off. */
+	get isAdmin(): boolean {
+		return !this.auth?.enabled || this.auth.user?.role === 'admin';
+	}
+
+	/** Sign-in is on and nobody is signed in here: the app shows the sign-in page. */
+	get signedOut(): boolean {
+		return !!this.auth?.enabled && !this.auth.user;
+	}
+
 	start() {
 		if (this.#started) return;
 		this.#started = true;
+		onUnauthorized(() => this.#lostSession());
+		this.#begin();
+	}
+
+	async #begin() {
+		try {
+			this.auth = await api.auth();
+		} catch {
+			this.auth = { enabled: false, user: null }; // an older server: no sign-in
+		}
+		if (this.signedOut) {
+			this.loaded = true;
+			return;
+		}
 		this.refresh();
 		this.#connect();
+	}
+
+	/** Signed in (or sign-in turned on by the first user): load everything. */
+	signedIn(user: { name: string; role: 'admin' | 'viewer' }) {
+		this.auth = { enabled: true, user };
+		this.refresh();
+		if (!this.#socket) this.#connect();
+	}
+
+	async signOut() {
+		await api.logout().catch(() => null);
+		this.#forget();
+		this.auth = { enabled: true, user: null };
+	}
+
+	#lostSession() {
+		if (this.signedOut) return;
+		this.#forget();
+		this.auth = { enabled: true, user: null };
+	}
+
+	/** Nothing of this user's stays in the browser for the next one. */
+	#forget() {
+		this.#socket?.close();
+		this.#socket = null;
+		this.cameras = [];
+		this.circles = [];
+		this.info = null;
+		this.controls = {};
+		writeStored(CONTROLS_KEY, '{}');
 	}
 
 	async refresh() {
@@ -156,10 +214,16 @@ class Store {
 		}
 	}
 
+	#socket: WebSocket | null = null;
+
 	#connect() {
+		if (this.signedOut) return;
 		const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/events`;
 		const socket = new WebSocket(url);
+		this.#socket = socket;
+		let opened = false;
 		socket.onopen = () => {
+			opened = true;
 			this.connected = true;
 			this.#retry = 1000;
 			this.refresh(); // catch up on what happened while disconnected
@@ -194,8 +258,17 @@ class Store {
 				this.toast(`Config not loaded: ${event.data.error}`, 'error', 8000);
 			for (const listener of this.#listeners) listener(event);
 		};
-		socket.onclose = () => {
+		socket.onclose = (e) => {
 			this.connected = false;
+			if (this.#socket !== socket) return; // signed out: closed on purpose
+			this.#socket = null;
+			if (e.code === 4401) return this.#lostSession(); // the session ended
+			// Refused before it opened: a browser only sees that it failed. Signed out meanwhile?
+			if (!opened)
+				api
+					.auth()
+					.then((a) => a.enabled && !a.user && this.#lostSession())
+					.catch(() => null);
 			setTimeout(() => this.#connect(), this.#retry);
 			this.#retry = Math.min(this.#retry * 2, 15000);
 		};

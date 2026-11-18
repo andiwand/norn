@@ -45,11 +45,16 @@
 			<pre
 				class="overflow-x-auto rounded-xl bg-surface-2 p-4 font-mono text-xs leading-relaxed">curl -X POST {origin}/api/cameras/<span
 					class="text-accent">CAMERA</span
-				>/record \
+				>/record \{#if store.auth?.enabled}
+					-H 'Authorization: Bearer <span class="text-accent">TOKEN</span>' \{/if}
   -H 'Content-Type: application/json' \
   -d '&#123;"trigger": "doorbell", "seconds": 30&#125;'</pre>
 			<p class="mt-3 text-xs text-muted">
-				Every endpoint: <a class={link} href="/api/docs">API docs</a>.
+				{#if store.auth?.enabled}Sign-in is on: a token from <a
+						class={link}
+						href="/settings?tab=account">Settings → Account</a
+					> lets the request in.
+				{/if}Every endpoint: <a class={link} href="/api/docs">API docs</a>.
 			</p>
 		</div>
 	</SettingsSection>

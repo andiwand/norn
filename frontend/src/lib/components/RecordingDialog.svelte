@@ -182,9 +182,11 @@
 								class="size-4"
 							/>Pin{/if}</button
 					>
-					<button class="btn-danger" onclick={() => (confirming = true)}
-						><Trash2 class="size-4" />Delete</button
-					>
+					{#if store.isAdmin}
+						<button class="btn-danger" onclick={() => (confirming = true)}
+							><Trash2 class="size-4" />Delete</button
+						>
+					{/if}
 				{/if}
 				<a class="btn-ghost" href={urls.recording(recording)} download
 					><Download class="size-4" />Download</a
