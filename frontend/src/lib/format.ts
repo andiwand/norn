@@ -151,3 +151,32 @@ export function ownSettings(x: {
 	if (x.detection && Object.keys(x.detection).length) parts.push('own detection');
 	return parts;
 }
+
+/** Who detected something, in words: "camera", "Norn", "camera + Norn"; '' when not known. */
+export function sourcesLabel(sources: readonly string[] | undefined): string {
+	const names = { camera: 'camera', norn: 'Norn' } as Record<string, string>;
+	return (sources ?? []).map((s) => names[s] ?? s).join(' + ');
+}
+
+/** What Norn's AI finds (as the backend's OBJECT_KINDS), and cameras' own AI may report. */
+export const OBJECT_KINDS: readonly string[] = ['person', 'vehicle', 'animal'];
+
+/** A clip the camera's own AI started for a person, vehicle or animal that Norn's AI, looking
+ * during the alarm, didn't see: most likely a false alarm. Older clips don't know. */
+export function unconfirmed(r: { trigger: string; meta?: Record<string, unknown> }): boolean {
+	const saw = r.meta?.norn_saw;
+	if (!Array.isArray(saw) || !OBJECT_KINDS.includes(r.trigger)) return false;
+	const by = (r.meta?.by as Record<string, string[]> | undefined)?.[r.trigger] ?? [];
+	return by.includes('camera') && !by.includes('norn') && !saw.includes(r.trigger);
+}
+
+/** "a person", "an animal": a detection's name in a sentence. */
+export function aKind(kind: string): string {
+	const name = triggerLabel(kind).toLowerCase();
+	return `${/^[aeiou]/.test(name) ? 'an' : 'a'} ${name}`;
+}
+
+/** Who started a clip, from its notes: "camera", "Norn", "camera + Norn"; '' when not noted. */
+export function clipSources(r: { trigger: string; meta?: Record<string, unknown> }): string {
+	return sourcesLabel((r.meta?.by as Record<string, string[]> | undefined)?.[r.trigger]);
+}

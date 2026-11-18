@@ -1,7 +1,16 @@
 <script lang="ts">
 	import { urls, type Recording } from '../api';
 	import { deleteRecording } from '../recordings.svelte';
-	import { formatBytes, formatDay, formatDuration, formatTime, triggerLabel } from '../format';
+	import {
+		clipSources,
+		formatBytes,
+		formatDay,
+		formatDuration,
+		formatTime,
+		triggerLabel,
+		unconfirmed,
+		aKind
+	} from '../format';
 	import { store } from '../state.svelte';
 	import Download from '@lucide/svelte/icons/download';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
@@ -89,11 +98,18 @@
 				<div class="text-xs text-muted">
 					{formatDay(recording.day)} · {formatTime(recording.start)} · {triggerLabel(
 						recording.trigger
-					)}
+					)}{#if clipSources(recording)}
+						({clipSources(recording)}){/if}
 					{#if recording.duration}· {formatDuration(recording.duration)}{/if} · {formatBytes(
 						recording.size
 					)}
 				</div>
+				{#if unconfirmed(recording)}
+					<div class="mt-0.5 text-xs font-medium text-warning">
+						The camera reported {aKind(recording.trigger)}; Norn's AI looked and saw nothing:
+						probably a false alarm.
+					</div>
+				{/if}
 			</div>
 			<div class="flex shrink-0 items-center gap-1">
 				{#if list && index >= 0 && list.length > 1}

@@ -179,6 +179,11 @@ class Store {
 					events.active = event.data.active
 						? [...new Set([...events.active, kind])]
 						: events.active.filter((k) => k !== kind);
+					const by = { ...events.by };
+					const sources = event.data.sources as string[] | undefined;
+					if (event.data.active && sources?.length) by[kind] = sources;
+					else delete by[kind];
+					events.by = by;
 				}
 			}
 			if (camera && event.type === 'camera.control') {

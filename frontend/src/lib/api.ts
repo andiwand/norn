@@ -156,6 +156,8 @@ export interface Camera {
 		camera: string[];
 		norn: string[];
 		active: string[];
+		/** Who sees each active kind: 'camera' (its own AI), 'norn', or both. */
+		by?: Record<string, string[]>;
 		detect_ms: number | null;
 	} | null;
 	/** Seconds of the past a clip started now would include (the RAM buffer). */
@@ -305,6 +307,9 @@ export interface DetectionSettings {
 	sensitivity: number;
 	min_score: number;
 	confirm_seconds: number;
+	/** The camera's own AI alarms: take its word, check them with Norn's AI, or record only
+	 * what Norn confirms. */
+	check_camera: 'off' | 'check' | 'require';
 	model: 'nano' | 'tiny';
 }
 

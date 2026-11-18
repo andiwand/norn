@@ -36,7 +36,7 @@ import os
 import shutil
 import signal
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -306,6 +306,9 @@ class Clip:
     seconds: int
     end: float = 0  # time.time() when the clip should end
     events: set[str] = field(default_factory=set)  # every trigger that started or extended it
+    by: dict[str, set[str]] = field(default_factory=dict)  # per trigger: the camera, Norn
+    checked: bool = False  # Norn's AI looked at stills while it ran
+    norn_saw: set[str] = field(default_factory=set)  # and found these
     closing: bool = False  # its end is fixed: a trigger now starts a new clip
     process: asyncio.subprocess.Process | None = None
     task: asyncio.Task[None] | None = field(default=None, repr=False)
@@ -473,7 +476,13 @@ class Recorder:
         stages["recordings"] = self.library.usage()
         return stages
 
-    async def record_clip(self, camera: str, trigger: str = "manual", seconds: int | None = None) -> Clip:
+    async def record_clip(
+        self,
+        camera: str,
+        trigger: str = "manual",
+        seconds: int | None = None,
+        by: Iterable[str] = (),
+    ) -> Clip:
         if trigger in RESERVED:
             raise ValueError(f"the trigger {trigger!r} is Norn's own")
         if not self.available:
@@ -487,6 +496,7 @@ class Recorder:
             clip.end = min(max(clip.end, time.time() + seconds), clip.start.timestamp() + MAX_CLIP_SECONDS)
             clip.seconds = round(clip.end - clip.triggered.timestamp())
             clip.events.add(trigger)
+            clip.by.setdefault(trigger, set()).update(by)
             return clip
         now = datetime.now().replace(microsecond=0)
         buffer = self._buffers.get(camera)
@@ -503,6 +513,7 @@ class Recorder:
             seconds=seconds,
             end=time.time() + seconds,
             events={trigger},
+            by={trigger: set(by)},
         )
         self.clips[camera] = clip
         runner = self._run_buffered_clip(clip, buffer) if buffer and before else self._run_clip(clip)
@@ -665,6 +676,13 @@ class Recorder:
         await asyncio.wait([snapshot])  # its .jpg is written now, or never
         if clip.events != {clip.trigger}:
             meta["events"] = sorted(clip.events)
+        # Who detected what started it, and what Norn's AI saw meanwhile (to tell a camera's
+        # false alarm: the camera saw a person, Norn nobody).
+        by = {kind: sorted(sources) for kind, sources in clip.by.items() if sources}
+        if by:
+            meta["by"] = by
+        if clip.checked:
+            meta["norn_saw"] = sorted(clip.norn_saw)
         moved = None
         if clip.path.exists():
             clip.path.with_suffix(".json").write_text(json.dumps(meta, indent=2) + "\n")

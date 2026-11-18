@@ -118,3 +118,18 @@ async def test_stop_lets_stopped_recordings_finish(recorder: Recorder) -> None:
     recorder._stopping["c"] = finishing
     await recorder.stop()
     assert finishing.done() and not finishing.cancelled()
+
+
+async def test_a_clip_notes_who_saw_it(recorder: Recorder) -> None:
+    """A clip's notes: who detected what started it, and what Norn's AI saw while it ran (a
+    camera's person with nothing seen by Norn is a likely false alarm)."""
+    clip = await recorder.record_clip("c", "person", 10, by={"camera"})
+    assert await recorder.record_clip("c", "person", 10, by={"norn"}) is clip
+    clip.checked = True
+    clip.norn_saw.add("animal")
+    meta: dict[str, Any] = {}
+    async with recorder.bus.subscribe() as queue:
+        await recorder._finish_clip(clip, meta, asyncio.create_task(asyncio.sleep(0)))
+        finished = await asyncio.wait_for(queue.get(), 1)
+    assert meta["by"] == {"person": ["camera", "norn"]} and meta["norn_saw"] == ["animal"]
+    assert finished["data"]["by"] == {"person": ["camera", "norn"]}

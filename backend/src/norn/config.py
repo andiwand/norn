@@ -163,6 +163,10 @@ class AwaySettings(BaseModel):
 
 
 Stills = Literal["auto", "keyframe", "live"]
+# The camera's own AI alarms (person, vehicle, animal): `check` records them and has Norn's AI
+# look too (the clip says whether it agreed); `require` records only what Norn's AI confirms;
+# `off` takes the camera's word.
+CheckCamera = Literal["off", "check", "require"]
 
 
 class DetectionSettings(BaseModel):
@@ -182,6 +186,7 @@ class DetectionSettings(BaseModel):
     min_score: float = Field(0.5, ge=0.1, le=0.95)  # objects: how sure the detector must be
     # objects: how long one must be seen before it counts (0: on the first still)
     confirm_seconds: float = Field(0, ge=0, le=60)
+    check_camera: CheckCamera = "check"
     model: Literal["nano", "tiny"] = "nano"
 
 
@@ -197,6 +202,7 @@ class DetectionOverride(BaseModel):
     sensitivity: int | None = Field(None, ge=0, le=100)
     min_score: float | None = Field(None, ge=0.1, le=0.95)
     confirm_seconds: float | None = Field(None, ge=0, le=60)
+    check_camera: CheckCamera | None = None
 
 
 class NornPreset(BaseModel):

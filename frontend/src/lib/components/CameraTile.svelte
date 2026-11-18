@@ -87,7 +87,7 @@
 		</div>
 		<div class="absolute top-3 left-3 flex gap-2">
 			{#if camera.recording}<RecBadge mode={camera.recording.mode} />{/if}
-			{#if camera.events}<EventBadge active={camera.events.active} />{/if}
+			{#if camera.events}<EventBadge active={camera.events.active} by={camera.events.by} />{/if}
 			{#if offline}
 				<span class="badge bg-danger/85 text-white" title={camera.device?.error ?? ''}>Offline</span
 				>

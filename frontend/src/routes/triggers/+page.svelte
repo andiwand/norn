@@ -192,14 +192,21 @@
 				max={100}
 				unit="%"
 			/>
+			<!-- In percent here, a fraction in config.yaml (min_score). -->
 			<NumberSetting
 				label="Certainty"
-				hint="How sure the AI must be about an object (0.1 to 0.95)."
-				bind:value={form.detection.min_score}
-				fallback={defaults.detection.min_score}
-				min={0.1}
-				max={0.95}
-				step={0.05}
+				hint="How sure Norn's AI must be that it sees a person, vehicle or animal. Higher: fewer false alarms, but it may miss some."
+				bind:value={
+					() => Math.round(form.detection.min_score * 100),
+					(v) => {
+						if (typeof v === 'number' && Number.isFinite(v)) form.detection.min_score = v / 100;
+					}
+				}
+				fallback={Math.round(defaults.detection.min_score * 100)}
+				min={10}
+				max={95}
+				step={5}
+				unit="%"
 			/>
 			<NumberSetting
 				label="Confirm after"
@@ -209,6 +216,17 @@
 				max={60}
 				step={0.5}
 				unit="sec"
+			/>
+			<ChoiceSetting
+				label="The cameras' own AI"
+				hint="When a camera itself reports a person, vehicle or animal, Norn's AI can look too. Check: it records, and the clip says if Norn saw it. Only if Norn agrees: only what Norn's AI confirms records (false alarms of the camera don't)."
+				bind:value={form.detection.check_camera}
+				disabled={!!store.info?.detection.objects_unavailable}
+				choices={[
+					['off', 'Trust it'],
+					['check', 'Check'],
+					['require', 'Only if Norn agrees']
+				]}
 			/>
 			<ChoiceSetting
 				label="Model"

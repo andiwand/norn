@@ -1,6 +1,14 @@
 <script lang="ts">
 	import { urls, type Recording } from '../api';
-	import { formatDuration, formatTime, triggerLabel } from '../format';
+	import {
+		aKind,
+		clipSources,
+		formatDuration,
+		formatTime,
+		triggerLabel,
+		unconfirmed
+	} from '../format';
+	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import Film from '@lucide/svelte/icons/film';
 	import Play from '@lucide/svelte/icons/play';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
@@ -23,6 +31,8 @@
 		/** Pin or unpin; without it the tile has no pin button. */
 		onpin?: (r: Recording, pinned: boolean) => void;
 	} = $props();
+
+	const doubtful = $derived(unconfirmed(recording));
 
 	// Deleting takes two clicks: the first arms the button, the second deletes.
 	let armed = $state(false);
@@ -71,15 +81,20 @@
 				<div class="truncate text-sm font-medium">{cameraName ?? recording.camera}</div>
 				<div class="text-xs text-muted tabular-nums">{formatTime(recording.start)}</div>
 			</div>
+			<!-- A camera's alarm Norn's AI didn't see: marked, so false alarms stand out. -->
 			<span
-				class="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium {[
-					'continuous',
-					'interval'
-				].includes(recording.trigger)
-					? 'bg-surface-3 text-muted'
-					: 'bg-accent/15 text-accent'}"
+				class="flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium {doubtful
+					? 'bg-warning/15 text-warning'
+					: ['continuous', 'interval'].includes(recording.trigger)
+						? 'bg-surface-3 text-muted'
+						: 'bg-accent/15 text-accent'}"
+				title={doubtful
+					? `The camera reported ${aKind(recording.trigger)}; Norn's AI looked and saw nothing: probably a false alarm`
+					: clipSources(recording)
+						? `Detected by ${clipSources(recording)}`
+						: undefined}
 			>
-				{triggerLabel(recording.trigger)}
+				{#if doubtful}<TriangleAlert class="size-3" />{/if}{triggerLabel(recording.trigger)}
 			</span>
 		</div>
 	</button>

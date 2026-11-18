@@ -8,7 +8,7 @@
 	import { api, urls, type Control, type Recording } from '#lib/api.js';
 	import { store } from '#lib/state.svelte.js';
 	import { readStoredJson, writeStored } from '#lib/stored.js';
-	import { byGroup, cameraModel, triggerLabel } from '#lib/format.js';
+	import { byGroup, cameraModel, OBJECT_KINDS, triggerLabel } from '#lib/format.js';
 	import LiveVideo from '#lib/components/LiveVideo.svelte';
 	import PtzPad from '#lib/components/PtzPad.svelte';
 	import ControlField from '#lib/components/ControlField.svelte';
@@ -82,9 +82,7 @@
 	// What Norn's AI sees, drawn on the video: only where it looks for objects. On by default.
 	const SHOW_OBJECTS = 'norn.show-objects';
 	let showObjects = $state(readStoredJson<boolean>(SHOW_OBJECTS, true));
-	const nornObjects = $derived(
-		(camera?.events?.norn ?? []).some((k) => ['person', 'vehicle', 'animal'].includes(k))
-	);
+	const nornObjects = $derived((camera?.events?.norn ?? []).some((k) => OBJECT_KINDS.includes(k)));
 	function toggleObjects() {
 		showObjects = !showObjects;
 		writeStored(SHOW_OBJECTS, JSON.stringify(showObjects));
@@ -269,7 +267,7 @@
 					class="absolute top-3 left-3 flex max-w-[calc(100%-6rem)] flex-wrap items-center gap-2"
 				>
 					{#if camera.recording}<RecBadge mode={camera.recording.mode} />{/if}
-					{#if camera.events}<EventBadge active={camera.events.active} />{/if}
+					{#if camera.events}<EventBadge active={camera.events.active} by={camera.events.by} />{/if}
 					{#if mode}
 						<span
 							class="rounded-full bg-black/50 px-2.5 py-1 text-[11px] font-medium text-white/85 backdrop-blur-md"

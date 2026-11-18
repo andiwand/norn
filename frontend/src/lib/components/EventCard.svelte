@@ -4,7 +4,7 @@
 	import { tick } from 'svelte';
 	import { api, urls, type Recording } from '../api';
 	import { store } from '../state.svelte';
-	import { formatTime, triggerLabel } from '../format';
+	import { formatTime, triggerLabel, unconfirmed } from '../format';
 	import { videoLength, type ClipEvent } from '../events';
 	import TriggerIcon from './TriggerIcon.svelte';
 	import Film from '@lucide/svelte/icons/film';
@@ -44,6 +44,8 @@
 	const deletable = $derived(event.clips.filter((c) => !c.pinned));
 	const detected = $derived(event.triggers.some(([t]) => !BY_HAND.has(t)));
 	const main = $derived(event.triggers[0][0]);
+	// The camera's alarms in it that Norn's AI looked at and didn't see.
+	const doubtful = $derived(event.clips.filter(unconfirmed).length);
 	const title = $derived(event.triggers.map(([t]) => triggerLabel(t)).join(', '));
 	const range = $derived(
 		single
@@ -177,6 +179,18 @@
 					? videoLength(event.seconds)
 					: `${count} clips · ${videoLength(event.seconds)}`}
 			</p>
+			{#if doubtful}
+				<p
+					class="mt-0.5 text-xs font-medium text-warning"
+					title="The camera reported it; Norn's AI looked at the same time and saw nothing: probably false alarms"
+				>
+					{doubtful === event.clips.length
+						? single
+							? "Only the camera saw it: Norn's AI saw nothing"
+							: `Only the camera saw these: Norn's AI saw nothing`
+						: `${doubtful} of ${event.clips.length} only the camera saw`}
+				</p>
+			{/if}
 			<p class="mt-0.5 flex items-center gap-1 text-xs text-muted">
 				{#if event.pinned}<Pin class="size-3" />{/if}{expiry}{#if event.pinned && !allPinned}
 					· {event.pinned} pinned{/if}

@@ -80,7 +80,11 @@ image or the PyPI package `norn-hub`. The name may change later.
     keyframe mode. It stops `IDLE_AFTER` seconds after the last subscriber. `detect.py`: the
     motion detector, YOLOX (`Detectors`, one inference at a time) and the `Tracker`. The hub
     publishes what it sees on each still as `camera.objects` (boxes in fractions of the
-    picture, each with `counts`, `unconfirmed` or `still`); the camera page draws them. The hub's
+    picture, each with `counts`, `unconfirmed` or `still`); the camera page draws them.
+    `camera.detecting` holds who sees each kind (`camera`, `norn`); `check_camera` in the
+    detection settings has Norn's AI look while the camera's own AI reports an object (`check`,
+    the default), or records such an alarm only once Norn confirms it (`require`). Clips note
+    it in their sidecar: `by` (per trigger, who detected it) and `norn_saw`. The hub's
     `_watch_stills` subscribes per camera when the camera's `detection_for` asks for it.
   - `pilot.py`: one Pilot per camera: Norn presets (`config.presets`: a camera slot plus
     controls; pictures in `.norn/presets/`), patrol, reactions (from `_react` in the hub) and

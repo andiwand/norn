@@ -70,6 +70,7 @@ LOW_SOURCE = (
 )
 HOLD_INTERVAL = 5  # seconds between two extensions of a clip while a detection lasts
 OBJECTS_HEARTBEAT = 10  # seconds: unchanged boxes on the camera page are sent again this often
+NORN_LOOK_GRACE = 10  # seconds Norn's AI has to look at a camera's alarm before its word counts
 STORAGE_CACHE = 15  # seconds a storage report stays fresh; it walks the folders
 RESOURCES_INTERVAL = 4  # seconds at least between two CPU measurements (each covers the time since the last)
 
@@ -99,6 +100,8 @@ class Camera:
     controls_task: asyncio.Task[None] | None = field(default=None, repr=False)
     # What the camera detects right now: event kind -> who detects it ("camera", "norn").
     detecting: dict[str, set[str]] = field(default_factory=dict)
+    alarm_since: dict[str, float] = field(default_factory=dict)  # the camera's own AI, per kind
+    norn_looked: float = 0.0  # when Norn's AI last looked at a still of it (monotonic)
     events_task: asyncio.Task[None] | None = field(default=None, repr=False)
     stills_task: asyncio.Task[None] | None = field(default=None, repr=False)  # Norn's detection
     detect_ms: float | None = None  # how long Norn's object detection takes on its stills
@@ -130,6 +133,8 @@ class Camera:
             "camera": camera,
             "norn": norn,
             "active": sorted(self.detecting),
+            # Who sees each: the camera itself, Norn, or both.
+            "by": {kind: sorted(sources) for kind, sources in sorted(self.detecting.items())},
             "detect_ms": round(self.detect_ms, 1) if self.detect_ms is not None else None,
         }
 
@@ -975,28 +980,45 @@ class Hub:
         if camera is None:
             return
         was = event.kind in camera.detecting
+        trusted_before = bool(self._trusted(camera_id, event.kind))
         sources = camera.detecting.setdefault(event.kind, set())
+        before = set(sources)
         if event.active:
             sources.add(by)
         else:
             sources.discard(by)
             if not sources:
                 del camera.detecting[event.kind]
+        if by == "camera":  # when the camera's own AI began to report it
+            if not event.active:
+                camera.alarm_since.pop(event.kind, None)
+            elif "camera" not in before:
+                camera.alarm_since[event.kind] = time.monotonic()
         now = event.kind in camera.detecting
-        if was != now:
+        if was != now or sources != before:
             self.bus.publish(
-                "camera.event", {"camera": camera_id, "kind": event.kind, "active": now, "by": by}
+                "camera.event",
+                {
+                    "camera": camera_id,
+                    "kind": event.kind,
+                    "active": now,
+                    "by": by,
+                    "sources": sorted(sources) if now else [],
+                },
             )
         source = (camera_id, event.kind)
         if not now:
             for held in self._held.values():
                 held.discard(source)
             return
-        if not was:
+        # Reactions and recordings follow what counts: with `check_camera: require`, a camera's
+        # object alarm counts once Norn's AI confirms it (or can't look; see _trusted).
+        if not trusted_before and self._trusted(camera_id, event.kind):
             self._react(camera_id, event.kind)
         if event.kind not in self.triggers_of(camera_id):
             return
-        # The camera records; in a circle that records together, all its cameras do.
+        # The camera records; in a circle that records together, all its cameras do. The hold
+        # records each held source while it counts.
         targets = {camera_id}
         for circle_id in self.config.circles_of(camera_id):
             if self.config.circles[circle_id].together:
@@ -1006,6 +1028,37 @@ class Hub:
             task = self._holds.get(target)
             if task is None or task.done():
                 self._holds[target] = asyncio.create_task(self._hold(target, event.kind))
+
+    def _trusted(self, camera_id: str, kind: str) -> set[str]:
+        """Who detects `kind` on the camera, of those that count: all of them, except the
+        camera's own AI under `check_camera: require` while Norn's AI can decide (it is
+        installed, and looked at a still since the alarm began, or still has time to)."""
+        camera = self.cameras.get(camera_id)
+        sources = set(camera.detecting.get(kind, ())) if camera else set()
+        if camera is None or "camera" not in sources or not self._norn_decides(camera_id, kind):
+            return sources
+        since = camera.alarm_since.get(kind, time.monotonic())
+        looked = camera.norn_looked >= since
+        if not looked and time.monotonic() - since > NORN_LOOK_GRACE:
+            return sources  # Norn's AI doesn't get to look (no stills): the camera's word counts
+        return sources - {"camera"}
+
+    def _norn_decides(self, camera_id: str, kind: str) -> bool:
+        """The camera's own alarm for an object doesn't record by itself: Norn's AI must confirm
+        it (`check_camera: require`), and can (else the camera's word counts, as before)."""
+        return (
+            kind in OBJECT_KINDS
+            and self.config.detection_for(camera_id).check_camera == "require"
+            and self.detectors.unavailable is None
+        )
+
+    def _camera_alarm(self, camera: Camera) -> bool:
+        """The camera's own AI reports a person, vehicle or animal now."""
+        return any(self._camera_reports(camera, kind) for kind in OBJECT_KINDS)
+
+    @staticmethod
+    def _camera_reports(camera: Camera, kind: str) -> bool:
+        return "camera" in camera.detecting.get(kind, ())
 
     def _react(self, source: str, kind: str) -> None:
         """Cameras with a reaction to this detection turn to one of its presets."""
@@ -1229,11 +1282,18 @@ class Hub:
                 and self.detectors.unavailable is None
             )
 
+        def checking_only() -> bool:
+            """Norn's AI runs only because the camera's own AI reports an object."""
+            return not self.config.detection_for(camera.id).objects and not norn_follows()
+
         def settings() -> Any:
-            """The detection settings now; following needs people, often."""
+            """The detection settings now; following needs people, often. While the camera's own
+            AI reports an object, Norn's AI looks too (unless told to trust the camera)."""
             d = self.config.detection_for(camera.id)
             if norn_follows():
                 d = d.model_copy(update={"objects": True, "stills": "live", "every_seconds": 0.5})
+            elif not d.objects and d.check_camera != "off" and self._camera_alarm(camera):
+                d = d.model_copy(update={"objects": True})
             return d
 
         while True:
@@ -1277,8 +1337,20 @@ class Hub:
                             before = camera.detect_ms
                             camera.detect_ms = ms if before is None else before * 0.8 + ms * 0.2
                             # Following steers by every sighting; recording waits for confirmation.
-                            seen |= tracker.update(found, now, d.confirm_seconds)
+                            counted = tracker.update(found, now, d.confirm_seconds)
+                            camera.norn_looked = now
                             self._publish_objects(camera, tracker.last)
+                            if checking_only():
+                                # Woken by the camera's alarm: Norn confirms what the camera
+                                # reports, and starts nothing of its own.
+                                counted = {k for k in counted if self._camera_reports(camera, k)}
+                            seen |= counted
+                            # A clip running during the camera's alarm notes what Norn's AI saw
+                            # then (a still after the alarm ended says nothing about it).
+                            clip = self.recorder.clips.get(camera.id)
+                            if clip and self._camera_alarm(camera):
+                                clip.checked = True
+                                clip.norn_saw |= {f.kind for f in found}
                             if following and pilot:
                                 people = [f for f in found if f.kind == "person"]
                                 await pilot.nudge(people, self.still_aspect(camera))
@@ -1341,9 +1413,16 @@ class Hub:
         held = self._held.setdefault(camera_id, set())
         while held and camera_id in self.cameras:
             try:
-                kinds = sorted({kind for _, kind in held})
-                for kind in [trigger, *[k for k in kinds if k != trigger]]:
-                    await self.recorder.record_clip(camera_id, kind)
+                # What counts now, the trigger first. Who detected it goes into the clip's notes,
+                # for its own camera (a circle's other cameras only record along).
+                counting: dict[str, set[str]] = {}
+                for source, kind in sorted(held):
+                    if not self._trusted(source, kind):
+                        continue  # under `require`, the camera's alarm alone records nothing
+                    own = self.cameras[source].detecting.get(kind, set()) if source == camera_id else set()
+                    counting.setdefault(kind, set()).update(own)
+                for kind in sorted(counting, key=lambda k: k != trigger):
+                    await self.recorder.record_clip(camera_id, kind, by=counting[kind])
             except RuntimeError as e:  # no FFmpeg or go2rtc
                 log.info("%s: can't record %s: %s", camera_id, trigger, e)
                 held.clear()

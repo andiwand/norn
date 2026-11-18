@@ -10,7 +10,7 @@
 		type PresetRecording,
 		type Window
 	} from '../api';
-	import { numberOrNull } from '../format';
+	import { numberOrNull, OBJECT_KINDS } from '../format';
 	import { store } from '../state.svelte';
 	import ChoiceSetting from './ChoiceSetting.svelte';
 	import IntervalSetting from './IntervalSetting.svelte';
@@ -38,6 +38,9 @@
 		initial.detection?.min_score != null ? Math.round(initial.detection.min_score * 100) : null
 	);
 	let confirm = $state<number | null | undefined>(initial.detection?.confirm_seconds ?? null);
+	let checkCamera = $state<DetectionSettings['check_camera'] | null>(
+		initial.detection?.check_camera ?? null
+	);
 	let presets = $state<Record<string, PresetRecording>>(
 		Object.fromEntries(
 			Object.entries(initial.presets_norn ?? {}).map(([id, p]) => [
@@ -62,7 +65,8 @@
 			stills: detectStills,
 			every_seconds: numberOrNull(detectEvery),
 			min_score: score === null ? null : score / 100,
-			confirm_seconds: numberOrNull(confirm)
+			confirm_seconds: numberOrNull(confirm),
+			check_camera: checkCamera
 		};
 		const set = Object.fromEntries(Object.entries(d).filter(([, v]) => v !== null));
 		return Object.keys(set).length ? set : null;
@@ -255,6 +259,20 @@
 		unit="sec"
 		placeholder={String(store.info?.detection.confirm_seconds ?? '')}
 	/>
+	{#if camera.events?.camera.some((k) => OBJECT_KINDS.includes(k))}
+		<ChoiceSetting
+			label="The camera's own AI"
+			hint="When this camera reports a person, vehicle or animal, Norn's AI can look too. Check: it records, and the clip says if Norn saw it. Only if Norn agrees: only what Norn's AI confirms records."
+			bind:value={checkCamera}
+			disabled={!!store.info?.detection.objects_unavailable}
+			choices={[
+				[null, 'Default'],
+				['off', 'Trust it'],
+				['check', 'Check'],
+				['require', 'Only if Norn agrees']
+			]}
+		/>
+	{/if}
 </div>
 
 {#each Object.entries(camera.presets_norn ?? {}) as [id, preset] (id)}

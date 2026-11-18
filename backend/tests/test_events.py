@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any
 
 import pytest
@@ -37,11 +38,13 @@ async def hub(settings: Settings, monkeypatch: pytest.MonkeyPatch):
     await hub.start()
     calls: list[tuple[str, str]] = []
 
-    async def record_clip(camera: str, trigger: str = "manual", seconds: Any = None) -> None:
+    async def record_clip(camera: str, trigger: str = "manual", seconds: Any = None, by: Any = ()) -> None:
         calls.append((camera, trigger))
+        hub.by.append((camera, trigger, sorted(by)))  # type: ignore[attr-defined]
 
     monkeypatch.setattr(hub.recorder, "record_clip", record_clip)
     hub.calls = calls  # type: ignore[attr-defined]
+    hub.by = []  # type: ignore[attr-defined]
     yield hub
     await hub.stop()
 
@@ -220,3 +223,90 @@ async def test_a_trigger_during_a_clip_extends_it(settings: Settings) -> None:
     assert await recorder.record_clip("c", "person") is clip  # the same video, not a second
     assert clip.events == {"manual", "person"}
     assert clip.end >= time.time() + 59  # the camera's clip length from now on
+
+
+async def test_norn_confirms_the_cameras_alarm(hub: Hub, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`check_camera: require`: the camera's person alone records nothing (it makes Norn's AI
+    look); once Norn sees the person too, the clip records, noting who saw it."""
+    monkeypatch.setattr(hub.detectors, "_missing", None)
+    hub.config.recording.triggers = ["person"]
+    hub.config.detection.check_camera = "require"
+    async with hub.bus.subscribe() as queue:
+        hub.on_event("hall", Event(kind="person", active=True))
+        await asyncio.sleep(0.15)
+        assert hub.calls == []  # type: ignore[attr-defined]
+        assert hub._camera_alarm(hub.cameras["hall"])
+        hub.on_event("hall", Event(kind="person", active=True), "norn")
+        await asyncio.sleep(0.15)
+        hub.on_event("hall", Event(kind="person", active=False), "norn")
+        hub.on_event("hall", Event(kind="person", active=False))
+        assert ("hall", "person", ["camera", "norn"]) in hub.by  # type: ignore[attr-defined]
+        sources = []
+        while not queue.empty():
+            event = queue.get_nowait()
+            if event["type"] == "camera.event":
+                sources.append(event["data"]["sources"])
+        # Each change of who sees it goes out: the camera, both, the camera again, nobody.
+        assert sources == [["camera"], ["camera", "norn"], ["camera"], []]
+
+
+async def test_the_cameras_word_counts_without_norn(hub: Hub, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without Norn's AI (not installed), `require` falls back to the camera: nothing is lost."""
+    monkeypatch.setattr(hub.detectors, "_missing", "onnxruntime is not installed")
+    hub.config.recording.triggers = ["person"]
+    hub.config.detection.check_camera = "require"
+    hub.on_event("hall", Event(kind="person", active=True))
+    await asyncio.sleep(0.15)
+    hub.on_event("hall", Event(kind="person", active=False))
+    assert ("hall", "person", ["camera"]) in hub.by  # type: ignore[attr-defined]
+
+
+async def test_under_require_the_camera_alone_holds_nothing(
+    hub: Hub, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Norn confirmed and the clip ran; once Norn sees nobody, the camera's word alone doesn't
+    keep extending it. Reactions too wait for Norn."""
+    monkeypatch.setattr(hub.detectors, "_missing", None)
+    reacted: list[str] = []
+    monkeypatch.setattr(hub, "_react", lambda camera, kind: reacted.append(kind))
+    hub.config.recording.triggers = ["person"]
+    hub.config.detection.check_camera = "require"
+    hub.on_event("hall", Event(kind="person", active=True))
+    assert reacted == []  # the camera's alarm alone: no reaction
+    hub.cameras["hall"].norn_looked = time.monotonic()  # Norn's AI looks
+    hub.on_event("hall", Event(kind="person", active=True), "norn")
+    assert reacted == ["person"]
+    await asyncio.sleep(0.15)
+    hub.on_event("hall", Event(kind="person", active=False), "norn")
+    await asyncio.sleep(0.05)
+    count = len(hub.calls)  # type: ignore[attr-defined]
+    await asyncio.sleep(0.2)
+    assert len(hub.calls) == count  # type: ignore[attr-defined]  # not held by the camera alone
+    hub.on_event("hall", Event(kind="person", active=False))
+
+
+async def test_the_cameras_word_counts_when_norn_cannot_look(
+    hub: Hub, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Norn's AI is installed but gets no stills (no go2rtc, a broken stream): after a grace
+    time the camera's alarm records anyway."""
+    monkeypatch.setattr(hub.detectors, "_missing", None)
+    monkeypatch.setattr("norn.hub.NORN_LOOK_GRACE", 0.1)
+    hub.config.recording.triggers = ["person"]
+    hub.config.detection.check_camera = "require"
+    hub.on_event("hall", Event(kind="person", active=True))
+    await asyncio.sleep(0.05)
+    assert hub.calls == []  # type: ignore[attr-defined]
+    await asyncio.sleep(0.2)
+    hub.on_event("hall", Event(kind="person", active=False))
+    assert ("hall", "person", ["camera"]) in hub.by  # type: ignore[attr-defined]
+
+
+async def test_a_circles_other_cameras_record_without_notes(hub: Hub) -> None:
+    """Who saw it is noted on the clip of the camera that saw it, not on the others that
+    record along."""
+    hub.on_event("door", Event(kind="person", active=True))
+    await asyncio.sleep(0.1)
+    hub.on_event("door", Event(kind="person", active=False))
+    by = {camera: sources for camera, _, sources in hub.by}  # type: ignore[attr-defined]
+    assert by == {"door": ["camera"], "yard": []}
