@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.1 — 2026-11-18
+
+- Phones: on Diagnostics and Help the back arrow sits on the title's line.
+- Fewer repeats of where settings are kept: Help explains config.yaml once, with its path.
+
 ## 0.8.0 — 2026-11-18
 
 - Camera page, new: the video at the camera's own shape (4:3 without black bars), never taller
