@@ -12,6 +12,10 @@ shows MJPEG frames and the recorder encodes to H.264 (cheap at 640x480).
                            3 mode, 5 flip
     decoder_control.cgi    ?command=<n>: 0 up, 2 down, 4 left, 6 right, 90-93 diagonals, 1 stop,
                            25 center, 30+2n set preset n, 31+2n go to preset n
+    Infrared (on in the dark, or off), web UI 2.x: get_misc.cgi / set_misc.cgi?led_mode=2 (auto)
+                           or 0 (off). Web UI 3.x (HD): set_head.cgi?led=1 or 0; it has no
+                           get_misc.cgi, and reads the value only through get_params.cgi. Both
+                           keep the other head settings when only this parameter is sent.
 
 Never call get_params.cgi: on old firmware it returns every password and the Wi-Fi key.
 """
@@ -88,6 +92,7 @@ class FoscamDriver(Driver):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._motion_alarm: str | None = None  # unknown until set through Norn
+        self._infrared: str | None = None  # web UI 3.x: unknown until set through Norn
         o = self.options
         self.base = f"http://{o.host}:{o.port}"
         self._client = httpx.AsyncClient(
@@ -198,6 +203,13 @@ class FoscamDriver(Driver):
         if not self._new_ui:
             resolutions.pop(96)
         contrast_max = 255 if self._new_ui else 6
+        infrared = self._infrared
+        if not self._new_ui:
+            try:
+                misc = parse_vars(await self._get("/get_misc.cgi"))
+                infrared = "1" if misc.get("led_mode") == "2" else "0"
+            except DriverError:
+                pass
         return [
             Control(
                 id="resolution",
@@ -244,6 +256,15 @@ class FoscamDriver(Driver):
                 value=p.get("mode"),
                 options=[Option(value=str(k), label=v) for k, v in MODES.items()],
             ),
+            Control(
+                id="infrared",
+                label="Infrared",
+                kind="select",
+                group="Light",
+                icon="moon",
+                value=infrared,
+                options=[Option(value="0", label="Off"), Option(value="1", label="Auto (in the dark)")],
+            ),
             # The camera's motion alarm: what makes it report motion (alarm_status). Its state
             # is only readable through get_params.cgi, which Norn never calls (it also returns
             # every password): so no value is shown until it is set here.
@@ -259,6 +280,18 @@ class FoscamDriver(Driver):
         ]
 
     async def set_control(self, control_id: str, value: Any) -> None:
+        if control_id == "infrared":
+            if str(value) not in ("0", "1"):
+                raise ValueError("0 (off) or 1 (auto)")
+            if self._app_ver is None:
+                await self.info()
+            if self._new_ui:
+                await self._get("/set_head.cgi", led=int(value))
+            else:
+                await self._get("/set_misc.cgi", led_mode=2 if str(value) == "1" else 0)
+            self._infrared = str(value)
+            self.emit("camera.control", {"control": control_id, "value": str(value)})
+            return
         if control_id == "motion_alarm":
             if str(value) not in ("0", "1"):
                 raise ValueError("0 (off) or 1 (on)")

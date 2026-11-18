@@ -312,3 +312,42 @@ async def test_request_errors() -> None:
         with pytest.raises(DriverError, match="wrong username or password"):
             await request(c, "GET", "/secret")
         assert (await request(c, "GET", "/other")).status_code == 500  # the driver's to check
+
+
+@pytest.mark.parametrize(
+    ("app_ver", "expect_value", "path", "param"),
+    [
+        ("2.3.2.0", "1", "/set_misc.cgi", ("led_mode", "0")),
+        ("3.2.2.0", None, "/set_head.cgi", ("led", "0")),
+    ],
+)
+async def test_foscam_infrared(
+    app_ver: str, expect_value: str | None, path: str, param: tuple[str, str]
+) -> None:
+    """Infrared: read from get_misc.cgi on web UI 2.x; on 3.x only known once set (it would
+    need get_params.cgi)."""
+    d = make("foscam", host="10.0.0.8", password="pw")
+    answers = {
+        "/get_status.cgi": f"var sys_ver='0.41.2.51';\nvar app_ver='{app_ver}';\n",
+        "/get_camera_params.cgi": "var resolution=32;\nvar brightness=96;\nvar flip=0;\n",
+        "/get_misc.cgi": "var led_mode=2;\nvar ptz_patrol_rate=9;\n",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path != "/get_params.cgi"  # it returns every password
+        if request.url.path in answers:
+            return httpx.Response(200, text=answers[request.url.path])
+        if request.url.path == "/set_misc.cgi":
+            answers["/get_misc.cgi"] = f"var led_mode={request.url.params['led_mode']};\n"
+        if request.url.path.startswith("/set_"):
+            return httpx.Response(200, text="ok.")
+        return httpx.Response(404)
+
+    seen = mock(d, "http://10.0.0.8", handler)
+    d._client = d.client
+    infrared = {c.id: c for c in await d.controls()}["infrared"]
+    assert infrared.value == expect_value
+    await d.set_control("infrared", "0")
+    assert seen[-1].url.path == path
+    assert dict(seen[-1].url.params) == dict([param])
+    assert {c.id: c.value for c in await d.controls()}["infrared"] == "0"
