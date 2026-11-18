@@ -25,7 +25,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from starlette.websockets import WebSocketState
 
-from . import __version__, logs
+from . import __version__, discover, logs
 from .auth import Auth
 from .auth_api import AuthMiddleware, who_of
 from .auth_api import router as auth_router
@@ -290,6 +290,29 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
     @api.get("/cameras")
     async def cameras() -> list[dict[str, Any]]:
         return [hub.camera_json(cid) for cid in hub.cameras]
+
+    def found_json(found: list[discover.Found]) -> list[dict[str, Any]]:
+        """Found devices, each with the configured camera at its address (if any)."""
+        hosts = discover.camera_hosts(hub.config.cameras)
+        for f in found:
+            f.camera = hosts.get(f.host.lower())
+        return [f.to_json() for f in found]
+
+    @api.get("/discover")
+    async def discover_cameras(seconds: float = Query(3, ge=1, le=10)) -> dict[str, Any]:
+        """Cameras in the network (ONVIF's WS-Discovery), with the driver Norn suggests.
+        `container`: Norn runs in a container, where multicast needs host networking."""
+        found = await discover.discover(seconds)
+        return {"devices": found_json(found), "container": discover.in_container()}
+
+    @api.get("/discover/{host}")
+    async def check_address(host: str) -> dict[str, Any]:
+        """What camera is at one address, asked directly (where multicast doesn't reach)."""
+        try:
+            found = await discover.check_host(host)
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
+        return {"device": found_json([found])[0] if found else None}
 
     @api.post("/cameras", status_code=201)
     async def add_camera(body: NewCamera) -> dict[str, Any]:

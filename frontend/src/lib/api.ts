@@ -272,6 +272,21 @@ export interface ApiToken {
 	token?: string;
 }
 
+/** A camera found in the network: where it is, what it says it is, the driver Norn suggests. */
+export interface FoundCamera {
+	host: string;
+	port: number;
+	xaddr: string;
+	name: string | null;
+	hardware: string | null;
+	location: string | null;
+	manufacturer: string | null;
+	driver: string;
+	id: string | null;
+	/** The configured camera at this address, if any. */
+	camera: string | null;
+}
+
 export interface Recording {
 	id: string;
 	camera: string;
@@ -580,6 +595,12 @@ export const api = {
 	saveSettings: (values: { [K in keyof SettingsValues]?: Partial<SettingsValues[K]> }) =>
 		request<SettingsData>('PUT', '/settings', values),
 	drivers: () => request<Driver[]>('GET', '/drivers'),
+	/** Cameras in the network (ONVIF's WS-Discovery), for a few seconds. */
+	discover: (seconds = 3) =>
+		request<{ devices: FoundCamera[]; container: boolean }>('GET', `/discover?seconds=${seconds}`),
+	/** What camera is at one address, asked directly. */
+	checkAddress: (host: string) =>
+		request<{ device: FoundCamera | null }>('GET', `/discover/${enc(host)}`),
 	labels: () => request<Label[]>('GET', '/labels'),
 	cameras: () => request<Camera[]>('GET', '/cameras'),
 	addCamera: (body: Record<string, unknown>) => request<Camera>('POST', '/cameras', body),

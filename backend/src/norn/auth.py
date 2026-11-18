@@ -298,7 +298,7 @@ VIEWER_WRITES = [
     ("PUT", r"/api/push/.*"),
     ("DELETE", r"/api/push/.*"),
 ]
-ADMIN_READS = [r"/api/logs(/.*)?", r"/api/users"]
+ADMIN_READS = [r"/api/logs(/.*)?", r"/api/users", r"/api/discover(/.*)?"]
 # Open without signing in: whether sign-in is on, signing in, and the app's health check.
 PUBLIC = [
     ("GET", r"/api/health"),

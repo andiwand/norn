@@ -95,6 +95,7 @@ def test_a_viewer_watches_and_steers_but_changes_nothing(app: TestClient) -> Non
     assert viewer.delete("/api/cameras/door").status_code == 403
     assert viewer.get("/api/logs").status_code == 403
     assert viewer.get("/api/users").status_code == 403
+    assert viewer.get("/api/discover").status_code == 403  # scanning the network: admins
     assert viewer.post("/api/users", json={"name": "eve", "password": "12345678"}).status_code == 403
     assert viewer.post("/api/cameras/door/ptz", json={"action": "stop"}).status_code != 403
 

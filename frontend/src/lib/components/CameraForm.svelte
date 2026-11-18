@@ -1,9 +1,10 @@
 <script lang="ts">
 	// Add or edit a camera. The driver's option fields come from its JSON schema.
-	import { api, type Camera, type Driver, type JsonSchemaProperty } from '../api';
+	import { api, type Camera, type Driver, type FoundCamera, type JsonSchemaProperty } from '../api';
 	import { slugify } from '../format';
 	import { store } from '../state.svelte';
-	import { untrack } from 'svelte';
+	import { tick, untrack } from 'svelte';
+	import FindCameras from './FindCameras.svelte';
 	import StreamSettings from './StreamSettings.svelte';
 
 	interface Props {
@@ -74,6 +75,25 @@
 		return /pass|secret|token/i.test(key);
 	}
 
+	// A camera found in the network: its type and address go into the form; the password is
+	// what's left to type (the field gets the focus).
+	let form = $state<HTMLFormElement | null>(null);
+	async function pick(found: FoundCamera) {
+		const known = drivers.find((d) => d.name === found.driver);
+		driverName = known ? found.driver : 'onvif';
+		const props = (known ?? drivers.find((d) => d.name === 'onvif'))?.options.properties ?? {};
+		const next: Record<string, string> = { host: found.host };
+		if (props.port && found.port !== props.port.default) next.port = String(found.port);
+		options = next;
+		if (!name.trim())
+			name =
+				[found.manufacturer, found.hardware].filter(Boolean).join(' ') || found.name || found.host;
+		await tick();
+		const field = form?.querySelector<HTMLInputElement>('input[type="password"]');
+		field?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+		field?.focus({ preventScroll: true });
+	}
+
 	async function submit(e: SubmitEvent) {
 		e.preventDefault();
 		error = '';
@@ -112,7 +132,11 @@
 	}
 </script>
 
-<form class="space-y-6" onsubmit={submit}>
+{#if !camera}
+	<div class="mb-6"><FindCameras {drivers} onpick={pick} /></div>
+{/if}
+
+<form class="space-y-6" onsubmit={submit} bind:this={form}>
 	{#if !camera}
 		<fieldset>
 			<legend class="label">Type</legend>

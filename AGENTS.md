@@ -108,6 +108,10 @@ image or the PyPI package `norn-hub`. The name may change later.
     (`.norn/sessions.json`, hashed) or an API token (`.norn/tokens.json`). Roles: `admin`, and
     `viewer` (reads, and the writes in `auth.VIEWER_WRITES`). New routes that change something
     are admin-only by default; add one to `VIEWER_WRITES` only when a viewer should do it.
+  - `discover.py`: finding cameras for the add form. ONVIF's WS-Discovery (a multicast probe
+    on every interface; only `NetworkVideoTransmitter`s count), and `check_host`, which asks
+    one address over TCP what it is (Foscam CGI status page, ONVIF's clock, Hikvision's login
+    challenge, Reolink's port 9000). Only requests that need no login and change nothing.
   - `settings.py`: process settings from `NORN_*` environment variables. Camera and recording
     settings belong in config.yaml, not here.
 - `frontend/`: SvelteKit 3 + Svelte 5 runes + Tailwind 4, built as a static single-page app

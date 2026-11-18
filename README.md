@@ -84,8 +84,10 @@ docker compose up -d
 
 Open `http://<host>:8000`. A demo camera lets you try everything before adding a real one.
 
-Host networking lets WebRTC reach the browser directly. On Docker Desktop (macOS, Windows), map
-`8000:8000`, `8555:8555/tcp` and `8555:8555/udp` instead.
+Host networking lets WebRTC reach the browser directly, and lets *Add camera* find cameras in
+the network (ONVIF's discovery is multicast, which Docker's bridge network doesn't pass). On
+Docker Desktop (macOS, Windows), map `8000:8000`, `8555:8555/tcp` and `8555:8555/udp` instead;
+*Add camera* can still check a camera's address.
 
 Without Docker, with `go2rtc` and `ffmpeg` on the PATH: `uvx --from norn-hub norn`.
 
