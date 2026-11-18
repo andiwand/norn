@@ -53,3 +53,34 @@ async def test_resources_measure_at_most_every_few_seconds(settings: Settings) -
     hub = Hub(settings)
     first = await hub.resources()
     assert await hub.resources() is first  # a second page asking at once gets the same window
+
+
+async def test_objects_go_out_in_fractions_of_the_picture(settings: Settings) -> None:
+    """The camera page draws Norn's boxes over the video: in fractions of the picture (the
+    detector's square input holds the still from the top left), and one empty message after
+    the last box clears them."""
+    from norn.detect import OBJECT_SIZE, Detection
+
+    hub = Hub(settings)
+    await hub.start()
+    try:
+        await hub.put_camera("c", CameraConfig(name="C", driver="demo"))
+        camera = hub.cameras["c"]
+        hub.still_aspect = lambda camera: 16 / 9  # type: ignore[method-assign]
+        tall = OBJECT_SIZE * 9 / 16  # the still's height in the square
+        sheet = Detection("person", 0.671, (OBJECT_SIZE / 2, tall / 4, OBJECT_SIZE, tall))
+        async with hub.bus.subscribe() as queue:
+            hub._publish_objects(camera, [(sheet, "still")])
+            hub._publish_objects(camera, [])
+            hub._publish_objects(camera, [])  # nothing new: quiet
+            hub.bus.publish("end", {})
+            got = []
+            while (event := await asyncio.wait_for(queue.get(), 2))["type"] != "end":
+                if event["type"] == "camera.objects":
+                    got.append(event["data"]["objects"])
+        assert got == [
+            [{"kind": "person", "score": 0.67, "box": [0.5, 0.25, 1.0, 1.0], "status": "still"}],
+            [],
+        ]
+    finally:
+        await hub.stop()

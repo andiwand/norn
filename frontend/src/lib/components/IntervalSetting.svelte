@@ -58,7 +58,7 @@
 	}
 </script>
 
-<div class="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-5 py-3.5">
+<div class="@container flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-5 py-3.5">
 	<label for={inherit === undefined ? id : `${id}-amount`} class="min-w-0 flex-1 basis-56">
 		<span class="block text-sm font-medium">{label}</span>
 		<span class="mt-0.5 block text-xs text-muted">
@@ -68,7 +68,7 @@
 			{/if}
 		</span>
 	</label>
-	<div class="flex w-full shrink-0 flex-col items-end gap-2 sm:w-60">
+	<div class="flex w-full shrink-0 flex-col items-end gap-2 @[33rem]:w-60">
 		{#if inherit !== undefined}
 			<!-- Three ways: as above, off, or its own interval. -->
 			<div class="flex rounded-xl bg-surface-3 p-1" role="radiogroup" aria-label={label}>

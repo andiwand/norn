@@ -94,7 +94,7 @@ class AxisDriver(Driver):
     def capabilities(self) -> set[Capability]:
         caps = super().capabilities() | {Capability.CONTROLS, Capability.FIRMWARE_UPLOAD}
         if self.has_ptz:
-            caps |= {Capability.PTZ, Capability.PRESETS, Capability.PRESET_SAVE}
+            caps |= {Capability.PTZ, Capability.ZOOM, Capability.PRESETS, Capability.PRESET_SAVE}
         return caps
 
     async def save_preset(self, slot: str, name: str) -> None:

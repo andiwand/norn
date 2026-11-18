@@ -117,7 +117,7 @@ class OnvifDriver(Driver):
     def capabilities(self) -> set[Capability]:
         caps = super().capabilities() | {Capability.CONTROLS}
         if "ptz" in self.client.services and any(p.has_ptz for p in self.profiles):
-            caps |= {Capability.PTZ, Capability.PRESETS, Capability.PRESET_SAVE}
+            caps |= {Capability.PTZ, Capability.ZOOM, Capability.PRESETS, Capability.PRESET_SAVE}
         return caps
 
     @property

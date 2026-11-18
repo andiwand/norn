@@ -25,7 +25,9 @@ image or the PyPI package `norn-hub`. The name may change later.
     `Options` (a pydantic model: the extra keys of the camera in config.yaml, and the add-camera
     form via its JSON schema), `streams()` (go2rtc sources), `capabilities()`, `controls()`
     (widgets: toggle, select, range, button), `presets()` and `ptz()`. The web app renders
-    whatever a driver declares, so a new driver needs no UI change. Drivers push state changes
+    whatever a driver declares, so a new driver needs no UI change. A toggle or select with an
+    `icon` is a daily switch: the camera page also offers it under the video (not in the group
+    Network; buttons never). `Capability.ZOOM` shows the zoom buttons. Drivers push state changes
     with `self.emit(...)`, which goes to the event bus.
   - Drivers also report `info()` (a `DeviceInfo`: model, firmware, details, notes). The hub
     polls it every 5 minutes, and `firmware.py` compares the firmware with a hand-kept catalogue
@@ -76,7 +78,9 @@ image or the PyPI package `norn-hub`. The name may change later.
   - `stills.py`: one FFmpeg per camera and mode reads go2rtc's sub-stream and emits stills
     (JPEG, gray for motion, the detector's input) to subscribers; `-skip_frame nokey` in
     keyframe mode. It stops `IDLE_AFTER` seconds after the last subscriber. `detect.py`: the
-    motion detector, YOLOX (`Detectors`, one inference at a time) and the `Tracker`. The hub's
+    motion detector, YOLOX (`Detectors`, one inference at a time) and the `Tracker`. The hub
+    publishes what it sees on each still as `camera.objects` (boxes in fractions of the
+    picture, each with `counts`, `unconfirmed` or `still`); the camera page draws them. The hub's
     `_watch_stills` subscribes per camera when the camera's `detection_for` asks for it.
   - `pilot.py`: one Pilot per camera: Norn presets (`config.presets`: a camera slot plus
     controls; pictures in `.norn/presets/`), patrol, reactions (from `_react` in the hub) and

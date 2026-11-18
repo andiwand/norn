@@ -1,18 +1,7 @@
 <script lang="ts">
 	// One camera setting, drawn from the driver's description of it.
-	import type { Component } from 'svelte';
 	import type { Control } from '../api';
-	import Moon from '@lucide/svelte/icons/moon';
-	import Sun from '@lucide/svelte/icons/sun';
-	import Lamp from '@lucide/svelte/icons/lamp';
-	import Siren from '@lucide/svelte/icons/siren';
-	import Activity from '@lucide/svelte/icons/activity';
-	import EyeOff from '@lucide/svelte/icons/eye-off';
-	import Bell from '@lucide/svelte/icons/bell';
-	import Volume2 from '@lucide/svelte/icons/volume-2';
-	import Settings2 from '@lucide/svelte/icons/settings-2';
-	import ScanEye from '@lucide/svelte/icons/scan-eye';
-	import Timer from '@lucide/svelte/icons/timer';
+	import { controlIcon } from '../control-icons';
 
 	let {
 		control,
@@ -25,19 +14,7 @@
 		onchange: (value: unknown) => void;
 	} = $props();
 
-	const icons: Record<string, Component> = {
-		moon: Moon,
-		sun: Sun,
-		lamp: Lamp,
-		siren: Siren,
-		activity: Activity,
-		'eye-off': EyeOff,
-		bell: Bell,
-		volume: Volume2,
-		'scan-eye': ScanEye,
-		timer: Timer
-	};
-	const Icon = $derived(icons[control.icon ?? ''] ?? Settings2);
+	const Icon = $derived(controlIcon(control.icon));
 
 	// The slider shows its value while dragging and sends it once on release.
 	let draft = $state<number | null>(null);

@@ -10,7 +10,11 @@
 	import ZoomIn from '@lucide/svelte/icons/zoom-in';
 	import ZoomOut from '@lucide/svelte/icons/zoom-out';
 
-	let { camera, speed = 0.5 }: { camera: string; speed?: number } = $props();
+	let {
+		camera,
+		speed = 0.5,
+		zoom = true
+	}: { camera: string; speed?: number; /** Show the zoom buttons. */ zoom?: boolean } = $props();
 
 	let moving = $state<string | null>(null);
 	let repeat: ReturnType<typeof setInterval> | undefined;
@@ -110,7 +114,7 @@
 		// Only while the mouse is over the video or the pad: elsewhere the keys scroll the page.
 		if (!document.querySelector('[data-ptz-keys]:hover')) return;
 		const args = keys[e.key];
-		if (args) {
+		if (args && (zoom || !args[3])) {
 			e.preventDefault();
 			start(...args);
 		}
@@ -170,30 +174,30 @@
 		</button>
 	</div>
 
-	<div
-		class="flex flex-col gap-2 rounded-full border border-line bg-surface-2 p-1.5"
-		role="group"
-		aria-label="Zoom"
-	>
-		<button
-			class="grid size-12 touch-none place-items-center rounded-full transition hover:bg-surface-3 {moving ===
-			'in'
-				? on
-				: ''}"
-			use:hold={['in', 0, 0, 1]}
-			aria-label="Zoom in"
+	{#if zoom}<div
+			class="flex flex-col gap-2 rounded-full border border-line bg-surface-2 p-1.5"
+			role="group"
+			aria-label="Zoom"
 		>
-			<ZoomIn class="size-5" />
-		</button>
-		<button
-			class="grid size-12 touch-none place-items-center rounded-full transition hover:bg-surface-3 {moving ===
-			'out'
-				? on
-				: ''}"
-			use:hold={['out', 0, 0, -1]}
-			aria-label="Zoom out"
-		>
-			<ZoomOut class="size-5" />
-		</button>
-	</div>
+			<button
+				class="grid size-12 touch-none place-items-center rounded-full transition hover:bg-surface-3 {moving ===
+				'in'
+					? on
+					: ''}"
+				use:hold={['in', 0, 0, 1]}
+				aria-label="Zoom in"
+			>
+				<ZoomIn class="size-5" />
+			</button>
+			<button
+				class="grid size-12 touch-none place-items-center rounded-full transition hover:bg-surface-3 {moving ===
+				'out'
+					? on
+					: ''}"
+				use:hold={['out', 0, 0, -1]}
+				aria-label="Zoom out"
+			>
+				<ZoomOut class="size-5" />
+			</button>
+		</div>{/if}
 </div>

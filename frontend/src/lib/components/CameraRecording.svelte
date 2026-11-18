@@ -33,6 +33,11 @@
 	let detectObjects = $state<boolean | null>(initial.detection?.objects ?? null);
 	let detectStills = $state<DetectionSettings['stills'] | null>(initial.detection?.stills ?? null);
 	let detectEvery = $state<number | null | undefined>(initial.detection?.every_seconds ?? null);
+	// Certainty in percent here; the config keeps a fraction (min_score).
+	let certainty = $state<number | null | undefined>(
+		initial.detection?.min_score != null ? Math.round(initial.detection.min_score * 100) : null
+	);
+	let confirm = $state<number | null | undefined>(initial.detection?.confirm_seconds ?? null);
 	let presets = $state<Record<string, PresetRecording>>(
 		Object.fromEntries(
 			Object.entries(initial.presets_norn ?? {}).map(([id, p]) => [
@@ -48,13 +53,16 @@
 	let saving = $state(false);
 
 	const detection = $derived.by(() => {
-		// Fields not shown here (sensitivity, certainty, ...) stay as they are.
+		// Fields not shown here (motion sensitivity, the model) stay as they are.
+		const score = numberOrNull(certainty);
 		const d: Record<string, unknown> = {
 			...initial.detection,
 			motion: detectMotion,
 			objects: detectObjects,
 			stills: detectStills,
-			every_seconds: numberOrNull(detectEvery)
+			every_seconds: numberOrNull(detectEvery),
+			min_score: score === null ? null : score / 100,
+			confirm_seconds: numberOrNull(confirm)
 		};
 		const set = Object.fromEntries(Object.entries(d).filter(([, v]) => v !== null));
 		return Object.keys(set).length ? set : null;
@@ -228,6 +236,24 @@
 		step={0.5}
 		unit="sec"
 		placeholder={String(store.info?.detection.every_seconds ?? '')}
+	/>
+	<NumberSetting
+		label="Certainty"
+		hint="How sure Norn's AI must be that it sees a person, vehicle or animal. Higher: fewer false alarms, but it may miss some. Empty: as set above."
+		bind:value={certainty}
+		min={10}
+		max={95}
+		step={5}
+		unit="%"
+		placeholder={store.info ? String(Math.round(store.info.detection.min_score * 100)) : ''}
+	/>
+	<NumberSetting
+		label="Confirm after"
+		hint="Norn's AI must see it this long before a clip starts: a moth or a shadow on one still doesn't record. Empty: as set above."
+		bind:value={confirm}
+		max={60}
+		unit="sec"
+		placeholder={String(store.info?.detection.confirm_seconds ?? '')}
 	/>
 </div>
 

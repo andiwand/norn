@@ -38,7 +38,7 @@
 	}
 </script>
 
-<div class="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-5 py-3.5">
+<div class="@container flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-5 py-3.5">
 	<label for={id} class="min-w-0 flex-1 basis-56">
 		<span class="block text-sm font-medium">{label}</span>
 		{#if hint || differs}
@@ -48,7 +48,7 @@
 			</span>
 		{/if}
 	</label>
-	<div class="flex w-full shrink-0 justify-end sm:w-60">
+	<div class="flex w-full shrink-0 justify-end @[33rem]:w-60">
 		<span class="field w-44">
 			<input
 				{id}

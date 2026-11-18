@@ -105,3 +105,16 @@ def test_detection_settings_and_labels() -> None:
     assert (d.motion, d.objects, d.every_seconds) == (True, True, 1)
     with pytest.raises(ValueError, match="not one of"):
         Config.model_validate({"recording": {"triggers": ["ufo"]}})
+
+
+def test_tracker_says_why() -> None:
+    """Each detection of the last still, with why it counts or not: for the camera page."""
+    tracker = Tracker(still_after=60)
+    sheet = Detection("person", 0.67, (100, 100, 200, 300))
+    tracker.update([sheet], now=0, confirm=3)
+    assert [s for _, s in tracker.last] == ["unconfirmed"]
+    tracker.update([sheet], now=4, confirm=3)
+    assert [s for _, s in tracker.last] == ["counts"]
+    tracker.update([sheet], now=64, confirm=3)
+    assert tracker.last == [(sheet, "still")]
+    assert tracker.update([], now=66) == set() and tracker.last == []

@@ -60,7 +60,7 @@
 	);
 </script>
 
-<Panel title="Device">
+<Panel title="Device" name="device-tab" open>
 	{#snippet summary()}
 		{#if device && !device.online}
 			<span class="text-danger">Offline</span>

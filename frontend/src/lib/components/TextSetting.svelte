@@ -21,7 +21,7 @@
 	const differs = $derived(fallback !== undefined && fallback !== value);
 </script>
 
-<div class="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-5 py-3.5">
+<div class="@container flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-5 py-3.5">
 	<label for={id} class="min-w-0 flex-1 basis-56">
 		<span class="block text-sm font-medium">{label}</span>
 		{#if hint || differs}
@@ -31,11 +31,11 @@
 			</span>
 		{/if}
 	</label>
-	<div class="flex w-full shrink-0 justify-end sm:w-60">
+	<div class="flex w-full shrink-0 justify-end @[33rem]:w-60">
 		<input
 			{id}
 			{type}
-			class="input w-full font-mono text-[13px] sm:w-60"
+			class="input w-full font-mono text-[13px] @[33rem]:w-60"
 			bind:value
 			{placeholder}
 			autocomplete={type === 'password' ? 'new-password' : 'off'}

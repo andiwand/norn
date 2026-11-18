@@ -104,7 +104,7 @@ class DahuaDriver(Driver):
     def capabilities(self) -> set[Capability]:
         caps = super().capabilities() | {Capability.CONTROLS}
         if self.has_ptz:
-            caps |= {Capability.PTZ, Capability.PRESETS, Capability.PRESET_SAVE}
+            caps |= {Capability.PTZ, Capability.ZOOM, Capability.PRESETS, Capability.PRESET_SAVE}
         return caps
 
     def preset_slots(self) -> list[str]:

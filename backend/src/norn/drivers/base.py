@@ -23,6 +23,7 @@ class Capability(StrEnum):
     LIVE = "live"  # has at least one stream
     SNAPSHOT = "snapshot"  # a still image (go2rtc decodes one frame)
     PTZ = "ptz"  # pan, tilt and/or zoom
+    ZOOM = "zoom"  # PTZ that zooms (the web app shows zoom buttons only then)
     PRESETS = "presets"  # named PTZ positions
     CONTROLS = "controls"  # settings like IR, spotlight, siren
     AUDIO = "audio"  # the stream has sound

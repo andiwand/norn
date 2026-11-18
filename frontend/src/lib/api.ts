@@ -4,6 +4,7 @@ export type Capability =
 	| 'live'
 	| 'snapshot'
 	| 'ptz'
+	| 'zoom'
 	| 'presets'
 	| 'controls'
 	| 'audio'
@@ -221,6 +222,16 @@ export interface Driver {
 	label: string;
 	description: string;
 	options: { properties?: Record<string, JsonSchemaProperty>; required?: string[] };
+}
+
+/** What Norn's detector sees on a camera's newest still (the `camera.objects` event). */
+export interface SeenObject {
+	kind: string;
+	score: number;
+	/** x1, y1, x2, y2 in fractions of the picture. */
+	box: [number, number, number, number];
+	/** Whether it starts clips; else why not: seen too briefly yet, or not moving for a minute. */
+	status: 'counts' | 'unconfirmed' | 'still';
 }
 
 export interface Recording {

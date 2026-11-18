@@ -225,6 +225,8 @@ class ReolinkDriver(Driver):
         }
         if not self._connected or self._supported("pan_tilt"):
             caps |= {Capability.PTZ, Capability.PRESETS, Capability.PRESET_SAVE}
+        if self._supported("zoom") or self._supported("zoom_basic"):
+            caps.add(Capability.ZOOM)
         return caps
 
     def preset_slots(self) -> list[str]:

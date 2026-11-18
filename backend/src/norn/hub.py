@@ -29,7 +29,7 @@ from .config import (
     NornPreset,
     short_error,
 )
-from .detect import OBJECT_KINDS, Detectors, MotionDetector, Tracker, gray_from_bgr
+from .detect import OBJECT_KINDS, OBJECT_SIZE, Detection, Detectors, MotionDetector, Tracker, gray_from_bgr
 from .drivers import DRIVERS
 from .drivers.base import (
     Capability,
@@ -101,6 +101,7 @@ class Camera:
     events_task: asyncio.Task[None] | None = field(default=None, repr=False)
     stills_task: asyncio.Task[None] | None = field(default=None, repr=False)  # Norn's detection
     detect_ms: float | None = None  # how long Norn's object detection takes on its stills
+    objects_shown: bool = False  # the last camera.objects had boxes (an empty one clears them)
     # What probing found: each stream's resolution (or why it failed), and whether the camera
     # serves its streams at the same time. None: not probed (yet, or not RTSP).
     probe: dict[str, StreamProbe] | None = None
@@ -1272,6 +1273,7 @@ class Hub:
                             camera.detect_ms = ms if before is None else before * 0.8 + ms * 0.2
                             # Following steers by every sighting; recording waits for confirmation.
                             seen |= tracker.update(found, now, d.confirm_seconds)
+                            self._publish_objects(camera, tracker.last)
                             if following and pilot:
                                 people = [f for f in found if f.kind == "person"]
                                 await pilot.nudge(people, self.still_aspect(camera))
@@ -1290,6 +1292,30 @@ class Hub:
                         break  # subscribe again with the new settings
                     if self.still_source(camera) != stream.source:
                         break  # the camera's streams changed (probing, the user): follow them
+
+    def _publish_objects(self, camera: Camera, last: list[tuple[Detection, str]]) -> None:
+        """What Norn sees on the newest still, for the camera page to draw: each box in fractions
+        of the picture, with whether it counts. Quiet while nothing is there."""
+        if not last and not camera.objects_shown:
+            return
+        camera.objects_shown = bool(last)
+        # The detector's input is the still scaled into a square, from the top left.
+        aspect = self.still_aspect(camera)
+        width = OBJECT_SIZE * min(aspect, 1)
+        height = OBJECT_SIZE / max(aspect, 1)
+        objects = [
+            {
+                "kind": d.kind,
+                "score": round(d.score, 2),
+                "box": [
+                    round(min(max(v / (width if i % 2 == 0 else height), 0), 1), 4)
+                    for i, v in enumerate(d.box)
+                ],
+                "status": status,
+            }
+            for d, status in last
+        ]
+        self.bus.publish("camera.objects", {"camera": camera.id, "objects": objects})
 
     async def _hold(self, camera_id: str, trigger: str) -> None:
         """Keep a camera's clip going while what triggered it lasts; it then runs `clip_seconds`

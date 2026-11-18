@@ -31,7 +31,7 @@
 	}
 </script>
 
-<div class="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-5 py-3.5">
+<div class="@container flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-5 py-3.5">
 	<div class="min-w-0 flex-1 basis-56">
 		<span class="block text-sm font-medium">{label}</span>
 		<span class="mt-0.5 block text-xs text-muted">
@@ -40,7 +40,7 @@
 			{#if !choices.length}This camera reports no detections.{/if}
 		</span>
 	</div>
-	<div class="flex w-full shrink-0 flex-wrap items-center justify-end gap-1.5 sm:w-60">
+	<div class="flex w-full shrink-0 flex-wrap items-center justify-end gap-1.5 @[33rem]:w-60">
 		{#each choices as kind (kind)}
 			{@const on = shown.includes(kind)}
 			<button

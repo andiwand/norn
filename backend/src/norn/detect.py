@@ -229,9 +229,12 @@ class Tracker:
     forget_after: float = 30
     moved_below: float = 0.6
     tracks: list[Track] = field(default_factory=list)
+    last: list[tuple[Detection, str]] = field(default_factory=list)
 
     def update(self, found: list[Detection], now: float | None = None, confirm: float = 0) -> set[str]:
+        """The kinds that count now. `last` keeps each detection with why it counts or not."""
         now = time.monotonic() if now is None else now
+        matched: list[tuple[Detection, Track]] = []
         for d in found:
             match = max(
                 (t for t in self.tracks if t.kind == d.kind),
@@ -243,13 +246,21 @@ class Tracker:
                     match.still_since, match.anchor = now, d.box
                 match.box, match.seen = d.box, now
             else:
-                self.tracks.append(Track(d.kind, d.box, now, now, now, d.box))
+                match = Track(d.kind, d.box, now, now, now, d.box)
+                self.tracks.append(match)
+            matched.append((d, match))
         self.tracks = [t for t in self.tracks if now - t.seen <= self.forget_after]
-        return {
-            t.kind
-            for t in self.tracks
-            if t.seen == now and now - t.still_since < self.still_after and now - t.first >= confirm
-        }
+        self.last = [(d, self._status(t, now, confirm)) for d, t in matched]
+        return {t.kind for t in self.tracks if t.seen == now and self._status(t, now, confirm) == "counts"}
+
+    def _status(self, t: Track, now: float, confirm: float) -> str:
+        """`counts`, or why not: `unconfirmed` (seen too briefly yet) or `still` (it hasn't moved
+        for `still_after` seconds)."""
+        if now - t.first < confirm:
+            return "unconfirmed"
+        if now - t.still_since >= self.still_after:
+            return "still"
+        return "counts"
 
 
 def gray_from_bgr(bgr: bytes) -> bytes:

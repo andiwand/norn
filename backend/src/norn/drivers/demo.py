@@ -75,6 +75,7 @@ class DemoDriver(Driver):
     def capabilities(self) -> set[Capability]:
         caps = {
             Capability.PTZ,
+            Capability.ZOOM,
             Capability.PRESETS,
             Capability.CONTROLS,
             Capability.EVENTS,

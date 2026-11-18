@@ -99,6 +99,7 @@ class FoscamHdDriver(Driver):
         return super().capabilities() | {
             Capability.CONTROLS,
             Capability.PTZ,
+            Capability.ZOOM,  # not every model; zoomIn fails harmlessly on those
             Capability.PRESETS,
             Capability.PRESET_SAVE,
         }
