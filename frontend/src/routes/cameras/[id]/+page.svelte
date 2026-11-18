@@ -51,6 +51,7 @@
 	const enabled = $derived(camera?.enabled ?? false);
 	const groups = $derived(byGroup(controls));
 	let open = $state<Recording | null>(null);
+	let openAt = $state(0); // seconds into it (from the timeline)
 	let activity = $state<CameraActivity | null>(null);
 
 	// Depends on the id and enabled only: the camera object is replaced on each refresh.
@@ -522,11 +523,14 @@
 			<CameraActivity
 				bind:this={activity}
 				{camera}
-				onopen={(r) => (open = r)}
+				onopen={(r, at = 0) => {
+					openAt = at;
+					open = r;
+				}}
 				onsettings={() => show('recording', { scroll: true })}
 			/>
 		</div>
 	</div>
 
-	<RecordingDialog bind:recording={open} onchanged={(r) => activity?.replace(r)} />
+	<RecordingDialog bind:recording={open} at={openAt} onchanged={(r) => activity?.replace(r)} />
 {/if}

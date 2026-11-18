@@ -269,6 +269,8 @@
 	// a click without dragging opens what is under it.
 	let lane = $state<HTMLElement>();
 	let laneWidth = $state(600);
+	// Where the playhead's time sits on the axis, in pixels (kept off the edges, like its CSS).
+	const headLabelX = $derived(Math.min(Math.max(44, head * laneWidth), laneWidth - 44));
 	let drag: {
 		x: number;
 		y: number;
@@ -572,8 +574,13 @@
 				bind:clientWidth={laneWidth}
 			>
 				{#each ticks.list as at (at)}
+					<!-- A tick under the playhead's time would show through it: it steps aside. -->
 					<span
-						class="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 text-[10px] whitespace-nowrap text-muted tabular-nums sm:top-1 sm:translate-y-0"
+						class="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 text-[10px] whitespace-nowrap text-muted tabular-nums transition-opacity sm:top-1 sm:translate-y-0 {Math.abs(
+							(x(at) / 100) * laneWidth - headLabelX
+						) < 64
+							? 'opacity-0'
+							: ''}"
 						style:left="{x(at)}%">{tickLabel(at, ticks.step)}</span
 					>
 				{/each}

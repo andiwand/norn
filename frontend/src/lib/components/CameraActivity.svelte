@@ -8,6 +8,7 @@
 	import { store } from '../state.svelte';
 	import { readStoredJson, writeStored } from '../stored';
 	import RecordingTile from './RecordingTile.svelte';
+	import Timeline from './Timeline.svelte';
 
 	let {
 		camera,
@@ -15,7 +16,8 @@
 		onsettings
 	}: {
 		camera: Camera;
-		onopen: (r: Recording) => void;
+		/** Open a recording, `at` seconds in. */
+		onopen: (r: Recording, at?: number) => void;
 		/** Show this camera's recording settings. */
 		onsettings: () => void;
 	} = $props();
@@ -27,6 +29,15 @@
 		[7, '7 days', 'the last 7 days']
 	] as const;
 	type Days = (typeof RANGES)[number][0];
+	// Clips: the strip and tiles; Timeline: everything this camera recorded, to scrub through.
+	const VIEW_KEY = 'norn.activity-view';
+	let view = $state<'clips' | 'timeline'>(
+		readStoredJson<string>(VIEW_KEY, 'clips') === 'timeline' ? 'timeline' : 'clips'
+	);
+	function pickView(next: 'clips' | 'timeline') {
+		view = next;
+		writeStored(VIEW_KEY, JSON.stringify(next));
+	}
 	const RANGE_KEY = 'norn.activity-days';
 	let days = $state<Days>(RANGES.find(([d]) => d === readStoredJson(RANGE_KEY, 1))?.[0] ?? 1);
 	const range = $derived(days * DAY);
@@ -145,86 +156,109 @@
 	);
 </script>
 
-<section class="card p-4">
-	<div class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-		<h2 class="text-sm font-semibold">Activity</h2>
-		<div class="flex rounded-lg bg-surface-3 p-0.5" role="radiogroup" aria-label="Show">
-			{#each RANGES as [d, label] (d)}
-				<button
-					role="radio"
-					aria-checked={days === d}
-					class="rounded-md px-2.5 py-1 text-xs font-medium whitespace-nowrap transition {days === d
-						? 'bg-surface text-text shadow'
-						: 'text-muted hover:text-text'}"
-					onclick={() => pick(d)}>{label}</button
-				>
-			{/each}
-		</div>
-		<span class="min-w-0 flex-1 truncate text-xs text-muted">
-			{#if !loaded}…{:else if clips.length}
-				{clips.length}
-				{clips.length === 1 ? 'clip' : 'clips'}{#if continuous}
-					· recording continuously{/if}
-			{:else if continuous}Recording continuously{/if}
-		</span>
-		<a href="/recordings?camera={camera.id}" class="shrink-0 text-sm text-accent hover:underline"
-			>All recordings</a
-		>
-	</div>
-
-	<!-- The strip: a mark per clip, as wide as it ran (at least a few pixels). -->
-	<div class="relative h-9 rounded-lg bg-surface-2">
-		{#each ticks as t (t.x)}
-			<span class="absolute inset-y-0 w-px bg-line" style="left:{t.x * 100}%"></span>
-		{/each}
-		{#each clips as r (r.id)}
+<div class="mb-2 flex items-center gap-3 px-1">
+	<h2 class="text-sm font-semibold">Activity</h2>
+	<div class="flex rounded-lg bg-surface-3 p-0.5" role="radiogroup" aria-label="View">
+		{#each [['clips', 'Clips'], ['timeline', 'Timeline']] as const as [v, label] (v)}
 			<button
-				class="absolute inset-y-1.5 min-w-1 rounded-sm opacity-90 transition hover:inset-y-0.5 hover:opacity-100 focus-visible:inset-y-0.5 {colour(
-					r.trigger
-				)}"
-				style="left:{Math.max(0, at(r)) * 100}%;width:{span(r) * 100}%"
-				title="{triggerLabel(r.trigger)} · {when(r)}"
-				aria-label="{triggerLabel(r.trigger)} at {when(r)}: play"
-				onclick={() => onopen(r)}
-			></button>
-		{/each}
-		<span class="absolute inset-y-0 right-0 w-0.5 rounded bg-accent" title="Now"></span>
-	</div>
-	<div class="relative mt-1 h-4 text-[11px] text-muted tabular-nums">
-		{#each ticks as t (t.x)}
-			<span class="absolute -translate-x-1/2" style="left:{t.x * 100}%">{t.label}</span>
+				role="radio"
+				aria-checked={view === v}
+				class="rounded-md px-2.5 py-1 text-xs font-medium whitespace-nowrap transition {view === v
+					? 'bg-surface text-text shadow'
+					: 'text-muted hover:text-text'}"
+				onclick={() => pickView(v)}>{label}</button
+			>
 		{/each}
 	</div>
+	<a
+		href="/recordings?camera={camera.id}{view === 'timeline' ? '&tab=timeline' : ''}"
+		class="ml-auto shrink-0 text-sm text-accent hover:underline">All recordings</a
+	>
+</div>
 
-	{#if counts.length}
-		<div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
-			{#each counts as [trigger, n] (trigger)}
-				<span class="flex items-center gap-1.5"
-					><span class="h-2.5 w-1 rounded-sm {colour(trigger)}"></span>{triggerLabel(trigger)}
-					{n}</span
-				>
+{#if view === 'timeline'}
+	<Timeline cameras={[camera]} {onopen} />
+{:else}
+	<section class="card p-4">
+		<div class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+			<div class="flex rounded-lg bg-surface-3 p-0.5" role="radiogroup" aria-label="Show">
+				{#each RANGES as [d, label] (d)}
+					<button
+						role="radio"
+						aria-checked={days === d}
+						class="rounded-md px-2.5 py-1 text-xs font-medium whitespace-nowrap transition {days ===
+						d
+							? 'bg-surface text-text shadow'
+							: 'text-muted hover:text-text'}"
+						onclick={() => pick(d)}>{label}</button
+					>
+				{/each}
+			</div>
+			<span class="min-w-0 flex-1 truncate text-xs text-muted">
+				{#if !loaded}…{:else if clips.length}
+					{clips.length}
+					{clips.length === 1 ? 'clip' : 'clips'}{#if continuous}
+						· recording continuously{/if}
+				{:else if continuous}Recording continuously{/if}
+			</span>
+		</div>
+
+		<!-- The strip: a mark per clip, as wide as it ran (at least a few pixels). -->
+		<div class="relative h-9 rounded-lg bg-surface-2">
+			{#each ticks as t (t.x)}
+				<span class="absolute inset-y-0 w-px bg-line" style="left:{t.x * 100}%"></span>
+			{/each}
+			{#each clips as r (r.id)}
+				<button
+					class="absolute inset-y-1.5 min-w-1 rounded-sm opacity-90 transition hover:inset-y-0.5 hover:opacity-100 focus-visible:inset-y-0.5 {colour(
+						r.trigger
+					)}"
+					style="left:{Math.max(0, at(r)) * 100}%;width:{span(r) * 100}%"
+					title="{triggerLabel(r.trigger)} · {when(r)}"
+					aria-label="{triggerLabel(r.trigger)} at {when(r)}: play"
+					onclick={() => onopen(r)}
+				></button>
+			{/each}
+			<span class="absolute inset-y-0 right-0 w-0.5 rounded bg-accent" title="Now"></span>
+		</div>
+		<div class="relative mt-1 h-4 text-[11px] text-muted tabular-nums">
+			{#each ticks as t (t.x)}
+				<span class="absolute -translate-x-1/2" style="left:{t.x * 100}%">{t.label}</span>
 			{/each}
 		</div>
-	{/if}
 
-	{#if clips.length}
-		<div class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-			{#each clips.slice(0, 4) as r (r.id)}
-				<RecordingTile
-					recording={r}
-					cameraName={camera.name}
-					{onopen}
-					ondelete={list.remove}
-					onpin={list.pin}
-				/>
-			{/each}
-		</div>
-	{:else if loaded}
-		<p class="mt-3 text-sm text-muted">
-			{reason}
-			{#if store.info?.recording_available && camera.enabled}
-				<button class="text-accent hover:underline" onclick={onsettings}>Recording settings</button>
-			{/if}
-		</p>
-	{/if}
-</section>
+		{#if counts.length}
+			<div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
+				{#each counts as [trigger, n] (trigger)}
+					<span class="flex items-center gap-1.5"
+						><span class="h-2.5 w-1 rounded-sm {colour(trigger)}"></span>{triggerLabel(trigger)}
+						{n}</span
+					>
+				{/each}
+			</div>
+		{/if}
+
+		{#if clips.length}
+			<div class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+				{#each clips.slice(0, 4) as r (r.id)}
+					<RecordingTile
+						recording={r}
+						cameraName={camera.name}
+						{onopen}
+						ondelete={list.remove}
+						onpin={list.pin}
+					/>
+				{/each}
+			</div>
+		{:else if loaded}
+			<p class="mt-3 text-sm text-muted">
+				{reason}
+				{#if store.info?.recording_available && camera.enabled}
+					<button class="text-accent hover:underline" onclick={onsettings}
+						>Recording settings</button
+					>
+				{/if}
+			</p>
+		{/if}
+	</section>
+{/if}

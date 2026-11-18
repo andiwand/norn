@@ -13,7 +13,7 @@
 	const quick = $derived(controls.filter(isQuick));
 	const short = (c: Control) =>
 		(c.options?.length ?? 0) <= 3 &&
-		(c.options ?? []).reduce((n, o) => n + o.label.length, 0) <= 22;
+		(c.options ?? []).reduce((n, o) => n + o.label.length, 0) <= 30;
 </script>
 
 {#if quick.length}
@@ -71,8 +71,9 @@
 							{/each}
 						</div>
 					{:else}
+						<!-- More choices: a plain dropdown that belongs to the chip, not a field in it. -->
 						<select
-							class="input h-9 w-auto min-w-0 pr-8 text-xs font-medium"
+							class="h-9 min-w-0 cursor-pointer rounded-lg border-0 bg-surface-3 pr-7 pl-2.5 text-xs font-medium text-text outline-none focus-visible:ring-2 focus-visible:ring-accent"
 							value={c.value ?? ''}
 							aria-label={c.label}
 							onchange={(e) => onchange(c, e.currentTarget.value)}
