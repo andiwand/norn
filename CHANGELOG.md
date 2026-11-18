@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.3 — 2026-11-18
 
 - MQTT is set in config.yaml (`mqtt:`) or in Settings → MQTT: on or off, broker, user, password,
   topic prefix, discovery and stills. The NORN_MQTT* environment variables are its defaults.
