@@ -50,6 +50,7 @@ from .gop import GopCache
 from .labels import LABELS
 from .mqtt import Mqtt
 from .mqtt import defaults as mqtt_defaults
+from .notify import Notifier
 from .pilot import Pilot
 from .probe import StreamProbe, probe_all, probeable
 from .recorder import Recorder, ffprobe_of
@@ -196,6 +197,10 @@ class Hub:
         # Cameras recording because of detections: what holds each one (camera, kind), and the
         # task that keeps its clip going.
         self.detectors = Detectors(settings)
+        # Notifications on phones (web push) when something is detected.
+        self.notifier = Notifier(
+            settings.runtime_dir, lambda: self.config.notifications, lambda cid: self.still_jpeg(cid)
+        )
         self.pilots: dict[str, Pilot] = {}  # pan/tilt: presets, patrol, reactions, following
         self.stills = Stills(settings.ffmpeg_bin)
         self._still_cache: dict[str, tuple[bytes, float]] = {}
@@ -1024,6 +1029,7 @@ class Hub:
         # object alarm counts once Norn's AI confirms it (or can't look; see _trusted).
         if not trusted_before and self._trusted(camera_id, event.kind):
             self._react(camera_id, event.kind)
+            self._notify(camera_id, event.kind)
         if event.kind not in self.triggers_of(camera_id):
             return
         # The camera records; in a circle that records together, all its cameras do. The hold
@@ -1068,6 +1074,17 @@ class Hub:
     @staticmethod
     def _camera_reports(camera: Camera, kind: str) -> bool:
         return "camera" in camera.detecting.get(kind, ())
+
+    def _notify(self, camera_id: str, kind: str) -> None:
+        """Tell the phones: the rules (notifications in config.yaml) decide whether."""
+        camera = self.cameras.get(camera_id)
+        if camera is None or not camera.config.enabled:
+            return
+        sources = set(camera.detecting.get(kind, ()))
+        self._background(
+            self.notifier.detected(camera_id, camera.config.name, kind, sources, self.away),
+            f"notify-{camera_id}",
+        )
 
     def _react(self, source: str, kind: str) -> None:
         """Cameras with a reaction to this detection turn to one of its presets."""

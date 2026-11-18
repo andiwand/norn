@@ -330,6 +330,9 @@ def router(auth: Auth, hub: Hub) -> APIRouter:
             raise HTTPException(409, "Norn needs an admin: make someone else an admin first")
         await hub.remove_user(name)
         auth.forget_user(name)
+        # Their phones get no more notifications.
+        for device in [d for d in hub.notifier.store.devices.values() if d.user == name]:
+            hub.notifier.store.remove(device.id)
         if not hub.config.users:
             log.warning("the last user is gone: sign-in is off, Norn trusts its network again")
 

@@ -112,6 +112,13 @@ image or the PyPI package `norn-hub`. The name may change later.
     on every interface; only `NetworkVideoTransmitter`s count), and `check_host`, which asks
     one address over TCP what it is (Foscam CGI status page, ONVIF's clock, Hikvision's login
     challenge, Reolink's port 9000). Only requests that need no login and change nothing.
+  - `notify.py` and `push_api.py`: notifications by web push. The VAPID key (`.norn/vapid.pem`)
+    is made once; the devices (browser subscriptions) are in `.norn/push.json`, not config.yaml;
+    the rules are config.yaml's `notifications`. The hub calls `Notifier.detected` when a
+    detection starts to count (`_trusted`, like reactions). Pictures go by an unguessable URL
+    that expires after an hour (a push message holds ~4 KB; the phone fetches the picture
+    without a session). The web app's service worker (`frontend/src/service-worker/`) shows
+    them and opens the camera on a tap; it caches nothing.
   - `settings.py`: process settings from `NORN_*` environment variables. Camera and recording
     settings belong in config.yaml, not here.
 - `frontend/`: SvelteKit 3 + Svelte 5 runes + Tailwind 4, built as a static single-page app

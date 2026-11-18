@@ -25,6 +25,7 @@ dependencies = [
     "psutil>=7",
     "pydantic>=2.14.3",
     "pytapo>=3.4.31",
+    "pywebpush>=2.0",
     "reolink-aio>=0.23.1",
     "ruamel-yaml>=0.19.1",
     "uvicorn[standard]>=0.54.0",

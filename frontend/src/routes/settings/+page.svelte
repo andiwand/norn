@@ -13,6 +13,7 @@
 	import NumberSetting from '#lib/components/NumberSetting.svelte';
 	import TextSetting from '#lib/components/TextSetting.svelte';
 	import ChoiceSetting from '#lib/components/ChoiceSetting.svelte';
+	import NotificationSettings from '#lib/components/NotificationSettings.svelte';
 	import HouseWifi from '@lucide/svelte/icons/house-wifi';
 	import HardDrive from '@lucide/svelte/icons/hard-drive';
 	import Archive from '@lucide/svelte/icons/archive';
@@ -42,13 +43,16 @@
 	const ALL = [
 		['recording', 'Recording'],
 		['firmware', 'Firmware'],
+		['notifications', 'Notifications'],
 		['mqtt', 'MQTT'],
 		['users', 'Users'],
 		['account', 'Account']
 	] as const;
 	type Tab = (typeof ALL)[number][0];
 	const TABS = $derived(
-		ALL.filter(([id]) => (id === 'account' ? !!store.auth?.user : store.isAdmin))
+		ALL.filter(([id]) =>
+			id === 'account' ? !!store.auth?.user : id === 'notifications' || store.isAdmin
+		)
 	);
 	const first = $derived<Tab>(TABS[0]?.[0] ?? 'account');
 	const tab = $derived<Tab>(
@@ -271,6 +275,8 @@
 				The defaults come from the <code class="font-mono">NORN_MQTT</code> environment variables; config.yaml
 				keeps what differs from them. Norn connects again when you save.
 			</p>
+		{:else if tab === 'notifications'}
+			<NotificationSettings bind:rules={form.notifications} defaults={defaults.notifications} />
 		{:else}
 			<SettingsSection
 				title="Firmware updates"

@@ -190,6 +190,22 @@ class DetectionSettings(BaseModel):
     model: Literal["nano", "tiny"] = "nano"
 
 
+class NotificationSettings(BaseModel):
+    """Notifications on phones and browsers (web push, notify.py) when something is detected:
+    which detections, on which cameras, when, and how often. Each device turns them on for
+    itself; these rules are for all of them."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    kinds: list[str] = Field(default_factory=lambda: ["person", "vehicle", "animal"])
+    cameras: list[str] = Field(default_factory=list)  # empty: every camera
+    away_only: bool = False  # only while away mode is on
+    quiet: list[Window] = Field(default_factory=list)  # times without notifications
+    every_minutes: float = Field(5, ge=0, le=1440)  # at most one per camera this often
+    picture: bool = True  # the camera's picture at that moment, where the phone shows it
+
+
 class DetectionOverride(BaseModel):
     """A circle's or camera's own detection settings; fields left out come from above."""
 
@@ -401,13 +417,23 @@ class Config(BaseModel):
     away: AwaySettings = Field(default_factory=AwaySettings)
     detection: DetectionSettings = Field(default_factory=DetectionSettings)
     mqtt: MqttOverride = Field(default_factory=MqttOverride)
+    notifications: NotificationSettings = Field(default_factory=NotificationSettings)
     circles: dict[str, CircleConfig] = Field(default_factory=dict)
     cameras: dict[str, CameraConfig] = Field(default_factory=dict)
     # Who may sign in; none: no sign-in (Norn trusts its network).
     users: dict[str, UserConfig] = Field(default_factory=dict)
 
     @field_validator(
-        "recording", "firmware", "away", "detection", "mqtt", "cameras", "circles", "users", mode="before"
+        "recording",
+        "firmware",
+        "away",
+        "detection",
+        "mqtt",
+        "notifications",
+        "cameras",
+        "circles",
+        "users",
+        mode="before",
     )
     @classmethod
     def _none_is_empty(cls, value: Any) -> Any:

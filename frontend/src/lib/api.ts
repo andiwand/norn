@@ -408,12 +408,41 @@ export interface MqttSettings {
 	stills_seconds: number;
 }
 
+/** When phones get a notification (config.yaml's `notifications`). */
+export interface NotificationSettings {
+	enabled: boolean;
+	kinds: string[];
+	/** Empty: every camera. */
+	cameras: string[];
+	away_only: boolean;
+	/** Times without notifications. */
+	quiet: Window[];
+	/** At most one per camera this often; 0: each time. */
+	every_minutes: number;
+	picture: boolean;
+}
+
+/** A browser or installed app that gets notifications (web push). */
+export interface PushDevice {
+	id: string;
+	/** The browser's push address: how a page finds its own device. */
+	endpoint: string;
+	name: string;
+	user: string | null;
+	enabled: boolean;
+	/** Only these cameras; null: as the rules say. */
+	cameras: string[] | null;
+	created: number;
+	last_used: number | null;
+}
+
 export interface SettingsValues {
 	recording: RecordingSettings;
 	firmware: { check_hours: number };
 	away: AwaySettings;
 	detection: DetectionSettings;
 	mqtt: MqttSettings;
+	notifications: NotificationSettings;
 }
 
 export interface StorageStage {
@@ -591,6 +620,17 @@ export const api = {
 	removeUser: (name: string) => request<void>('DELETE', `/users/${enc(name)}`),
 	info: () => request<Info>('GET', '/info'),
 	settings: () => request<SettingsData>('GET', '/settings'),
+	notifications: () =>
+		request<{ public_key: string; devices: PushDevice[] }>('GET', '/notifications'),
+	addDevice: (subscription: PushSubscriptionJSON & { name?: string }) =>
+		request<PushDevice>('POST', '/notifications/devices', subscription),
+	changeDevice: (
+		id: string,
+		body: { name?: string; enabled?: boolean; cameras?: string[] | null }
+	) => request<PushDevice>('PATCH', `/notifications/devices/${enc(id)}`, body),
+	removeDevice: (id: string) => request<void>('DELETE', `/notifications/devices/${enc(id)}`),
+	testDevice: (id: string) =>
+		request<{ sent: number }>('POST', `/notifications/devices/${enc(id)}/test`),
 	/** Fields left out keep their value. */
 	saveSettings: (values: { [K in keyof SettingsValues]?: Partial<SettingsValues[K]> }) =>
 		request<SettingsData>('PUT', '/settings', values),

@@ -96,6 +96,10 @@ def test_a_viewer_watches_and_steers_but_changes_nothing(app: TestClient) -> Non
     assert viewer.get("/api/logs").status_code == 403
     assert viewer.get("/api/users").status_code == 403
     assert viewer.get("/api/discover").status_code == 403  # scanning the network: admins
+    assert viewer.put("/api/settings", json={"notifications": {"enabled": False}}).status_code == 403
+    assert viewer.get("/api/notifications").status_code == 200  # their own devices
+    # A notification's picture needs no session (its token is the access); a wrong one is gone.
+    assert other(app).get("/api/notifications/pictures/nonsense.jpg").status_code == 404
     assert viewer.post("/api/users", json={"name": "eve", "password": "12345678"}).status_code == 403
     assert viewer.post("/api/cameras/door/ptz", json={"action": "stop"}).status_code != 403
 

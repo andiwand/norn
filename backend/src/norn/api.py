@@ -39,6 +39,7 @@ from .config import (
     FirmwareSettings,
     MqttOverride,
     MqttSettings,
+    NotificationSettings,
     RecordingSettings,
     short_error,
 )
@@ -49,6 +50,7 @@ from .go2rtc import Go2rtcUnavailableError
 from .gop import GopCache, codecs_fit
 from .hub import Hub, stream_name
 from .labels import describe as describe_labels
+from .push_api import push_routes
 from .recorder import RESERVED
 from .recordings import InvalidPathError
 from .secrets import keep as keep_secrets
@@ -100,6 +102,7 @@ class SettingsBody(BaseModel):
     # Over the environment's defaults (NORN_MQTT, ...). The password is never sent back; left
     # out or empty, it stays.
     mqtt: MqttSettings | None = None
+    notifications: NotificationSettings | None = None
 
 
 class PresetBody(BaseModel):
@@ -809,6 +812,7 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
                 with contextlib.suppress(RuntimeError, WebSocketDisconnect):
                     await ws.close()
 
+    push_routes(api, hub)
     app.include_router(api)
 
     @app.exception_handler(DriverError)

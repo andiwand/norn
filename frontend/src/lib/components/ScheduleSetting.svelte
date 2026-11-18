@@ -9,12 +9,15 @@
 		label = 'When',
 		hint = '',
 		value = $bindable(),
-		inherit
+		inherit,
+		empty = 'Always.'
 	}: {
 		label?: string;
 		hint?: string;
 		value: Window[] | null;
 		inherit?: Window[];
+		/** What no windows mean, said when there are none. */
+		empty?: string;
 	} = $props();
 
 	const DAYS = [
@@ -81,7 +84,7 @@
 				{hint}
 				{#if inherit !== undefined && !own}As set above: {describe(
 						windows
-					)}.{:else if !windows.length}Always.{/if}
+					)}.{:else if !windows.length}{empty}{/if}
 			</span>
 		</div>
 		<div class="flex shrink-0 items-center gap-2">

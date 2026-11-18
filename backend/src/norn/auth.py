@@ -294,9 +294,11 @@ VIEWER_WRITES = [
     ("DELETE", r"/api/auth/sessions/[^/]+"),
     ("POST", r"/api/auth/tokens"),
     ("DELETE", r"/api/auth/tokens/[^/]+"),
-    ("POST", r"/api/push/.*"),
-    ("PUT", r"/api/push/.*"),
-    ("DELETE", r"/api/push/.*"),
+    # Notifications: one's own devices (the routes check whose they are).
+    ("POST", r"/api/notifications/devices"),
+    ("PATCH", r"/api/notifications/devices/[^/]+"),
+    ("DELETE", r"/api/notifications/devices/[^/]+"),
+    ("POST", r"/api/notifications/devices/[^/]+/test"),
 ]
 ADMIN_READS = [r"/api/logs(/.*)?", r"/api/users", r"/api/discover(/.*)?"]
 # Open without signing in: whether sign-in is on, signing in, and the app's health check.
@@ -305,6 +307,9 @@ PUBLIC = [
     ("GET", r"/api/auth"),
     ("POST", r"/api/auth/login"),
     ("POST", r"/api/users/first"),
+    # A notification's picture: its unguessable, expiring token is the access (a phone fetches
+    # it without a session).
+    ("GET", r"/api/notifications/pictures/[^/]+\.jpg"),
 ]
 
 
