@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.2 — 2026-11-18
+
+- Reolink: the sensitivity and the delay of the camera's AI for each kind it detects (person,
+  animal, ...) are controls under Alarm. A delay of a few seconds keeps short false alarms at
+  night (insects in the infrared light) from recording.
+- Detection by Norn: `confirm_seconds` ("Confirm after" in Triggers): an object counts only once
+  Norn has seen it that long.
+- The drivers share one way of sending requests and reporting network errors and refused logins.
+- CPU readings are steady: the hub measures at most every 4 s, so two pages polling at once no
+  longer see tiny, jumpy windows.
+
 ## 0.7.1 — 2026-11-18
 
 Fixes from a review of the whole code:
