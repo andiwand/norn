@@ -57,8 +57,8 @@ async def test_resources_measure_at_most_every_few_seconds(settings: Settings) -
 
 async def test_objects_go_out_in_fractions_of_the_picture(settings: Settings) -> None:
     """The camera page draws Norn's boxes over the video: in fractions of the picture (the
-    detector's square input holds the still from the top left), and one empty message after
-    the last box clears them."""
+    detector's square input holds the still from the top left), only when they change, and one
+    empty message after the last box clears them."""
     from norn.detect import OBJECT_SIZE, Detection
 
     hub = Hub(settings)
@@ -71,6 +71,8 @@ async def test_objects_go_out_in_fractions_of_the_picture(settings: Settings) ->
         sheet = Detection("person", 0.671, (OBJECT_SIZE / 2, tall / 4, OBJECT_SIZE, tall))
         async with hub.bus.subscribe() as queue:
             hub._publish_objects(camera, [(sheet, "still")])
+            wobbled = Detection("person", 0.69, (OBJECT_SIZE / 2 + 1, tall / 4, OBJECT_SIZE, tall))
+            hub._publish_objects(camera, [(wobbled, "still")])  # no visible change: quiet
             hub._publish_objects(camera, [])
             hub._publish_objects(camera, [])  # nothing new: quiet
             hub.bus.publish("end", {})

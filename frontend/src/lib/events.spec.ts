@@ -76,12 +76,27 @@ describe('heatMap', () => {
 			['a', 'b'],
 			now
 		);
-		expect(map.hours).toHaveLength(24);
-		expect(map.hours[23]).toBe(new Date('2026-11-18T20:00:00').getTime());
+		expect(map.starts).toHaveLength(24);
+		expect(map.starts[23]).toBe(new Date('2026-11-18T20:00:00').getTime());
 		expect(map.rows[0].counts[23]).toBe(2);
 		expect(map.rows[1].counts[0]).toBe(1);
 		expect(map.rows[1].counts.reduce((a, b) => a + b)).toBe(1);
 		expect(map.max).toBe(2);
+	});
+
+	it('over days, takes squares of a few hours that start on the clock', () => {
+		const now = new Date('2026-11-18T20:40:00').getTime();
+		const week = heatMap([clip('a', '2026-11-12T00:30:00')], ['a'], now, 7);
+		expect(week.starts).toHaveLength(28);
+		expect(week.starts[27]).toBe(new Date('2026-11-18T18:00:00').getTime());
+		expect(week.starts[0]).toBe(new Date('2026-11-12T00:00:00').getTime());
+		expect(week.rows[0].counts[0]).toBe(1);
+		const three = heatMap([], ['a'], now, 3);
+		expect(three.starts).toHaveLength(24);
+		expect(three.starts[23]).toBe(new Date('2026-11-18T18:00:00').getTime());
+		// Every square starts on the clock, whatever the zone and its summer time.
+		const march = heatMap([], ['a'], new Date('2026-03-31T10:00:00').getTime(), 7);
+		expect(march.starts.every((t) => new Date(t).getHours() % 6 === 0)).toBe(true);
 	});
 });
 

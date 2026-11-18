@@ -69,6 +69,7 @@ LOW_SOURCE = (
     "#raw=-r 12 -g 24 -b:v 350k -maxrate 400k -bufsize 800k -preset superfast"
 )
 HOLD_INTERVAL = 5  # seconds between two extensions of a clip while a detection lasts
+OBJECTS_HEARTBEAT = 10  # seconds: unchanged boxes on the camera page are sent again this often
 STORAGE_CACHE = 15  # seconds a storage report stays fresh; it walks the folders
 RESOURCES_INTERVAL = 4  # seconds at least between two CPU measurements (each covers the time since the last)
 
@@ -101,7 +102,8 @@ class Camera:
     events_task: asyncio.Task[None] | None = field(default=None, repr=False)
     stills_task: asyncio.Task[None] | None = field(default=None, repr=False)  # Norn's detection
     detect_ms: float | None = None  # how long Norn's object detection takes on its stills
-    objects_shown: bool = False  # the last camera.objects had boxes (an empty one clears them)
+    objects_sent: list[dict[str, Any]] | None = None  # the last camera.objects, and when
+    objects_sent_at: float = 0.0
     # What probing found: each stream's resolution (or why it failed), and whether the camera
     # serves its streams at the same time. None: not probed (yet, or not RTSP).
     probe: dict[str, StreamProbe] | None = None
@@ -1238,6 +1240,7 @@ class Hub:
             d = settings()
             objects = d.objects and self.detectors.unavailable is None
             if not (d.motion or objects) or not self.go2rtc.ready.is_set() or not self.recorder.available:
+                self._publish_objects(camera, [])
                 for kind in list(active):
                     end(kind)
                 await asyncio.sleep(2)
@@ -1267,6 +1270,8 @@ class Hub:
                             motion.sensitivity = d.sensitivity
                             if motion.update(data if fmt == "gray" else gray_from_bgr(data)):
                                 seen.add("motion")
+                        if not (data and d.objects and fmt == "bgr"):
+                            self._publish_objects(camera, [])  # no stills, or objects off: clear
                         if data and d.objects and fmt == "bgr":
                             found, ms = await self.detectors.detect(d.model, data, d.min_score)
                             before = camera.detect_ms
@@ -1279,6 +1284,7 @@ class Hub:
                                 await pilot.nudge(people, self.still_aspect(camera))
                     except Exception as e:
                         log.warning("%s: detection failed: %s", camera.id, e)
+                        self._publish_objects(camera, [])
                     for kind in seen:
                         if kind not in active:
                             self.on_event(camera.id, Event(kind=kind, active=True), "norn")
@@ -1295,10 +1301,9 @@ class Hub:
 
     def _publish_objects(self, camera: Camera, last: list[tuple[Detection, str]]) -> None:
         """What Norn sees on the newest still, for the camera page to draw: each box in fractions
-        of the picture, with whether it counts. Quiet while nothing is there."""
-        if not last and not camera.objects_shown:
-            return
-        camera.objects_shown = bool(last)
+        of the picture, with whether it counts. Sent when it changes, and every few seconds while
+        something is there (so the page knows the boxes are current); one empty message clears
+        them, and then it is quiet."""
         # The detector's input is the still scaled into a square, from the top left.
         aspect = self.still_aspect(camera)
         width = OBJECT_SIZE * min(aspect, 1)
@@ -1315,6 +1320,19 @@ class Hub:
             }
             for d, status in last
         ]
+        now = time.monotonic()
+        if camera.objects_sent is None and not objects:
+            return  # nothing shown, nothing to clear
+
+        # Boxes of a still object wobble a little: only a visible change counts as one.
+        def rough(sent: list[dict[str, Any]]) -> list[tuple[Any, ...]]:
+            return [(o["kind"], o["status"], [round(v, 2) for v in o["box"]]) for o in sent]
+
+        same = rough(objects) == rough(camera.objects_sent or [])
+        if objects and same and now - camera.objects_sent_at < OBJECTS_HEARTBEAT:
+            return
+        camera.objects_sent = objects or None
+        camera.objects_sent_at = now
         self.bus.publish("camera.objects", {"camera": camera.id, "objects": objects})
 
     async def _hold(self, camera_id: str, trigger: str) -> None:

@@ -3,6 +3,7 @@
 	// Drag to move in time, pick a scale, click a recording (or a point in a video) to open it.
 	// A mouse points (hover) at a moment and drags the tracks to move; a finger has no hover, so
 	// it drags along the tracks to pick the moment and drags the times below them to move.
+	import PeriodPicker from './PeriodPicker.svelte';
 	import { api, urls, type Camera, type Recording } from '../api';
 	import { store } from '../state.svelte';
 	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
@@ -125,8 +126,9 @@
 			);
 		});
 		const tick = setInterval(() => {
-			// Only while showing the newest: a moment picked in the past stays put.
-			if (following && !dragging && head >= 1) end = Date.now();
+			// While following the clock the window keeps up, also after a mouse pointed somewhere
+			// (the playhead keeps its place on the screen); a window moved back stays put.
+			if (following && !dragging) end = Date.now();
 		}, 30_000);
 		return () => {
 			off();
@@ -416,20 +418,15 @@
 			>
 		{/if}
 		<div class="ml-auto flex items-center gap-2">
-			<div class="flex rounded-xl bg-surface-3 p-1" role="radiogroup" aria-label="Scale">
-				{#each SCALES as scale (scale.span)}
-					<button
-						role="radio"
-						aria-checked={span === scale.span}
-						class="rounded-lg px-2.5 py-1 text-xs font-medium whitespace-nowrap transition {span ===
-						scale.span
-							? 'bg-surface text-text shadow'
-							: 'text-muted hover:text-text'}"
-						onclick={() => setScale(scale.span)}>{scale.label}</button
-					>
-				{/each}
-			</div>
-			<button class="chip {following ? 'chip-active' : ''}" onclick={now}>Now</button>
+			<PeriodPicker
+				options={SCALES.map((scale) => [scale.span, scale.label] as const)}
+				value={span}
+				onpick={setScale}
+				label="Scale"
+			/>
+			<button class="chip {newest ? 'chip-active' : ''}" aria-pressed={newest} onclick={now}
+				>Now</button
+			>
 		</div>
 	</div>
 

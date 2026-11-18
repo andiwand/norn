@@ -73,6 +73,10 @@
 			writeStored(ASPECTS, JSON.stringify({ ...readStoredJson(ASPECTS, {}), [cameraId]: aspect }));
 		};
 		img.src = urls.still(cameraId, 60);
+		// Another camera before this still came: it must not set that one's shape.
+		return () => {
+			img.onload = null;
+		};
 	});
 
 	// What Norn's AI sees, drawn on the video: only where it looks for objects. On by default.
@@ -532,5 +536,10 @@
 		</div>
 	</div>
 
-	<RecordingDialog bind:recording={open} at={openAt} onchanged={(r) => activity?.replace(r)} />
+	<RecordingDialog
+		bind:recording={open}
+		at={openAt}
+		onchanged={(r) => activity?.replace(r)}
+		ondeleted={(r) => activity?.drop(r)}
+	/>
 {/if}

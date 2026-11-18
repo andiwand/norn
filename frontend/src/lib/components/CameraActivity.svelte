@@ -1,12 +1,14 @@
 <script lang="ts">
-	// A camera's recent clips, over 24 hours, 3 or 7 days: on a strip (a tap opens one), the
-	// newest of them as tiles, and when there are none, why: nothing set to record, or recording
-	// not possible.
+	// A camera's recent clips, over the last day, 3 days or week: on a strip (a tap opens one),
+	// the newest of them as tiles, and when there are none, why: nothing set to record, or
+	// recording not possible. Or, switched to Timeline, all it recorded, to scrub through.
 	import { api, type Camera, type Recording } from '../api';
 	import { formatTime, triggerLabel } from '../format';
 	import { RecordingList } from '../recordings.svelte';
 	import { store } from '../state.svelte';
 	import { readStoredJson, writeStored } from '../stored';
+	import { RECENT, readRecentDays, recentText, writeRecentDays, type RecentDays } from '../periods';
+	import PeriodPicker from './PeriodPicker.svelte';
 	import RecordingTile from './RecordingTile.svelte';
 	import Timeline from './Timeline.svelte';
 
@@ -23,12 +25,6 @@
 	} = $props();
 
 	const DAY = 24 * 3600 * 1000;
-	const RANGES = [
-		[1, '24 h', 'the last 24 hours'],
-		[3, '3 days', 'the last 3 days'],
-		[7, '7 days', 'the last 7 days']
-	] as const;
-	type Days = (typeof RANGES)[number][0];
 	// Clips: the strip and tiles; Timeline: everything this camera recorded, to scrub through.
 	const VIEW_KEY = 'norn.activity-view';
 	let view = $state<'clips' | 'timeline'>(
@@ -38,13 +34,13 @@
 		view = next;
 		writeStored(VIEW_KEY, JSON.stringify(next));
 	}
-	const RANGE_KEY = 'norn.activity-days';
-	let days = $state<Days>(RANGES.find(([d]) => d === readStoredJson(RANGE_KEY, 1))?.[0] ?? 1);
+	let days = $state<RecentDays>(readRecentDays());
 	const range = $derived(days * DAY);
-	const rangeText = $derived(RANGES.find(([d]) => d === days)?.[2] ?? '');
 
 	const list = new RecordingList();
+	const LIMIT = 2000;
 	let loaded = $state(false);
+	let truncated = $state(false); // more clips than LIMIT in the period
 	let now = $state(Date.now());
 
 	let asked = 0; // only the answer to the newest request counts
@@ -54,17 +50,18 @@
 		const since = new Date(start - rangeMs).toISOString();
 		// Clips only: a week of continuous files would be a thousand.
 		const got = await api
-			.recordings({ camera: id, since, kind: 'video', trigger: 'clips', limit: 2000 })
+			.recordings({ camera: id, since, kind: 'video', trigger: 'clips', limit: LIMIT })
 			.catch(() => null);
 		if (mine !== asked) return;
 		now = start;
 		list.items = got?.recordings ?? [];
+		truncated = !!got?.truncated;
 		loaded = true;
 	}
 
-	function pick(next: Days) {
+	function pick(next: RecentDays) {
 		days = next;
-		writeStored(RANGE_KEY, JSON.stringify(next));
+		writeRecentDays(next);
 	}
 
 	// The id only: the camera object is replaced on each refresh.
@@ -75,8 +72,21 @@
 		load(cameraId, rangeMs);
 		const timer = setInterval(() => (now = Date.now()), 60_000);
 		const off = store.on((event) => {
-			if (event.data.camera !== cameraId) return;
-			if (event.type === 'recording.finished' || event.type === 'recording.deleted')
+			// Deletions carry ids only (one, or many when old ones expire): drop what is shown.
+			if (event.type === 'recording.deleted') {
+				const ids = new Set(
+					Array.isArray(event.data.ids) ? (event.data.ids as string[]) : [String(event.data.id)]
+				);
+				if (list.items.some((r) => ids.has(r.id)))
+					list.items = list.items.filter((r) => !ids.has(r.id));
+				return;
+			}
+			// A new clip; the files of a continuous recording don't show here.
+			if (
+				event.type === 'recording.finished' &&
+				event.data.camera === cameraId &&
+				event.data.trigger !== 'continuous'
+			)
 				load(cameraId, rangeMs);
 		});
 		return () => {
@@ -89,11 +99,19 @@
 	export function replace(r: Recording) {
 		list.replace(r);
 	}
+	/** The page's dialog deleted a recording. */
+	export function drop(r: Recording) {
+		list.drop(r);
+	}
 
-	const clips = $derived(list.items);
+	// The clips inside the period: it moves on with the clock between loads.
+	const clips = $derived(
+		list.items.filter((r) => new Date(r.start).getTime() + (r.duration ?? 0) * 1000 > now - range)
+	);
 	const continuous = $derived(camera.record === 'continuous');
 
-	const at = (r: Recording) => (new Date(r.start).getTime() - (now - range)) / range;
+	// Where a clip starts on the strip, and how wide it is, cut to the period.
+	const at = (r: Recording) => Math.max(0, (new Date(r.start).getTime() - (now - range)) / range);
 	// Over days, a time alone doesn't say which day.
 	const when = (r: Recording) =>
 		days === 1
@@ -103,7 +121,11 @@
 					hour: '2-digit',
 					minute: '2-digit'
 				});
-	const span = (r: Recording) => ((r.duration ?? 30) * 1000) / range;
+	const span = (r: Recording) =>
+		Math.min(
+			1 - at(r),
+			(new Date(r.start).getTime() + (r.duration ?? 30) * 1000 - (now - range)) / range - at(r)
+		);
 	const colour = (trigger: string) =>
 		trigger === 'manual' || trigger === 'webhook'
 			? 'bg-accent'
@@ -152,24 +174,23 @@
 				? 'This camera is disabled.'
 				: !effectiveTriggers.length
 					? 'Nothing is set to start clips of this camera.'
-					: `No ${effectiveTriggers.map(triggerLabel).join(', ').toLowerCase()} in ${rangeText}.`
+					: `No ${effectiveTriggers.map(triggerLabel).join(', ').toLowerCase()} in ${recentText(days)}.`
 	);
 </script>
 
+<!-- The view next to the title; how much time, at the right end of each card's header (as on
+     the Recordings page and in the timeline). -->
 <div class="mb-2 flex items-center gap-3 px-1">
 	<h2 class="text-sm font-semibold">Activity</h2>
-	<div class="flex rounded-lg bg-surface-3 p-0.5" role="radiogroup" aria-label="View">
-		{#each [['clips', 'Clips'], ['timeline', 'Timeline']] as const as [v, label] (v)}
-			<button
-				role="radio"
-				aria-checked={view === v}
-				class="rounded-md px-2.5 py-1 text-xs font-medium whitespace-nowrap transition {view === v
-					? 'bg-surface text-text shadow'
-					: 'text-muted hover:text-text'}"
-				onclick={() => pickView(v)}>{label}</button
-			>
-		{/each}
-	</div>
+	<PeriodPicker
+		options={[
+			['clips', 'Clips'],
+			['timeline', 'Timeline']
+		] as const}
+		value={view}
+		onpick={pickView}
+		label="View"
+	/>
 	<a
 		href="/recordings?camera={camera.id}{view === 'timeline' ? '&tab=timeline' : ''}"
 		class="ml-auto shrink-0 text-sm text-accent hover:underline">All recordings</a
@@ -179,32 +200,20 @@
 {#if view === 'timeline'}
 	<Timeline cameras={[camera]} {onopen} />
 {:else}
-	<section class="card p-4">
-		<div class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-			<div class="flex rounded-lg bg-surface-3 p-0.5" role="radiogroup" aria-label="Show">
-				{#each RANGES as [d, label] (d)}
-					<button
-						role="radio"
-						aria-checked={days === d}
-						class="rounded-md px-2.5 py-1 text-xs font-medium whitespace-nowrap transition {days ===
-						d
-							? 'bg-surface text-text shadow'
-							: 'text-muted hover:text-text'}"
-						onclick={() => pick(d)}>{label}</button
-					>
-				{/each}
-			</div>
-			<span class="min-w-0 flex-1 truncate text-xs text-muted">
-				{#if !loaded}…{:else if clips.length}
-					{clips.length}
-					{clips.length === 1 ? 'clip' : 'clips'}{#if continuous}
-						· recording continuously{/if}
-				{:else if continuous}Recording continuously{/if}
+	<section class="card p-3 sm:p-5">
+		<div class="mb-3 flex flex-wrap items-center gap-2">
+			<span class="min-w-0 text-sm font-semibold">
+				{#if !loaded}…{:else}{clips.length}{truncated ? '+' : ''}
+					{clips.length === 1 ? 'clip' : 'clips'}{/if}
 			</span>
+			<span class="min-w-0 truncate text-xs text-muted">
+				{`in ${recentText(days)}`}{#if continuous}{' · recording continuously'}{/if}
+			</span>
+			<div class="ml-auto"><PeriodPicker options={RECENT} value={days} onpick={pick} /></div>
 		</div>
 
 		<!-- The strip: a mark per clip, as wide as it ran (at least a few pixels). -->
-		<div class="relative h-9 rounded-lg bg-surface-2">
+		<div class="relative h-9 overflow-hidden rounded-lg bg-surface-2">
 			{#each ticks as t (t.x)}
 				<span class="absolute inset-y-0 w-px bg-line" style="left:{t.x * 100}%"></span>
 			{/each}
@@ -213,7 +222,7 @@
 					class="absolute inset-y-1.5 min-w-1 rounded-sm opacity-90 transition hover:inset-y-0.5 hover:opacity-100 focus-visible:inset-y-0.5 {colour(
 						r.trigger
 					)}"
-					style="left:{Math.max(0, at(r)) * 100}%;width:{span(r) * 100}%"
+					style="left:{at(r) * 100}%;width:{span(r) * 100}%"
 					title="{triggerLabel(r.trigger)} · {when(r)}"
 					aria-label="{triggerLabel(r.trigger)} at {when(r)}: play"
 					onclick={() => onopen(r)}

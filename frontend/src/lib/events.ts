@@ -68,28 +68,40 @@ function toEvent(clips: Recording[]): ClipEvent {
 }
 
 export interface HeatMap {
-	/** The start of each hour (ms), oldest first; the last one holds `now`. */
-	hours: number[];
+	/** The start of each square (ms), oldest first; the last one holds `now`. */
+	starts: number[];
+	/** Where the last square ends: now. */
+	end: number;
 	rows: { camera: string; counts: number[] }[];
 	max: number;
 }
 
-/** Clips per camera and hour, for the `hours` hours up to `now`. */
-export function heatMap(clips: Recording[], cameras: string[], now: number, hours = 24): HeatMap {
+/** Clips per camera over the last `days` days up to `now`, in squares of a few hours (an hour
+ * over a day, 3 over 3 days, 6 over a week) that start on the clock (0:00, 6:00, ...), so a
+ * day begins at a square's edge, also across a change to or from summer time. */
+export function heatMap(clips: Recording[], cameras: string[], now: number, days = 1): HeatMap {
+	const binHours = days <= 1 ? 1 : days <= 3 ? 3 : 6;
+	const bins = Math.round((days * 24) / binHours);
 	const top = new Date(now);
-	top.setMinutes(0, 0, 0);
-	const first = top.getTime() - (hours - 1) * 3_600_000;
-	const starts = Array.from({ length: hours }, (_, i) => first + i * 3_600_000);
-	const rows = cameras.map((camera) => ({ camera, counts: Array<number>(hours).fill(0) }));
+	top.setHours(top.getHours() - (top.getHours() % binHours), 0, 0, 0);
+	const starts = [top.getTime()];
+	for (let i = 1; i < bins; i++) {
+		const d = new Date(starts[0]);
+		d.setHours(d.getHours() - binHours); // on the local clock
+		starts.unshift(d.getTime());
+	}
+	const rows = cameras.map((camera) => ({ camera, counts: Array<number>(bins).fill(0) }));
 	const index = new Map(rows.map((r, i) => [r.camera, i]));
 	let max = 0;
 	for (const clip of clips) {
 		const row = index.get(clip.camera);
-		const hour = Math.floor((startOf(clip) - first) / 3_600_000);
-		if (row === undefined || hour < 0 || hour >= hours) continue;
-		max = Math.max(max, ++rows[row].counts[hour]);
+		const t = startOf(clip);
+		if (row === undefined || t < starts[0] || t > now) continue;
+		let bin = bins - 1;
+		while (starts[bin] > t) bin--;
+		max = Math.max(max, ++rows[row].counts[bin]);
 	}
-	return { hours: starts, rows, max };
+	return { starts, end: now, rows, max };
 }
 
 /** "50 s", "26 min", "2 h 5 min": how much video, in words. */

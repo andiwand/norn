@@ -87,6 +87,12 @@
 		outline: 2px solid var(--accent);
 		outline-offset: 2px;
 	}
+	/* Tabs and segmented choices sit tight in their track: the ring goes inside the pill, not
+	   around it (which looked like a stray box). */
+	[role='tab']:focus-visible,
+	[role='radio']:focus-visible {
+		outline-offset: -2px;
+	}
 	button:not(:disabled),
 	[role='button']:not(:disabled) {
 		cursor: pointer;

@@ -10,6 +10,7 @@
 	import { RecordingList } from '#lib/recordings.svelte.js';
 	import { formatDay, localDay, triggerLabel } from '#lib/format.js';
 	import { groupEvents, heatMap, type ClipEvent } from '#lib/events.js';
+	import { readRecentDays, writeRecentDays, type RecentDays } from '#lib/periods.js';
 	import RecordingTile from '#lib/components/RecordingTile.svelte';
 	import RecordingDialog from '#lib/components/RecordingDialog.svelte';
 	import Timeline from '#lib/components/Timeline.svelte';
@@ -160,19 +161,20 @@
 		const timer = setInterval(() => (now = Date.now()), 60_000);
 		return () => clearInterval(timer);
 	});
+	let heatDays = $state<RecentDays>(readRecentDays());
 	const heat = $derived(
 		heatMap(
 			clips,
 			shownCameras.map((c) => c.id),
-			now
+			now,
+			heatDays
 		)
 	);
 
 	let highlighted = $state<string | null>(null);
 	let unhighlight: ReturnType<typeof setTimeout> | undefined;
-	async function jump(cameraId: string, hour: number) {
-		const end = hour + 3_600_000;
-		const target = events.find((e) => e.camera === cameraId && e.start < end && e.end >= hour);
+	async function jump(cameraId: string, from: number, end: number) {
+		const target = events.find((e) => e.camera === cameraId && e.start < end && e.end >= from);
 		if (!target) return;
 		await tick();
 		document
@@ -322,7 +324,16 @@
 		{/if}
 	{:else if tab === 'events'}
 		<div class="space-y-6">
-			<HeatMap map={heat} {names} onpick={jump} />
+			<HeatMap
+				map={heat}
+				{names}
+				days={heatDays}
+				onpick={jump}
+				ondays={(d) => {
+					heatDays = d;
+					writeRecentDays(d);
+				}}
+			/>
 			{#if truncated}
 				<p class="rounded-xl bg-warning/10 px-4 py-3 text-sm text-warning">
 					Showing the newest {CLIPS} clips. Pick a camera to see older ones, or use the timeline.
