@@ -6,9 +6,10 @@ Assistant's Reolink integration) in Baichuan-only mode: in that mode it never op
 ports on the camera, unlike its default mode, which turns HTTPS on by itself.
 
 Over Baichuan: device info, PTZ and presets, IR lights, status LED, day/night, auto-tracking,
-motion sensitivity, siren, privacy mode, and firmware: the check asks Reolink's download center
-for the camera's hardware version; the update downloads that file from Reolink and uploads it to
-the camera, which checks the package itself before installing it.
+motion sensitivity, AI sensitivity and delay per type, siren, privacy mode, and firmware: the
+check asks Reolink's download center for the camera's hardware version; the update downloads that
+file from Reolink and uploads it to the camera, which checks the package itself before installing
+it.
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ from reolink_aio.api import Host
 from reolink_aio.baichuan.util import PortType
 from reolink_aio.exceptions import ReolinkError
 
-from ..labels import REOLINK_AI
+from ..labels import LABELS, REOLINK_AI
 from . import register
 from .base import (
     DIRECTIONS,
@@ -352,6 +353,7 @@ class ReolinkDriver(Driver):
                     step=1,
                 )
             )
+        controls += self._ai_controls()
         if self._supported("siren_play"):
             controls.append(Control(id="siren", label="Siren", kind="button", group="Alarm", icon="siren"))
         try:
@@ -382,8 +384,62 @@ class ReolinkDriver(Driver):
             )
         return controls
 
+    def _ai_controls(self) -> list[Control]:
+        """For each kind the camera's AI detects (people, dog_cat, ...): how sensitive it is,
+        and how long (the delay) something must stay in view before the camera reports it."""
+        a, ch = self.api, CHANNEL
+        if not self._connected:
+            return []
+        controls: list[Control] = []
+        for ai in a.ai_supported_types(ch):
+            label = LABELS[kind].name if (kind := REOLINK_AI.get(ai)) else ai.replace("_", " ").capitalize()
+            # reolink_aio says 0 when it has no data for the type, a valid value: look at its data
+            # (private; getattr so that a newer reolink_aio only hides these controls).
+            settings = getattr(a, "_ai_alarm_settings", {}).get(ch, {}).get(ai)
+            if not settings:
+                continue
+            if self._supported("ai_sensitivity"):
+                controls.append(
+                    Control(
+                        id=f"ai_sensitivity_{ai}",
+                        label=f"{label} sensitivity",
+                        kind="range",
+                        group="Alarm",
+                        icon="scan-eye",
+                        value=a.ai_sensitivity(ch, ai),
+                        min=0,
+                        max=100,
+                        step=1,
+                    )
+                )
+            if self._supported("ai_delay"):
+                controls.append(
+                    Control(
+                        id=f"ai_delay_{ai}",
+                        label=f"{label} delay",
+                        kind="range",
+                        group="Alarm",
+                        icon="timer",
+                        value=a.ai_delay(ch, ai),
+                        min=0,
+                        max=8,
+                        step=1,
+                        unit="s",
+                    )
+                )
+        return controls
+
     async def set_control(self, control_id: str, value: Any) -> None:
         a, ch = self.api, CHANNEL
+        for prefix, top, setter in (
+            ("ai_sensitivity_", 100, a.set_ai_sensitivity),
+            ("ai_delay_", 8, a.set_ai_delay),
+        ):
+            if control_id.startswith(prefix):
+                ai, value = control_id.removeprefix(prefix), max(0, min(top, int(value)))
+                await self._call(setter, ch, value, ai)
+                self.emit("camera.control", {"control": control_id, "value": value})
+                return
         if control_id == "sensitivity":
             value = max(1, min(50, int(value)))
         elif control_id not in ("daynight", "siren"):

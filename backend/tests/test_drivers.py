@@ -70,3 +70,40 @@ def test_firmware_notes_for_current_version_skip_old_warnings() -> None:
     notes = check("Hikvision", "DS-2CD2042WD-I", "V5.5.82 build 190909").notes
     assert not any("CVE" in n for n in notes)
     assert version_key("V5.3.8 build 151224") == (5, 3, 8, 151224)
+
+
+async def test_reolink_ai_controls() -> None:
+    calls: list[tuple] = []
+
+    class FakeHost:
+        def __init__(self) -> None:
+            self._ai_alarm_settings = {0: {"people": {"sensitivity": 60, "stay_time": 0}}}
+
+        def supported(self, channel, feature):
+            return feature in ("ai_sensitivity", "ai_delay")
+
+        def ai_supported_types(self, channel):
+            return ["people", "dog_cat"]  # no settings for dog_cat: no controls
+
+        def ai_sensitivity(self, channel, ai):
+            return self._ai_alarm_settings[channel][ai]["sensitivity"]
+
+        def ai_delay(self, channel, ai):
+            return self._ai_alarm_settings[channel][ai]["stay_time"]
+
+        async def set_ai_sensitivity(self, channel, value, ai):
+            calls.append(("sensitivity", value, ai))
+
+        async def set_ai_delay(self, channel, value, ai):
+            calls.append(("delay", value, ai))
+
+    reolink = make("reolink", host="10.0.0.4", password="x")
+    reolink._api, reolink._connected = FakeHost(), True
+    controls = {c.id: c for c in reolink._ai_controls()}
+    assert set(controls) == {"ai_sensitivity_people", "ai_delay_people"}
+    assert controls["ai_sensitivity_people"].label == "Person sensitivity"
+    assert controls["ai_sensitivity_people"].value == 60
+    assert (controls["ai_delay_people"].value, controls["ai_delay_people"].max) == (0, 8)
+    await reolink.set_control("ai_delay_people", 12)  # clamped to the camera's range
+    await reolink.set_control("ai_sensitivity_people", 45)
+    assert calls == [("delay", 8, "people"), ("sensitivity", 45, "people")]

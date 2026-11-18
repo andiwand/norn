@@ -140,6 +140,8 @@ detection: # Norn's own detection, on a still of each camera every few seconds
   motion: true # compare stills (no extra packages)
   objects: true # people, vehicles, animals: pip install 'norn-hub[detect]' (in the Docker image)
   every_seconds: 2
+  min_score: 0.5 # how sure the AI must be about an object
+  confirm_seconds: 0 # an object counts once seen this long (less noise at night); 0: at once
   stills: auto # keyframe (nearly free), live (every frame, exact), auto
 
 circles: # groups of cameras

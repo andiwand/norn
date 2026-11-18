@@ -1250,7 +1250,8 @@ class Hub:
                             found, ms = await self.detectors.detect(d.model, data, d.min_score)
                             before = camera.detect_ms
                             camera.detect_ms = ms if before is None else before * 0.8 + ms * 0.2
-                            seen |= tracker.update(found, now)
+                            # Following steers by every sighting; recording waits for confirmation.
+                            seen |= tracker.update(found, now, d.confirm_seconds)
                             if following and pilot:
                                 people = [f for f in found if f.kind == "person"]
                                 await pilot.nudge(people, self.still_aspect(camera))

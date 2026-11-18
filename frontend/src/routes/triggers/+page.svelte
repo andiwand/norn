@@ -201,6 +201,15 @@
 				max={0.95}
 				step={0.05}
 			/>
+			<NumberSetting
+				label="Confirm after"
+				hint="An object counts only once Norn has seen it this long, so something on one still alone (an insect in the infrared light, a shadow) records nothing. 0: at once."
+				bind:value={form.detection.confirm_seconds}
+				fallback={defaults.detection.confirm_seconds}
+				max={60}
+				step={0.5}
+				unit="sec"
+			/>
 			<ChoiceSetting
 				label="Model"
 				hint="Tiny finds more, at about four times the CPU."

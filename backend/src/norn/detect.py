@@ -11,7 +11,9 @@ delay: a clip still starts seconds before the detection.
   trained on COCO, run with ONNX Runtime on one CPU thread. Needs `pip install norn-hub[detect]`
   (the Docker image has it). People, vehicles and animals become the event kinds `person`,
   `vehicle` and `animal`. Something that stands still (a parked car) stops counting after a
-  minute, until it moves.
+  minute, until it moves. With `confirm_seconds`, an object counts only once it has been seen on
+  stills that far apart (like the delay of a camera's own AI): a moth in the infrared light or
+  a shadow that the model takes for a person for one still doesn't start a clip.
 """
 
 from __future__ import annotations
@@ -209,18 +211,20 @@ class Track:
     box: tuple[float, float, float, float]
     seen: float
     still_since: float
+    first: float  # when it was first seen
 
 
 @dataclass
 class Tracker:
     """Which detected objects count: new or moving ones. One that stays where it is for
-    `still_after` seconds stops counting until it moves (a parked car, a garden gnome)."""
+    `still_after` seconds stops counting until it moves (a parked car, a garden gnome). One seen
+    for less than `confirm` seconds doesn't count yet."""
 
     still_after: float = 60
     forget_after: float = 30
     tracks: list[Track] = field(default_factory=list)
 
-    def update(self, found: list[Detection], now: float | None = None) -> set[str]:
+    def update(self, found: list[Detection], now: float | None = None, confirm: float = 0) -> set[str]:
         now = time.monotonic() if now is None else now
         for d in found:
             match = max(
@@ -233,9 +237,13 @@ class Tracker:
                     match.still_since = now
                 match.box, match.seen = d.box, now
             else:
-                self.tracks.append(Track(d.kind, d.box, now, now))
+                self.tracks.append(Track(d.kind, d.box, now, now, now))
         self.tracks = [t for t in self.tracks if now - t.seen <= self.forget_after]
-        return {t.kind for t in self.tracks if t.seen == now and now - t.still_since < self.still_after}
+        return {
+            t.kind
+            for t in self.tracks
+            if t.seen == now and now - t.still_since < self.still_after and now - t.first >= confirm
+        }
 
 
 def gray_from_bgr(bgr: bytes) -> bytes:

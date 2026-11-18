@@ -180,6 +180,8 @@ class DetectionSettings(BaseModel):
     every_seconds: float = Field(2, ge=0.5, le=60)
     sensitivity: int = Field(50, ge=0, le=100)  # motion: higher reacts to smaller changes
     min_score: float = Field(0.5, ge=0.1, le=0.95)  # objects: how sure the detector must be
+    # objects: how long one must be seen before it counts (0: on the first still)
+    confirm_seconds: float = Field(0, ge=0, le=60)
     model: Literal["nano", "tiny"] = "nano"
 
 
@@ -194,6 +196,7 @@ class DetectionOverride(BaseModel):
     every_seconds: float | None = Field(None, ge=0.5, le=60)
     sensitivity: int | None = Field(None, ge=0, le=100)
     min_score: float | None = Field(None, ge=0.1, le=0.95)
+    confirm_seconds: float | None = Field(None, ge=0, le=60)
 
 
 class NornPreset(BaseModel):

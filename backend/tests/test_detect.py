@@ -50,6 +50,18 @@ def test_decode_and_tracker() -> None:
     assert tracker.update([moved], now=62) == {"vehicle"}  # it drives off
 
 
+def test_tracker_confirm() -> None:
+    tracker = Tracker()
+    person = Detection("person", 0.6, (0, 0, 50, 100))
+    assert tracker.update([person], now=0, confirm=3) == set()  # one still: not yet
+    assert tracker.update([person], now=2, confirm=3) == set()
+    assert tracker.update([person], now=4, confirm=3) == {"person"}  # seen 4 s: it counts
+    moth = Detection("person", 0.6, (300, 300, 340, 380))
+    assert tracker.update([moth], now=6, confirm=3) == set()  # a new object waits again
+    assert tracker.update([], now=8, confirm=3) == set()
+    assert Tracker().update([moth], now=0) == {"person"}  # without confirm: at once
+
+
 def test_gray_from_bgr() -> None:
     bgr = bytes([30]) * (OBJECT_SIZE * OBJECT_SIZE * 3)
     gray = gray_from_bgr(bgr)

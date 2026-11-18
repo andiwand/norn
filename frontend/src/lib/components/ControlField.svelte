@@ -11,6 +11,8 @@
 	import Bell from '@lucide/svelte/icons/bell';
 	import Volume2 from '@lucide/svelte/icons/volume-2';
 	import Settings2 from '@lucide/svelte/icons/settings-2';
+	import ScanEye from '@lucide/svelte/icons/scan-eye';
+	import Timer from '@lucide/svelte/icons/timer';
 
 	let {
 		control,
@@ -31,7 +33,9 @@
 		activity: Activity,
 		'eye-off': EyeOff,
 		bell: Bell,
-		volume: Volume2
+		volume: Volume2,
+		'scan-eye': ScanEye,
+		timer: Timer
 	};
 	const Icon = $derived(icons[control.icon ?? ''] ?? Settings2);
 

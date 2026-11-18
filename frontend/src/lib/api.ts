@@ -293,6 +293,7 @@ export interface DetectionSettings {
 	every_seconds: number;
 	sensitivity: number;
 	min_score: number;
+	confirm_seconds: number;
 	model: 'nano' | 'tiny';
 }
 
