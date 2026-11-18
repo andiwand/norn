@@ -40,13 +40,16 @@
 	let truncated = $state(false);
 	let loading = $state(false);
 	let width = $state(800);
-	let hover = $state<{ x: number; t: number } | null>(null);
-	// The moment shown above: the pointer's last place on the tracks, else the newest.
-	let pointed = $state<number | null>(null);
-	const moment = $derived(pointed ?? end);
+	// The playhead: where on the tracks (0 = left edge, 1 = right edge) the moment shown above
+	// is. It is a place on the screen, not a time: moving the window moves the moment with it,
+	// so the line and the pictures above always agree. At the right edge, following the clock,
+	// it shows the newest.
+	let head = $state(1);
 	let dragging = $state(false);
 
 	const start = $derived(end - span);
+	const moment = $derived(start + head * span);
+	const newest = $derived(following && head >= 1);
 	const x = (t: number) => ((t - start) / span) * 100; // percent from the left
 	const timeAt = (fraction: number) => start + fraction * span;
 	const cameraKey = $derived(cameras.map((c) => c.id).join(','));
@@ -122,7 +125,8 @@
 			);
 		});
 		const tick = setInterval(() => {
-			if (following && !dragging) end = Date.now();
+			// Only while showing the newest: a moment picked in the past stays put.
+			if (following && !dragging && head >= 1) end = Date.now();
 		}, 30_000);
 		return () => {
 			off();
@@ -239,23 +243,23 @@
 		return day(start) === day(end) ? day(start) : `${day(start)} – ${day(end)}`;
 	});
 
+	// Moving and zooming keep the playhead where it is on the screen.
 	function move(by: number) {
-		pointed = null;
 		end = Math.min(Date.now(), end + by);
 		following = end >= Date.now() - 1000;
 	}
 
 	function setScale(next: number) {
-		// Following the clock: stay at now. Else zoom around the middle of the window.
-		const middle = end - span / 2;
-		pointed = null;
+		// Zoom around the moment shown: it stays under the playhead (as far as now allows).
+		const at = moment;
 		span = next;
-		end = following ? Date.now() : Math.min(Date.now(), middle + next / 2);
+		end = newest ? Date.now() : Math.min(Date.now(), at + (1 - head) * next);
 		following = end >= Date.now() - 1000;
+		if (!newest) head = Math.min(1, Math.max(0, (at - (end - next)) / next));
 	}
 
 	function now() {
-		pointed = null;
+		head = 1;
 		end = Date.now();
 		following = true;
 	}
@@ -303,7 +307,7 @@
 		};
 		// A finger may be starting to scroll the page: it picks the moment only once it moves
 		// sideways, or lifts.
-		if (!touch) pointed = timeAt(fraction);
+		if (!touch) head = fraction;
 	}
 
 	function moveTo(e: PointerEvent) {
@@ -316,18 +320,15 @@
 			if (sideways) drag.moved = dragging = true;
 			else if (drag.touch) return;
 		}
-		if (!drag && (fraction < 0 || fraction > 1)) {
-			hover = null; // over the names
-			return;
-		}
+		if (!drag && (fraction < 0 || fraction > 1)) return; // over the names
 		if (drag?.moved && drag.pans) {
 			end = Math.min(Date.now(), drag.end - ((e.clientX - drag.x) / drag.width) * span);
 			following = end >= Date.now() - 1000;
-			if (drag.touch) return; // moving the window, not picking a moment
+			// A finger moves the window under the playhead: the moment moves along with it.
+			if (drag.touch) return;
 		}
-		const at = drag?.touch ? Math.min(1, Math.max(0, fraction)) : fraction;
-		hover = { x: at * 100, t: timeAt(at) };
-		pointed = hover.t;
+		// A mouse points (and a finger drags along the tracks): the playhead goes there.
+		head = Math.min(1, Math.max(0, fraction));
 	}
 
 	function up(e: PointerEvent) {
@@ -341,7 +342,7 @@
 		// only points.
 		const icon = started.camera && iconAt(started.camera, fraction, started.touch ? 18 : 10);
 		if (icon) onopen(icon.r, 0);
-		else if (started.touch) pointed = timeAt(fraction);
+		else if (started.touch) head = fraction;
 		else if (started.camera) openAt(started.camera, timeAt(fraction));
 	}
 
@@ -452,15 +453,12 @@
 	<!-- Every camera at the moment -->
 	<div class="mb-1.5 flex items-baseline gap-2 text-xs">
 		<span class="font-semibold tabular-nums">{formatAt(moment)}</span>
-		{#if pointed === null}
+		{#if newest}
 			<span class="text-muted">newest</span>
 			<span class="hidden text-muted sm:inline">· point at the tracks to go back</span>
 			<span class="text-muted sm:hidden">· drag along the tracks to go back</span>
-		{/if}
-		{#if pointed !== null}
-			<button class="ml-auto text-muted hover:text-text" onclick={() => (pointed = null)}
-				>Newest</button
-			>
+		{:else}
+			<button class="ml-auto text-muted hover:text-text" onclick={now}>Newest</button>
 		{/if}
 	</div>
 	<div class="mb-3">
@@ -509,7 +507,6 @@
 		onpointermove={moveTo}
 		onpointerup={up}
 		onpointercancel={cancel}
-		onpointerleave={() => (hover = null)}
 	>
 		{#each rows as row (row.camera.id)}
 			<div class="flex items-center gap-3 py-1">
@@ -549,15 +546,20 @@
 						<span class="absolute inset-y-2.5 w-[2px] rounded-full bg-accent-2" style:left="{left}%"
 						></span>
 					{/each}
-					{#if hover}
-						<span
-							class="pointer-events-none absolute inset-y-0 w-px bg-text/70"
-							style:left="{hover.x}%"
-						></span>
-					{/if}
 				</div>
 			</div>
 		{/each}
+
+		<!-- The playhead: one line through every track, at the moment shown above. -->
+		<div
+			class="pointer-events-none absolute inset-y-0 right-0 left-27 z-[3] sm:left-35"
+			aria-hidden="true"
+		>
+			<span
+				class="absolute inset-y-0 w-0.5 -translate-x-1/2 rounded-full bg-text shadow-[0_0_0_1px_var(--bg)]"
+				style:left="clamp(1px, {head * 100}%, calc(100% - 1px))"
+			></span>
+		</div>
 
 		<!-- The axis -->
 		<div class="flex gap-3">
@@ -575,12 +577,12 @@
 						style:left="{x(at)}%">{tickLabel(at, ticks.step)}</span
 					>
 				{/each}
-				{#if hover}
-					<span
-						class="absolute top-0 z-10 -translate-x-1/2 rounded-md bg-text px-1.5 py-0.5 text-[10px] font-medium whitespace-nowrap text-bg tabular-nums"
-						style:left="clamp(2.5rem, {hover.x}%, calc(100% - 2.5rem))">{formatAt(hover.t)}</span
-					>
-				{/if}
+				<!-- The playhead's time, on the axis. -->
+				<span
+					class="pointer-events-none absolute top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-md bg-text px-1.5 py-0.5 text-[10px] font-medium whitespace-nowrap text-bg tabular-nums sm:top-0 sm:translate-y-0"
+					style:left="clamp(2.75rem, {head * 100}%, calc(100% - 2.75rem))"
+					>{newest ? 'Now' : formatAt(moment)}</span
+				>
 			</div>
 		</div>
 	</div>

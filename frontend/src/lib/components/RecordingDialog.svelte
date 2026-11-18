@@ -8,16 +8,22 @@
 	import Pin from '@lucide/svelte/icons/pin';
 	import PinOff from '@lucide/svelte/icons/pin-off';
 	import X from '@lucide/svelte/icons/x';
+	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
+	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 
 	let {
 		recording = $bindable(null),
 		at = 0,
+		list,
 		ondeleted,
 		onchanged
 	}: {
 		recording: Recording | null;
 		/** Where to start playing, in seconds from the start of the video. */
 		at?: number;
+		/** The recordings this one belongs to (an event's clips, in order): previous and next
+		 * buttons, and each video plays on into the next one. */
+		list?: Recording[];
 		ondeleted?: (r: Recording) => void;
 		/** It was pinned or unpinned: the new state. */
 		onchanged?: (r: Recording) => void;
@@ -33,18 +39,31 @@
 		}
 	}
 
+	// `at` is for the recording it opens with, not for the next ones in the list.
+	let startAt = 0;
 	function seek(video: HTMLVideoElement) {
-		if (at > 0) video.currentTime = at;
+		if (startAt > 0) video.currentTime = startAt;
+		startAt = 0;
 	}
 
 	let dialog: HTMLDialogElement;
 	let confirming = $state(false);
 
 	$effect(() => {
-		if (recording && !dialog.open) dialog.showModal();
+		if (recording && !dialog.open) {
+			startAt = at;
+			dialog.showModal();
+		}
 		if (!recording && dialog.open) dialog.close();
 		confirming = false;
 	});
+
+	const index = $derived(recording && list ? list.findIndex((r) => r.id === recording?.id) : -1);
+	const previous = $derived(index > 0 ? list?.[index - 1] : undefined);
+	const next = $derived(index >= 0 ? list?.[index + 1] : undefined);
+	function go(r: Recording | undefined) {
+		if (r) recording = r;
+	}
 
 	async function remove() {
 		if (!recording) return;
@@ -76,9 +95,30 @@
 					)}
 				</div>
 			</div>
-			<button class="icon-btn" onclick={() => dialog.close()} aria-label="Close"
-				><X class="size-5" /></button
-			>
+			<div class="flex shrink-0 items-center gap-1">
+				{#if list && index >= 0 && list.length > 1}
+					<button
+						class="icon-btn"
+						onclick={() => go(previous)}
+						disabled={!previous}
+						aria-label="Previous clip"
+						title="Previous clip"><ChevronLeft class="size-5" /></button
+					>
+					<span class="min-w-14 text-center text-xs text-muted tabular-nums" aria-live="polite"
+						>{index + 1} of {list.length}</span
+					>
+					<button
+						class="icon-btn"
+						onclick={() => go(next)}
+						disabled={!next}
+						aria-label="Next clip"
+						title="Next clip"><ChevronRight class="size-5" /></button
+					>
+				{/if}
+				<button class="icon-btn" onclick={() => dialog.close()} aria-label="Close"
+					><X class="size-5" /></button
+				>
+			</div>
 		</div>
 		{#if recording.kind === 'picture'}
 			<img
@@ -96,6 +136,7 @@
 				autoplay
 				playsinline
 				onloadedmetadata={(e) => seek(e.currentTarget)}
+				onended={() => go(next)}
 				class="aspect-video w-full bg-black"
 			></video>
 		{/if}
