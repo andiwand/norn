@@ -21,7 +21,6 @@ from __future__ import annotations
 import contextlib
 import re
 from typing import Any
-from urllib.parse import quote
 
 import httpx
 from pydantic import Field
@@ -39,6 +38,8 @@ from .base import (
     Preset,
     PtzCommand,
     Stream,
+    sign,
+    userinfo,
 )
 
 MOVES = {
@@ -56,10 +57,6 @@ ERRORS = {"-1": "bad request", "-2": "wrong username or password", "-3": "no acc
 
 def parse_result(xml: str) -> dict[str, str]:
     return dict(re.findall(r"<(\w+)>([^<]*)</\1>", xml))
-
-
-def _sign(x: float, dead: float = 0.2) -> int:
-    return 0 if abs(x) < dead else (1 if x > 0 else -1)
 
 
 class FoscamHdOptions(DriverOptions):
@@ -81,7 +78,6 @@ class FoscamHdDriver(Driver):
         super().__init__(*args, **kwargs)
         o = self.options
         self.client = httpx.AsyncClient(base_url=f"http://{o.host}:{o.port}/cgi-bin/", timeout=8)
-        self.has_ptz = True  # most Foscam HD cameras pan and tilt; a fixed one answers ptz calls with -1
 
     async def stop(self) -> None:
         await self.client.aclose()
@@ -91,21 +87,24 @@ class FoscamHdDriver(Driver):
 
     def streams(self) -> list[Stream]:
         o = self.options
-        auth = f"{quote(o.username, safe='')}:{quote(o.password, safe='')}@"
+        auth = userinfo(o.username, o.password)
         return [
             Stream(id="main", label="Main", source=f"rtsp://{auth}{o.host}:{o.port}/videoMain", codec="h264"),
             Stream(id="sub", label="Sub", source=f"rtsp://{auth}{o.host}:{o.port}/videoSub", codec="h264"),
         ]
 
     def capabilities(self) -> set[Capability]:
-        caps = super().capabilities() | {Capability.CONTROLS}
-        if self.has_ptz:
-            caps |= {Capability.PTZ, Capability.PRESETS, Capability.PRESET_SAVE}
-        return caps
+        # Most Foscam HD cameras pan and tilt; a fixed one answers ptz calls with -1.
+        return super().capabilities() | {
+            Capability.CONTROLS,
+            Capability.PTZ,
+            Capability.PRESETS,
+            Capability.PRESET_SAVE,
+        }
 
     async def save_preset(self, slot: str, name: str) -> None:
         """Foscam presets are named: the slot is the name."""
-        await self._cmd("ptzAddPresetPoint", name=slot or name)
+        await self._cmd("ptzAddPresetPoint", name=slot)
 
     async def _cmd(self, cmd: str, **params: Any) -> dict[str, str]:
         o = self.options
@@ -209,7 +208,7 @@ class FoscamHdDriver(Driver):
         elif command.zoom and not (command.pan or command.tilt):
             await self._cmd("zoomIn" if command.zoom > 0 else "zoomOut")
         else:
-            key = (_sign(command.pan), _sign(command.tilt))
+            key = (sign(command.pan), sign(command.tilt))
             if key == (0, 0):
                 raise ValueError("no direction")
             await self._cmd(MOVES[key])

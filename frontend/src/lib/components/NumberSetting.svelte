@@ -26,6 +26,16 @@
 
 	const id = $props.id();
 	const differs = $derived(fallback !== undefined && value !== null && fallback !== value);
+
+	// A required field left empty gets its last number back (else the default): never sent empty.
+	let last: number | undefined;
+	$effect(() => {
+		if (typeof value === 'number' && Number.isFinite(value)) last = value;
+	});
+	function onblur() {
+		if (placeholder === undefined && (typeof value !== 'number' || !Number.isFinite(value)))
+			value = last ?? fallback;
+	}
 </script>
 
 <div class="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-5 py-3.5">
@@ -50,6 +60,7 @@
 				{step}
 				{placeholder}
 				required={placeholder === undefined}
+				{onblur}
 			/>
 			{#if unit}<span class="shrink-0 pr-3 text-muted">{unit}</span>{/if}
 		</span>

@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { api, type CircleControl } from '#lib/api.js';
 	import { store } from '#lib/state.svelte.js';
+	import { byGroup } from '#lib/format.js';
 	import CameraTile from '#lib/components/CameraTile.svelte';
 	import CircleForm from '#lib/components/CircleForm.svelte';
 	import ControlField from '#lib/components/ControlField.svelte';
@@ -51,14 +52,7 @@
 		};
 	});
 
-	const groups = $derived(
-		Object.entries(
-			controls.reduce<Record<string, CircleControl[]>>((acc, c) => {
-				(acc[c.group] ??= []).push(c);
-				return acc;
-			}, {})
-		)
-	);
+	const groups = $derived(byGroup(controls));
 
 	async function setControl(control: CircleControl, value: unknown) {
 		const result = await store.attempt(() => api.setCircleControl(id, control.id, value));

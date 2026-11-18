@@ -3,7 +3,6 @@
 	// preset when something is detected. Saved with the camera.
 	import { untrack } from 'svelte';
 	import { api, cameraBody, type Camera, type Patrol, type Reaction } from '../api';
-	import { triggerLabel } from '../format';
 	import { store } from '../state.svelte';
 	import ChoiceSetting from './ChoiceSetting.svelte';
 	import NumberSetting from './NumberSetting.svelte';
@@ -36,7 +35,7 @@
 		store.controls[camera.id]?.controls.some((c) => c.id === 'autotrack')
 	);
 	// Changed since the form opened: only then a Save button.
-	const baseline = JSON.stringify(untrack(() => [follow, patrol, reactions]));
+	let baseline = $state(JSON.stringify(untrack(() => [follow, patrol, reactions])));
 	const dirty = $derived(JSON.stringify([follow, patrol, reactions]) !== baseline);
 
 	function togglePatrolPreset(id: string) {
@@ -50,14 +49,16 @@
 
 	async function save() {
 		saving = true;
-		const body = cameraBody(camera, {
-			follow,
-			patrol: patrol.presets.length || patrol.enabled ? $state.snapshot(patrol) : null,
-			reactions: $state.snapshot(reactions).filter((r) => r.kinds.length && r.presets.length)
-		});
+		// Always the whole patrol: null would mean "keep the current one".
+		const kept = $state.snapshot(reactions).filter((r) => r.kinds.length && r.presets.length);
+		const body = cameraBody(camera, { follow, patrol: $state.snapshot(patrol), reactions: kept });
 		const ok = await store.attempt(() => api.updateCamera(camera.id, body), 'Saved');
 		saving = false;
-		if (ok) store.refresh();
+		if (ok) {
+			reactions = kept;
+			baseline = JSON.stringify([follow, patrol, reactions]);
+			store.refresh();
+		}
 	}
 </script>
 
@@ -195,7 +196,6 @@
 				{#if !r.kinds.length || !r.presets.length}
 					<p class="text-warning">Pick at least one detection and one preset.</p>
 				{/if}
-				<span class="sr-only">{r.kinds.map(triggerLabel).join(', ')}</span>
 			</div>
 		{/each}
 	</div>

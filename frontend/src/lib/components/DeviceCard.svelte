@@ -179,7 +179,10 @@
 							bind:this={fileInput}
 							type="file"
 							class="hidden"
-							onchange={(e) => (confirming = e.currentTarget.files?.[0] ?? null)}
+							onchange={(e) => {
+								confirming = e.currentTarget.files?.[0] ?? null;
+								e.currentTarget.value = ''; // the same file can be picked again
+							}}
 						/>
 						<button class="btn-ghost h-9 w-full" onclick={() => fileInput?.click()}>
 							<Upload class="size-4" />Install firmware file…

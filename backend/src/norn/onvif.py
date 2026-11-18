@@ -83,11 +83,14 @@ class OnvifClient:
         utc = re.search(r"<(?:\w+:)?UTCDateTime>(.*?)</(?:\w+:)?UTCDateTime>", xml, re.S)
         if utc:
             part = utc[1]
-            stamp = dt.datetime(
-                *(int(value(part, t) or 0) for t in ("Year", "Month", "Day", "Hour", "Minute", "Second")),
-                tzinfo=dt.UTC,
-            )
-            self._offset = stamp - dt.datetime.now(dt.UTC)
+            try:
+                stamp = dt.datetime(
+                    *(int(value(part, t) or 0) for t in ("Year", "Month", "Day", "Hour", "Minute", "Second")),
+                    tzinfo=dt.UTC,
+                )
+                self._offset = stamp - dt.datetime.now(dt.UTC)
+            except ValueError:
+                pass  # a clock Norn can't read: sign with its own
         caps = await self.call(
             "device", "<GetCapabilities xmlns='{device}'><Category>All</Category></GetCapabilities>"
         )

@@ -13,6 +13,7 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Callable
 from enum import StrEnum
 from typing import Any, ClassVar, Literal
+from urllib.parse import quote
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -118,6 +119,38 @@ class DriverOptions(BaseModel):
 
 Emit = Callable[[str, dict[str, Any]], None]
 
+# Pan/tilt directions by (pan sign, tilt sign), as Reolink and Dahua name them.
+DIRECTIONS = {
+    (0, 1): "Up",
+    (0, -1): "Down",
+    (-1, 0): "Left",
+    (1, 0): "Right",
+    (-1, 1): "LeftUp",
+    (1, 1): "RightUp",
+    (-1, -1): "LeftDown",
+    (1, -1): "RightDown",
+}
+
+
+def sign(x: float, dead: float = 0.2) -> int:
+    """-1, 0 or 1 for a PTZ speed; small speeds count as 0."""
+    return 0 if abs(x) < dead else (1 if x > 0 else -1)
+
+
+def userinfo(username: str, password: str) -> str:
+    """`user:password@` for a stream URL, percent-encoded (go2rtc reads it from the URL)."""
+    return f"{quote(username, safe='')}:{quote(password, safe='')}@"
+
+
+def parse_table(text: str) -> dict[str, str]:
+    """`table.X[0].Y=1` and `key=value` lines into a dict (keys without the `table.` prefix)."""
+    result = {}
+    for line in text.splitlines():
+        key, sep, value = line.strip().partition("=")
+        if sep:
+            result[key.removeprefix("table.")] = value.strip()
+    return result
+
 
 class Driver(ABC):
     """Base class of all drivers. Subclasses set the class variables and register themselves."""
@@ -142,8 +175,9 @@ class Driver(ABC):
         """The preset ids `save_preset` takes, for Norn to pick a free one. Empty: any id."""
         return []
 
-    async def save_preset(self, slot: str, name: str) -> None:
-        """Store the current view in preset `slot`, for Capability.PRESET_SAVE."""
+    async def save_preset(self, slot: str, name: str) -> str | None:
+        """Store the current view in preset `slot`, for Capability.PRESET_SAVE. Returns the slot the
+        camera used, if it picks its own (ONVIF), else None."""
         raise NotSupportedError("this camera can't save presets")
 
     def web_url(self) -> str | None:

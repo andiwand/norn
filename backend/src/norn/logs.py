@@ -16,7 +16,8 @@ from pathlib import Path
 from typing import Any
 
 FORMAT = "%(asctime)s %(levelname)-7s %(name)s: %(message)s"
-CREDENTIALS = re.compile(r"(?P<scheme>[a-z][a-z0-9+.-]*://)[^/@\s:]+(?::[^/@\s]*)?@", re.IGNORECASE)
+# Up to the last @ before the path: a password may hold a raw @ (rtsp://admin:p@ss@host).
+CREDENTIALS = re.compile(r"(?P<scheme>[a-z][a-z0-9+.-]*://)[^/\s]+@", re.IGNORECASE)
 LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
 
@@ -64,13 +65,14 @@ class Recent(logging.Handler):
     def query(
         self, level: str = "INFO", after: int = 0, limit: int = 500, text: str = ""
     ) -> list[dict[str, Any]]:
-        floor = logging.getLevelNamesMapping().get(level.upper(), logging.INFO)
+        levels = logging.getLevelNamesMapping()
+        floor = levels.get(level.upper(), logging.INFO)
         needle = text.lower()
         found = [
             line
             for line in self.lines
             if line["id"] > after
-            and logging.getLevelNamesMapping()[line["level"]] >= floor
+            and levels[line["level"]] >= floor
             and (not needle or needle in line["message"].lower() or needle in line["logger"].lower())
         ]
         return found[-limit:]

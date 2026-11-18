@@ -260,9 +260,9 @@
 		following = true;
 	}
 
-	// The tracks' container takes the pointer, measured on a track (all span the same width): the
-	// gaps between tracks point, press and drag too. Dragging moves the window; a click without
-	// dragging opens what is under it.
+	// The tracks' container takes the pointer, measured on the axis (always there, as wide as
+	// every track): the gaps between tracks point, press and drag too. Dragging moves the window;
+	// a click without dragging opens what is under it.
 	let lane = $state<HTMLElement>();
 	let laneWidth = $state(600);
 	let drag: {
@@ -519,8 +519,6 @@
 				<div
 					class="relative h-8 flex-1 cursor-grab overflow-hidden rounded-lg bg-surface-2 active:cursor-grabbing"
 					data-camera={row.camera.id}
-					bind:this={lane}
-					bind:clientWidth={laneWidth}
 				>
 					{#each ticks.list as at (at)}
 						<span class="absolute inset-y-0 w-px bg-line" style:left="{x(at)}%"></span>
@@ -568,6 +566,8 @@
 			<div
 				class="relative h-8 flex-1 cursor-grab rounded-lg bg-surface-2/60 active:cursor-grabbing sm:h-6 sm:rounded-none sm:bg-transparent"
 				data-axis
+				bind:this={lane}
+				bind:clientWidth={laneWidth}
 			>
 				{#each ticks.list as at (at)}
 					<span

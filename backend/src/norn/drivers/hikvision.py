@@ -20,7 +20,6 @@ import re
 import time
 from collections.abc import AsyncIterator
 from typing import Any
-from urllib.parse import quote
 
 import httpx
 from pydantic import Field
@@ -38,6 +37,7 @@ from .base import (
     NotSupportedError,
     Option,
     Stream,
+    userinfo,
 )
 
 QUIET = 5.0  # seconds without an "active" message after which a detection has ended
@@ -77,7 +77,7 @@ def duration(seconds: int) -> str:
     return f"{hours} h {rest // 60} min"
 
 
-# control id -> (ISAPI path below the channel, XML element, kind)
+# control id -> (ISAPI path below the channel, XML element)
 SETTINGS: dict[str, tuple[str, str]] = {
     "daynight": ("Image/channels/{ch}/IrcutFilter", "IrcutFilterType"),
     "wdr": ("Image/channels/{ch}/WDR", "mode"),
@@ -123,7 +123,7 @@ class HikvisionDriver(Driver):
 
     def streams(self) -> list[Stream]:
         o = self.options
-        auth = f"{quote(o.username, safe='')}:{quote(o.password, safe='')}@"
+        auth = userinfo(o.username, o.password)
         base = f"rtsp://{auth}{o.host}:{o.rtsp_port}/Streaming/Channels/{o.channel}"
         return [
             Stream(id="main", label="Main", source=f"{base}01", codec="h264"),
@@ -132,7 +132,7 @@ class HikvisionDriver(Driver):
 
     def extra_streams(self) -> list[Stream]:
         o = self.options
-        auth = f"{quote(o.username, safe='')}:{quote(o.password, safe='')}@"
+        auth = userinfo(o.username, o.password)
         base = f"rtsp://{auth}{o.host}:{o.rtsp_port}/Streaming/Channels/{o.channel}"
         return [
             Stream(id="third", label="Third", source=f"{base}03", codec="h264"),
@@ -147,7 +147,8 @@ class HikvisionDriver(Driver):
         }
 
     def event_kinds(self) -> list[str]:
-        return ["motion"]
+        # Smart events (line, region) may say what crossed: a person or a vehicle.
+        return ["motion", "person", "vehicle"]
 
     async def events(self) -> AsyncIterator[Event]:
         """Detections from the camera's alert stream (ISAPI). It only reports motion when motion
@@ -347,11 +348,14 @@ class HikvisionDriver(Driver):
                 raise ValueError(f"{value!r} is not auto, day or night")
             text = str(value)
         elif control_id == "wdr":
+            value = bool(value)
             text = "open" if value else "close"
         elif control_id in ("flip", "motion"):
+            value = bool(value)
             text = "true" if value else "false"
         else:
-            text = str(max(0, min(100, int(value))))
+            value = max(0, min(100, int(value)))
+            text = str(value)
         document = await self._request("GET", path)
         await self._request("PUT", path, xml_replace(document, tag, text))
         self.emit("camera.control", {"control": control_id, "value": value})

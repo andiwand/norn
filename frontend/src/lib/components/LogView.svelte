@@ -15,14 +15,19 @@
 		const query = { level, text: text.trim() };
 		let after = 0;
 		let stopped = false;
+		let busy = false; // one request at a time: overlapping ones would add the same lines
 		lines = [];
 		const load = async () => {
+			if (busy) return;
+			busy = true;
 			const data = await api.logs({ ...query, after, limit: 500 }).catch(() => null);
+			busy = false;
 			if (stopped || !data) return;
 			file = data.file;
-			if (data.lines.length) {
-				after = data.lines[data.lines.length - 1].id;
-				lines = [...lines, ...data.lines].slice(-1000);
+			const fresh = data.lines.filter((l) => l.id > after);
+			if (fresh.length) {
+				after = fresh[fresh.length - 1].id;
+				lines = [...lines, ...fresh].slice(-1000);
 			}
 		};
 		load();

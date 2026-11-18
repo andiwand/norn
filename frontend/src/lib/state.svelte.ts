@@ -11,6 +11,7 @@ import {
 	type Recording
 } from './api';
 import { setLabels } from './format';
+import { readStoredJson, writeStored } from './stored';
 
 export interface Toast {
 	id: number;
@@ -40,14 +41,6 @@ export interface CameraControls {
 
 const CONTROLS_KEY = 'norn.controls';
 
-function loadCachedControls(): Record<string, CameraControls> {
-	try {
-		return JSON.parse(localStorage.getItem(CONTROLS_KEY) ?? '{}');
-	} catch {
-		return {};
-	}
-}
-
 class Store {
 	cameras = $state<Camera[]>([]);
 	circles = $state<Circle[]>([]);
@@ -55,18 +48,18 @@ class Store {
 	labels = $state<Label[]>([]);
 	// The controls of each camera, kept between visits (and reloads), so a camera page opens
 	// complete and then updates in place.
-	controls = $state<Record<string, CameraControls>>(loadCachedControls());
+	controls = $state<Record<string, CameraControls>>(readStoredJson(CONTROLS_KEY, {}));
 	info = $state<Info | null>(null);
 	connected = $state(false);
 	loaded = $state(false);
 	toasts = $state<Toast[]>([]);
 
 	#listeners = new Set<Listener>();
-	#socket: WebSocket | null = null;
 	#retry = 1000;
 	#refreshTimer: ReturnType<typeof setTimeout> | undefined;
 	#nextToast = 1;
 	#started = false;
+	#refreshes = 0; // a response older than the newest request is dropped
 
 	#takeLabels(labels: Label[]) {
 		setLabels(labels);
@@ -89,6 +82,7 @@ class Store {
 	}
 
 	async refresh() {
+		const mine = ++this.#refreshes;
 		try {
 			const [cameras, info, circles] = await Promise.all([
 				api.cameras(),
@@ -101,6 +95,7 @@ class Store {
 							.then((l) => this.#takeLabels(l))
 							.catch(() => null) // the names fall back to the ids
 			]);
+			if (mine !== this.#refreshes) return;
 			this.cameras = cameras;
 			this.circles = circles;
 			this.info = info;
@@ -119,17 +114,9 @@ class Store {
 		try {
 			const data = await api.controls(id, fresh);
 			this.controls[id] = data;
-			this.#saveControls();
+			writeStored(CONTROLS_KEY, JSON.stringify(this.controls));
 		} catch {
 			// keep what we had
-		}
-	}
-
-	#saveControls() {
-		try {
-			localStorage.setItem(CONTROLS_KEY, JSON.stringify(this.controls));
-		} catch {
-			// private mode or full storage: the cache is only a convenience
 		}
 	}
 
@@ -172,7 +159,6 @@ class Store {
 	#connect() {
 		const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/events`;
 		const socket = new WebSocket(url);
-		this.#socket = socket;
 		socket.onopen = () => {
 			this.connected = true;
 			this.#retry = 1000;
@@ -205,7 +191,6 @@ class Store {
 		};
 		socket.onclose = () => {
 			this.connected = false;
-			this.#socket = null;
 			setTimeout(() => this.#connect(), this.#retry);
 			this.#retry = Math.min(this.#retry * 2, 15000);
 		};

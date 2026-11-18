@@ -12,6 +12,7 @@ def test_scrub() -> None:
     assert logs.scrub("rtsp://admin:p%23w@10.0.0.1:554/x") == "rtsp://***@10.0.0.1:554/x"
     assert logs.scrub("http://user@cam/a and rtsps://a:b@c/d") == "http://***@cam/a and rtsps://***@c/d"
     assert logs.scrub("no url here: a@b") == "no url here: a@b"
+    assert logs.scrub("rtsp://admin:p@ss@host/x a@b") == "rtsp://***@host/x a@b"  # a raw @ in it
 
 
 def test_file_memory_and_api(tmp_path: Path, client: TestClient) -> None:

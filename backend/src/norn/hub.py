@@ -8,6 +8,7 @@ import logging
 import shutil
 import time
 from collections import OrderedDict
+from collections.abc import Coroutine
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -17,7 +18,16 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ValidationError
 
 from . import __version__
-from .config import CameraConfig, CircleConfig, Config, ConfigError, ConfigStore, NornPreset
+from .config import (
+    CAMERA_ID,
+    CameraConfig,
+    CircleConfig,
+    Config,
+    ConfigError,
+    ConfigStore,
+    NornPreset,
+    short_error,
+)
 from .detect import OBJECT_KINDS, Detectors, MotionDetector, Tracker, gray_from_bgr
 from .drivers import DRIVERS
 from .drivers.base import (
@@ -73,6 +83,8 @@ class Camera:
     error: str | None = None
     device: DeviceInfo | None = None
     firmware: FirmwareStatus | None = None
+    # Newer firmware the vendor offered at the last online check, and the camera's firmware then.
+    online_latest: tuple[str | None, str] | None = None
     device_time: float = 0
     firmware_time: float = 0
     update: dict[str, Any] | None = field(default=None)  # a running or failed firmware update
@@ -117,7 +129,6 @@ class Camera:
 
     def to_json(self, recording: dict[str, Any] | None) -> dict[str, Any]:
         driver = self.driver
-        streams = driver.streams() if driver and self.config.enabled else []
         caps = sorted(driver.capabilities()) if driver and self.config.enabled else []
         return {
             "id": self.id,
@@ -130,23 +141,6 @@ class Camera:
             "secrets": public(self.config.options)[1],
             "error": self.error,
             "capabilities": caps,
-            "streams": [
-                {"id": s.id, "label": s.label, "name": stream_name(self.id, s.id), "codec": s.codec}
-                for s in streams
-            ]
-            + (
-                [
-                    {
-                        "id": LOW,
-                        "label": "Low",
-                        "name": stream_name(self.id, LOW),
-                        "codec": "h264",
-                        "transcoded": True,
-                    }
-                ]
-                if streams
-                else []
-            ),
             "recording": recording,
             "auto_update": self.config.auto_update,
             "picture_seconds": self.config.picture_seconds,
@@ -169,7 +163,6 @@ class Camera:
             "device": self.device.model_dump() if self.device else None,
             "firmware": self.firmware.model_dump() if self.firmware else None,
             "update": self.update,
-            "events": self.events_json(),
         }
 
 
@@ -196,6 +189,8 @@ class Hub:
         self._still_cache: dict[str, tuple[bytes, float]] = {}
         self._leases: dict[str, float] = {}  # camera -> until when someone wants its stills
         self._lease_tasks: dict[str, asyncio.Task[None]] = {}
+        self._preset_locks: dict[str, asyncio.Lock] = {}  # camera -> one preset change at a time
+        self._tasks: set[asyncio.Task[Any]] = set()  # background tasks nobody waits for
         self.away = False  # away mode is on (now, or planned for now)
         self._away_task: asyncio.Task[None] | None = None
         self._held: dict[str, set[tuple[str, str]]] = {}
@@ -240,7 +235,7 @@ class Hub:
             pilot.stop()
         tasks = [self._watcher, self._poller, self._away_task, self._gop_task, *self._holds.values()]
         tasks += [p.task for p in self.pilots.values()]
-        tasks += list(self._lease_tasks.values())
+        tasks += [*self._lease_tasks.values(), *self._tasks]
         for camera in self.cameras.values():
             tasks += [camera.events_task, camera.stills_task, camera.probe_task, camera.controls_task]
         running = [t for t in tasks if t and not t.done()]
@@ -297,6 +292,8 @@ class Hub:
         camera.device_time = time.time()
         if device.online:
             camera.firmware = check(device.manufacturer, device.model, device.firmware)
+            if camera.online_latest and camera.online_latest[0] == device.firmware:  # not updated since
+                camera.firmware.latest, camera.firmware.status = camera.online_latest[1], "update"
         if was_online is not None and was_online != device.online:
             log.warning(
                 "%s is %s", camera_id, "online again" if device.online else f"offline: {device.error}"
@@ -306,7 +303,7 @@ class Hub:
     async def get_controls(self, camera_id: str, max_age: float = 30) -> tuple[list[Control], list[Preset]]:
         """The camera's controls: from the cache, refreshed in the background when older than max_age."""
         camera = self.cameras[camera_id]
-        if camera.controls is None:
+        if camera.controls is None and not camera.controls_time:  # never tried yet
             await self.refresh_controls(camera_id)
         elif time.time() - camera.controls_time > max_age and not (
             camera.controls_task and not camera.controls_task.done()
@@ -323,6 +320,8 @@ class Hub:
             presets = await asyncio.wait_for(camera.driver.presets(), 15)
         except Exception as e:
             log.info("%s: reading controls failed: %s", camera_id, e)
+            if self.cameras.get(camera_id) is camera:
+                camera.controls_time = time.time()  # the next ask doesn't wait for it again
             return
         if self.cameras.get(camera_id) is not camera:
             return
@@ -357,6 +356,7 @@ class Hub:
             else:
                 await driver.firmware_online_update()
             camera.update = {"state": "done", "finished": time.time(), "source": camera.update["source"]}
+            camera.online_latest = None
         except Exception as e:
             log.error("%s: firmware update failed: %s", camera_id, e)
             camera.update = {"state": "failed", "error": str(e), "finished": time.time()}
@@ -366,21 +366,24 @@ class Hub:
 
     async def _poll_devices(self) -> None:
         while True:
-            await self.refresh_devices()
-            # Keep the controls warm too, so a camera page never waits for the camera.
-            await asyncio.gather(
-                *(
-                    self.refresh_controls(cid)
-                    for cid, cam in self.cameras.items()
-                    if cam.device is None or cam.device.online
+            try:
+                await self.refresh_devices()
+                # Keep the controls warm too, so a camera page never waits for the camera.
+                await asyncio.gather(
+                    *(
+                        self.refresh_controls(cid)
+                        for cid, cam in self.cameras.items()
+                        if cam.device is None or cam.device.online
+                    )
                 )
-            )
-            now = time.time()
-            for cid, camera in list(self.cameras.items()):
-                interval = self.config.firmware.check_hours * 3600
-                if interval and now - camera.firmware_time >= interval:
-                    camera.firmware_time = now
-                    await self._check_online_firmware(cid, camera)
+                now = time.time()
+                for cid, camera in list(self.cameras.items()):
+                    interval = self.config.firmware.check_hours * 3600
+                    if interval and now - camera.firmware_time >= interval:
+                        camera.firmware_time = now
+                        await self._check_online_firmware(cid, camera)
+            except Exception:
+                log.exception("polling the cameras")
             await asyncio.sleep(DEVICE_INTERVAL)
 
     async def _check_online_firmware(self, camera_id: str, camera: Camera) -> None:
@@ -393,12 +396,12 @@ class Hub:
         except Exception as e:
             log.info("%s: online firmware check failed: %s", camera_id, e)
             return
+        camera.online_latest = (camera.device.firmware if camera.device else None, latest) if latest else None
         if latest and camera.firmware:
             camera.firmware.latest = latest
             camera.firmware.status = "update"
-        if latest and camera.config.auto_update:
-            with contextlib.suppress(Exception):
-                await self.update_firmware(camera_id)
+        if latest and camera.config.auto_update:  # a download can take minutes: not in the poller
+            self._background(self.update_firmware(camera_id), f"firmware-{camera_id}")
 
     def norn_kinds(self, camera_id: str) -> list[str]:
         """What Norn's own detection looks for on the camera."""
@@ -600,7 +603,7 @@ class Hub:
 
     # Changes from the API. Each one writes config.yaml and then applies it.
     async def put_camera(self, camera_id: str, camera: CameraConfig) -> None:
-        validate_options(camera)
+        driver_options(camera)
         async with self._lock:
             self.store.put_camera(camera_id, camera)
             await self._apply()
@@ -611,6 +614,17 @@ class Hub:
         """Make or change a Norn preset from what the camera shows now: the view goes into a
         preset slot of the camera (a free one, unless `slot`), the `controls` named keep their
         current values, and a picture shows the view."""
+        if not CAMERA_ID.fullmatch(preset_id):
+            raise ConfigError(f"id {preset_id!r} must be lowercase letters, digits and dashes")
+        async with self._preset_lock(camera_id):  # two at once would take the same free slot
+            return await self._save_preset(camera_id, preset_id, name, slot, controls)
+
+    def _preset_lock(self, camera_id: str) -> asyncio.Lock:
+        return self._preset_locks.setdefault(camera_id, asyncio.Lock())
+
+    async def _save_preset(
+        self, camera_id: str, preset_id: str, name: str, slot: str | None, controls: list[str]
+    ) -> NornPreset:
         driver = self.get_driver(camera_id)
         camera = self.cameras[camera_id]
         existing = camera.config.presets.get(preset_id)
@@ -624,7 +638,9 @@ class Hub:
             if not free:
                 raise ValueError("the camera has no free preset slot")
             slot = free[-1]  # from the end: the camera's own presets usually start at the front
-        await driver.save_preset(slot, name)
+        slot = await driver.save_preset(slot, name) or slot  # ONVIF: the camera picks the token
+        if self.cameras[camera_id].controls is None:  # an earlier read failed: try again, and wait
+            await self.refresh_controls(camera_id)
         current, _ = await self.get_controls(camera_id, max_age=0)
         values = {c.id: c.value for c in current if c.id in controls and c.kind != "button"}
         # A new view and settings; what it records at the preset stays.
@@ -641,17 +657,17 @@ class Hub:
         return preset
 
     async def remove_preset(self, camera_id: str, preset_id: str) -> None:
-        camera = self.cameras[camera_id]
-        if preset_id not in camera.config.presets:
-            raise KeyError(preset_id)
-        presets = {k: v for k, v in camera.config.presets.items() if k != preset_id}
-        cfg = camera.config
-        patrol = cfg.patrol
-        if patrol and preset_id in patrol.presets:
-            patrol = patrol.model_copy(update={"presets": [p for p in patrol.presets if p != preset_id]})
-        default = None if cfg.default_preset == preset_id else cfg.default_preset
-        update = {"presets": presets, "patrol": patrol, "default_preset": default}
-        await self.put_camera(camera_id, cfg.model_copy(update=update))
+        async with self._preset_lock(camera_id):
+            cfg = self.cameras[camera_id].config
+            if preset_id not in cfg.presets:
+                raise KeyError(preset_id)
+            presets = {k: v for k, v in cfg.presets.items() if k != preset_id}
+            patrol = cfg.patrol
+            if patrol and preset_id in patrol.presets:
+                patrol = patrol.model_copy(update={"presets": [p for p in patrol.presets if p != preset_id]})
+            default = None if cfg.default_preset == preset_id else cfg.default_preset
+            update = {"presets": presets, "patrol": patrol, "default_preset": default}
+            await self.put_camera(camera_id, cfg.model_copy(update=update))
         self.pilots[camera_id].picture(preset_id).unlink(missing_ok=True)
 
     async def set_preset_recording(
@@ -665,7 +681,7 @@ class Hub:
         try:
             preset = NornPreset.model_validate({**cfg.presets[preset_id].model_dump(), **values})
         except ValidationError as e:
-            raise ConfigError(_short_error(e)) from e
+            raise ConfigError(short_error(e)) from e
         await self.put_camera(
             camera_id, cfg.model_copy(update={"presets": {**cfg.presets, preset_id: preset}})
         )
@@ -771,6 +787,8 @@ class Hub:
             log.info("config reloaded")
 
     async def _apply(self) -> None:
+        if not self.store.changed_on_disk():
+            self.config_error = None  # Norn runs what the file says: an earlier load's error is gone
         await self._build_cameras()
         streams = self.streams()
         try:
@@ -786,7 +804,18 @@ class Hub:
         await self.recorder.apply(self.config, streams, self.transcoded(), away)
         self.bus.publish("cameras.changed")
         # Read new cameras right away instead of at the next poll.
-        asyncio.create_task(self.refresh_devices(only_new=True))  # noqa: RUF006
+        self._background(self.refresh_devices(only_new=True), "refresh-devices")
+
+    def _background(self, coro: Coroutine[Any, Any, Any], name: str) -> None:
+        """A task nobody waits for: kept until it ends (stop() cancels it), its error logged."""
+        task = asyncio.create_task(coro, name=name)
+        self._tasks.add(task)
+        task.add_done_callback(self._done)
+
+    def _done(self, task: asyncio.Task[Any]) -> None:
+        self._tasks.discard(task)
+        if not task.cancelled() and (e := task.exception()):
+            log.warning("%s: %s", task.get_name(), e)
 
     async def _build_cameras(self) -> None:
         """Create drivers for new or changed cameras; keep the ones that didn't change."""
@@ -804,13 +833,21 @@ class Hub:
                 new[cid] = previous
                 continue
             new[cid] = self._make_camera(cid, cfg)
-            if new[cid].driver and cfg.enabled:
-                await new[cid].driver.start()
+        # New drivers start together: a camera that doesn't answer mustn't hold up the others.
+        starting = [c for cid, c in new.items() if c is not old.get(cid) and c.driver and c.config.enabled]
+        results = await asyncio.gather(
+            *(asyncio.wait_for(c.driver.start(), 20) for c in starting if c.driver), return_exceptions=True
+        )
+        for camera, result in zip(starting, results, strict=True):
+            if isinstance(result, Exception):
+                log.warning("%s: starting failed: %s", camera.id, str(result) or type(result).__name__)
         for cid, camera in old.items():
             if new.get(cid) is not camera:
-                for task in (camera.events_task, camera.stills_task, camera.probe_task):
+                tasks = [camera.events_task, camera.stills_task, camera.probe_task, camera.controls_task]
+                for task in [*tasks, self._lease_tasks.pop(cid, None)]:
                     if task:
                         task.cancel()
+                self._leases.pop(cid, None)
                 self._release(cid, gone=cid not in new)
                 self._still_cache.pop(cid, None)
                 if cid not in new:
@@ -888,9 +925,12 @@ class Hub:
         """Planned away times start and end by the clock: notice it, and apply the change."""
         while True:
             await asyncio.sleep(30)
-            if self.config.away.now() != self.away:
-                async with self._lock:
-                    await self._apply()
+            try:
+                if self.config.away.now() != self.away:
+                    async with self._lock:
+                        await self._apply()
+            except Exception:
+                log.exception("away mode")
 
     def on_event(self, camera_id: str, event: Event, by: str = "camera") -> None:
         """Something was detected on a camera (by the camera itself, or by Norn), or stopped:
@@ -947,7 +987,7 @@ class Hub:
             for reaction in cfg.reactions:
                 watched = reaction.cameras or [cid]
                 if kind in reaction.kinds and source in watched:
-                    asyncio.create_task(pilot.react(reaction.presets, reaction.hold_seconds))  # noqa: RUF006
+                    self._background(pilot.react(reaction.presets, reaction.hold_seconds), f"react-{cid}")
                     break
 
     async def still_jpeg(self, camera_id: str, max_age: float = 15) -> bytes | None:
@@ -1242,22 +1282,41 @@ class Hub:
             await asyncio.sleep(HOLD_INTERVAL)
 
     def _make_camera(self, cid: str, cfg: CameraConfig) -> Camera:
-        cls = DRIVERS.get(cfg.driver)
-        if cls is None:
-            return Camera(cid, cfg, None, f"unknown driver {cfg.driver!r}")
         try:
-            options = cls.Options.model_validate(cfg.options)
-        except ValidationError as e:
-            return Camera(cid, cfg, None, _short_error(e))
-        return Camera(cid, cfg, cls(cid, options, self.bus.publish))
+            cls, options = driver_options(cfg)
+        except ConfigError as e:
+            return Camera(cid, cfg, None, str(e))
+        return Camera(cid, cfg, cls(cid, options, self._driver_event))
+
+    def _driver_event(self, type_: str, data: dict[str, Any]) -> None:
+        """An event from a driver, for the bus. New streams (a camera that was offline when Norn
+        started) also go to go2rtc and the recorder."""
+        self.bus.publish(type_, data)
+        if type_ == "camera.streams":
+            self._background(self._streams_changed(data["camera"]), f"streams-{data['camera']}")
+
+    async def _streams_changed(self, camera_id: str) -> None:
+        async with self._lock:
+            await self._restream()
+        camera = self.cameras.get(camera_id)  # read after the lock: an edit may have replaced it
+        if (
+            camera is not None
+            and camera.probe is None
+            and camera.probe_task is not None
+            and camera.probe_task.done()
+        ):
+            camera.probe_task = asyncio.create_task(self._probe(camera), name=f"probe-{camera_id}")
 
     async def _watch_config(self) -> None:
         # Polling the mtime every two seconds costs nothing and works on every file system,
         # including the bind mounts of Docker Desktop, where inotify often doesn't.
         while True:
             await asyncio.sleep(2)
-            if self.store.changed_on_disk():
-                await self.reload()
+            try:
+                if self.store.changed_on_disk():
+                    await self.reload()
+            except Exception:
+                log.exception("reloading the config")
 
 
 async def reachable(url: str | None, timeout: float = 2) -> str | None:
@@ -1265,7 +1324,10 @@ async def reachable(url: str | None, timeout: float = 2) -> str | None:
     if not url:
         return None
     parts = urlsplit(url)
-    port = parts.port or (443 if parts.scheme == "https" else 80)
+    try:
+        port = parts.port or (443 if parts.scheme == "https" else 80)
+    except ValueError:  # not a valid port (or an IPv6 address without brackets)
+        return None
     try:
         _, writer = await asyncio.wait_for(asyncio.open_connection(parts.hostname, port), timeout)
     except (OSError, TimeoutError):
@@ -1290,15 +1352,12 @@ def _alike(a: Control, b: Control) -> bool:
     )
 
 
-def validate_options(camera: CameraConfig) -> None:
+def driver_options(camera: CameraConfig) -> tuple[type[Driver], BaseModel]:
+    """The camera's driver and its options; ConfigError if either is wrong."""
     cls = DRIVERS.get(camera.driver)
     if cls is None:
         raise ConfigError(f"unknown driver {camera.driver!r}")
     try:
-        cls.Options.model_validate(camera.options)
+        return cls, cls.Options.model_validate(camera.options)
     except ValidationError as e:
-        raise ConfigError(_short_error(e)) from e
-
-
-def _short_error(e: ValidationError) -> str:
-    return "; ".join(f"{'.'.join(map(str, err['loc'])) or 'options'}: {err['msg']}" for err in e.errors())
+        raise ConfigError(short_error(e)) from e

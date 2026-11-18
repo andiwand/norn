@@ -17,7 +17,7 @@ export interface StreamInfo {
 	id: string;
 	label: string;
 	name: string;
-	codec: 'h264' | 'h265' | 'mjpeg' | null;
+	codec: string | null;
 	/** Made by Norn for weak connections (FFmpeg runs only while someone watches). */
 	transcoded?: boolean;
 	width?: number | null;
@@ -464,6 +464,15 @@ export function errorText(detail: unknown): string | undefined {
 
 const enc = encodeURIComponent;
 
+/** A query string of the parameters that are set. */
+function query(params: Record<string, string | number | undefined>): string {
+	return new URLSearchParams(
+		Object.entries(params)
+			.filter(([, v]) => v !== undefined && v !== '')
+			.map(([k, v]) => [k, String(v)])
+	).toString();
+}
+
 export const api = {
 	info: () => request<Info>('GET', '/info'),
 	settings: () => request<SettingsData>('GET', '/settings'),
@@ -473,7 +482,6 @@ export const api = {
 	drivers: () => request<Driver[]>('GET', '/drivers'),
 	labels: () => request<Label[]>('GET', '/labels'),
 	cameras: () => request<Camera[]>('GET', '/cameras'),
-	camera: (id: string) => request<Camera>('GET', `/cameras/${enc(id)}`),
 	addCamera: (body: Record<string, unknown>) => request<Camera>('POST', '/cameras', body),
 	updateCamera: (id: string, body: Record<string, unknown>) =>
 		request<Camera>('PUT', `/cameras/${enc(id)}`, body),
@@ -485,22 +493,16 @@ export const api = {
 			`/cameras/${enc(id)}/controls${fresh ? '?fresh=true' : ''}`
 		),
 	setControl: (id: string, control: string, value: unknown) =>
-		request<void>('POST', `/cameras/${enc(id)}/controls/${enc(control)}`, { value }),
+		request<{ ok: boolean }>('POST', `/cameras/${enc(id)}/controls/${enc(control)}`, { value }),
 	ptz: (id: string, command: PtzCommand) =>
-		request<void>('POST', `/cameras/${enc(id)}/ptz`, command),
+		request<{ ok: boolean }>('POST', `/cameras/${enc(id)}/ptz`, command),
 	record: (id: string, seconds?: number) =>
 		request<unknown>('POST', `/cameras/${enc(id)}/record`, { trigger: 'manual', seconds }),
 	stopRecord: (id: string) => request<unknown>('DELETE', `/cameras/${enc(id)}/record`),
 	storage: () => request<Storage>('GET', '/storage'),
 	resources: () => request<Resources>('GET', '/resources'),
-	logs: (params: { level?: string; after?: number; text?: string; limit?: number } = {}) => {
-		const query = new URLSearchParams(
-			Object.entries(params)
-				.filter(([, v]) => v !== undefined && v !== '')
-				.map(([k, v]) => [k, String(v)])
-		);
-		return request<{ lines: LogLine[]; file: string | null }>('GET', `/logs?${query}`);
-	},
+	logs: (params: { level?: string; after?: number; text?: string; limit?: number } = {}) =>
+		request<{ lines: LogLine[]; file: string | null }>('GET', `/logs?${query(params)}`),
 	forecast: () => request<Forecast>('GET', '/forecast'),
 	recordings: (
 		params: {
@@ -515,17 +517,11 @@ export const api = {
 			/** Thin the pictures to about this many per camera. */
 			pictures?: number;
 		} = {}
-	) => {
-		const query = new URLSearchParams(
-			Object.entries(params)
-				.filter(([, v]) => v !== undefined && v !== '')
-				.map(([k, v]) => [k, String(v)])
-		);
-		return request<{ recordings: Recording[]; days: string[]; truncated: boolean }>(
+	) =>
+		request<{ recordings: Recording[]; days: string[]; truncated: boolean }>(
 			'GET',
-			`/recordings?${query}`
-		);
-	},
+			`/recordings?${query(params)}`
+		),
 	deleteRecording: (id: string) => request<void>('DELETE', `/recordings/${id}`),
 	pinRecording: (id: string, pinned: boolean) =>
 		request<Recording>('PUT', `/recordings/${id}/pin`, { pinned }),
@@ -604,22 +600,14 @@ export const urls = {
 	/** The newest still, at once (for a picture before the video plays). */
 	still: (camera: string, maxAge = 15) =>
 		`/api/cameras/${enc(camera)}/still.jpg?max_age=${maxAge}&t=${Date.now()}`,
-	/** The camera as a slow stream of stills (MJPEG, for an <img>). */
-	stills: (camera: string, every = 2) => `/api/cameras/${enc(camera)}/stills?every=${every}`,
 	snapshot: (camera: string, stream = 'main') =>
 		`/api/cameras/${enc(camera)}/snapshot?stream=${enc(stream)}&t=${Date.now()}`,
 	recording: (r: Recording) => `/api/recordings/${r.id}`,
-	thumbnail: (r: Recording) => `/api/recordings/${r.id.replace(/\.mp4$/, '.jpg')}`,
 	/** A video's frame `seconds` in, small, for scrubbing the timeline. */
 	frame: (r: Recording, seconds: number) => `/api/recordings/${r.id}/frame?at=${seconds}`,
 	/** A small image for lists: a picture's small copy, or the video's thumbnail. */
 	small: (r: Recording) =>
 		r.kind === 'picture'
 			? `/api/recordings/${r.id}?small=true`
-			: `/api/recordings/${r.id.replace(/\.mp4$/, '.jpg')}`,
-	/** The picture itself, or the video's thumbnail. */
-	image: (r: Recording) =>
-		r.kind === 'picture'
-			? `/api/recordings/${r.id}`
 			: `/api/recordings/${r.id.replace(/\.mp4$/, '.jpg')}`
 };

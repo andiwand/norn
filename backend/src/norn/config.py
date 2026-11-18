@@ -7,23 +7,34 @@ watches the file and reloads it when someone edits it while the server runs.
 
 from __future__ import annotations
 
+import contextlib
+import functools
 import io
 import itertools
 import os
 import re
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Concatenate, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
-from ruamel.yaml.error import CommentMark
+from ruamel.yaml.error import CommentMark, MarkedYAMLError
 from ruamel.yaml.tokens import CommentToken
 
 from .labels import LabelId
 
-CAMERA_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
+CAMERA_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")  # use fullmatch: `$` also matches before a "\n"
+
+
+def check_ids(ids: Any) -> None:
+    """Ids of cameras, circles and presets: they become names of files and folders."""
+    for key in ids:
+        if not CAMERA_ID.fullmatch(key):
+            raise ValueError(f"id {key!r} must be lowercase letters, digits and dashes")
+
 
 DEFAULT_CONFIG = """\
 # Norn configuration. Edit this file by hand or from the web UI; both keep each other's changes.
@@ -266,6 +277,12 @@ class CameraConfig(BaseModel):
     # A Norn preset the camera returns to when nothing else steers it.
     default_preset: str | None = None
 
+    @field_validator("presets")
+    @classmethod
+    def _preset_ids(cls, value: dict[str, NornPreset]) -> dict[str, NornPreset]:
+        check_ids(value)
+        return value
+
     @model_validator(mode="after")
     def _default_is_a_preset(self) -> CameraConfig:
         if self.default_preset is not None and self.default_preset not in self.presets:
@@ -333,9 +350,7 @@ class Config(BaseModel):
     @field_validator("cameras", "circles")
     @classmethod
     def _valid_ids(cls, value: dict[str, Any]) -> dict[str, Any]:
-        for key in value:
-            if not CAMERA_ID.match(key):
-                raise ValueError(f"id {key!r} must be lowercase letters, digits and dashes")
+        check_ids(value)
         return value
 
     def circles_of(self, camera_id: str) -> list[str]:
@@ -355,7 +370,7 @@ class Config(BaseModel):
         """The camera's detection settings: the global ones, changed by its first circle that
         sets any, then by its own."""
         values = self.detection.model_dump()
-        layers = [self.circles[c].detection for c in self.circles_of(camera_id)][:1]
+        layers = [d for c in self.circles_of(camera_id) if (d := self.circles[c].detection)][:1]
         camera = self.cameras.get(camera_id)
         layers.append(camera.detection if camera else None)
         for layer in layers:
@@ -398,6 +413,20 @@ class ConfigError(Exception):
     pass
 
 
+def short_error(e: ValidationError) -> str:
+    """A validation error in one line: where and what, never the value (it may be a password)."""
+    return "; ".join(f"{'.'.join(map(str, err['loc'])) or 'options'}: {err['msg']}" for err in e.errors())
+
+
+def _parse_error(e: Exception) -> str:
+    """A YAML error without the lines it quotes (they may hold a password): what, and where."""
+    if not isinstance(e, MarkedYAMLError):
+        return str(e)
+    mark = e.problem_mark or e.context_mark
+    where = f" (line {mark.line + 1}, column {mark.column + 1})" if mark else ""
+    return f"{e.problem or e.context}{where}"
+
+
 def _plain(value: Any) -> Any:
     """ruamel types to plain Python, so pydantic sees ordinary dicts and lists."""
     if isinstance(value, dict):
@@ -412,6 +441,8 @@ def _tail(node: Any) -> tuple[Any, Any] | None:
     entry, as deep as it goes."""
     found = None
     while True:
+        if isinstance(node, CommentedMap | CommentedSeq) and node.fa.flow_style():
+            return found  # `{...}` on one line: comments go after it, not inside
         if isinstance(node, CommentedMap) and len(node):
             key: Any = next(reversed(node))
         elif isinstance(node, CommentedSeq) and len(node):
@@ -441,12 +472,19 @@ def _commented(value: Any) -> Any:
     return value
 
 
+def _last(node: Any, key: Any) -> tuple[Any, Any]:
+    """Where the line that ends the entry `key` of `node` is: its block's last entry, or itself."""
+    return _tail(node[key]) or (node, key)
+
+
 def _put_tail_comment(doc: Any, text: str) -> None:
     """Attach comment lines after the last line of the block of `doc`."""
-    tail = _tail(doc)
-    if tail is None:
-        return
-    node, key = tail
+    if (tail := _tail(doc)) is not None:
+        _put_comment(*tail, text)
+
+
+def _put_comment(node: Any, key: Any, text: str) -> None:
+    """Attach comment lines after the line of the entry `key`."""
     item, slot = _tail_token(node, key, create=True)
     assert item is not None
     if item[slot] is None:
@@ -458,9 +496,12 @@ def _put_tail_comment(doc: Any, text: str) -> None:
 def _split_tail(node: Any) -> str:
     """Detach the comment lines after the block of `node` (an end-of-line comment stays)."""
     tail = _tail(node)
-    if tail is None:
-        return ""
-    item, slot = _tail_token(*tail)
+    return _split_comment(*tail) if tail else ""
+
+
+def _split_comment(node: Any, key: Any) -> str:
+    """Detach the comment lines after the line of the entry `key` (an end-of-line comment stays)."""
+    item, slot = _tail_token(node, key)
     if not item or item[slot] is None:
         return ""
     text: str = item[slot].value
@@ -473,6 +514,68 @@ def _split_tail(node: Any) -> str:
     else:
         item[slot] = None
     return rest
+
+
+def _delete(mapping: CommentedMap, key: Any, parent: CommentedMap | None = None) -> None:
+    """Delete a key with the comment lines above it; the lines after its block stay. ruamel
+    keeps the lines above a key on the entry before it (for the first key: on the mapping and
+    on the `parent`'s entry; the top level's are the file's header and stay)."""
+    keys = list(mapping)
+    i = keys.index(key)
+    after = _split_comment(*_last(mapping, key))
+    if i:
+        _split_comment(*_last(mapping, keys[i - 1]))
+    elif parent is not None and mapping.ca.comment and (first := mapping.ca.comment[1]):
+        mapping.ca.comment[1] = None
+        for item in parent.ca.items.values():
+            if len(item) > 3 and item[3] is first:
+                item[3] = None
+    del mapping[key]
+    if not after.strip():
+        return
+    if i:
+        _put_comment(*_last(mapping, keys[i - 1]), after)
+    elif len(mapping):
+        mapping.ca.items.setdefault(keys[1], [None, None, None, None])[1] = [
+            CommentToken(after, CommentMark(0), None)
+        ]
+
+
+def _merge(node: CommentedMap, data: dict[str, Any], parent: CommentedMap | None = None) -> None:
+    """Make `node` (in `parent`) hold `data`, changing only what differs, nested mappings too,
+    so the comments in it stay."""
+    for key in [k for k in node if k not in data]:
+        _delete(node, key, parent)
+    for key, value in data.items():
+        old = node.get(key)
+        if isinstance(old, CommentedMap) and isinstance(value, dict):
+            _merge(old, value, node)
+        elif key not in node or old != value:
+            node[key] = _commented(value)
+
+
+def _edit[**P](
+    method: Callable[Concatenate[ConfigStore, P], Config],
+) -> Callable[Concatenate[ConfigStore, P], Config]:
+    """A change to the file: made to the file as it is now (a hand edit since the last load
+    stays; a broken file raises ConfigError and stays as it is), and all or nothing (when it
+    fails, Norn's copy is the file's again)."""
+
+    @functools.wraps(method)
+    def edit(self: ConfigStore, *args: P.args, **kwargs: P.kwargs) -> Config:
+        if self.changed_on_disk():
+            self.load()
+        try:
+            return method(self, *args, **kwargs)
+        except BaseException:
+            with contextlib.suppress(Exception):
+                self.load()
+            # The hub reloads too: a hand edit loaded above must still be applied (and if
+            # loading failed, the next change loads first).
+            self._mtime = None
+            raise
+
+    return edit
 
 
 def _indented(text: str, indent: str) -> str:
@@ -533,19 +636,18 @@ class ConfigStore:
         if not self.path.exists():
             self.path.parent.mkdir(parents=True, exist_ok=True)
             self.path.write_text(DEFAULT_CONFIG)
-        text = self.path.read_text()
         try:
-            doc = self._yaml.load(text)
+            doc = self._yaml.load(self.path.read_text())
         except Exception as e:
-            raise ConfigError(f"{self.path}: {e}") from e
+            raise ConfigError(f"{self.path}: {_parse_error(e)}") from e
         if doc is None:
             doc = CommentedMap()
         if not isinstance(doc, CommentedMap):
             raise ConfigError(f"{self.path}: the top level must be a mapping")
         try:
             config = Config.model_validate(_plain(doc))
-        except ValueError as e:
-            raise ConfigError(f"{self.path}: {e}") from e
+        except ValidationError as e:
+            raise ConfigError(f"{self.path}: {short_error(e)}") from e
         self._doc = doc
         self.config = config
         self._mtime = self._stat()
@@ -556,9 +658,11 @@ class ConfigStore:
 
     def put_camera(self, camera_id: str, camera: CameraConfig) -> Config:
         data = camera.model_dump(exclude_defaults=True, by_alias=True)
-        data["name"], data["driver"] = camera.name, camera.driver
+        if data.get("patrol") == {}:  # a patrol of defaults is none: off, without presets
+            del data["patrol"]
         return self._put_entry("cameras", camera_id, data)
 
+    @_edit
     def order_cameras(self, ids: list[str]) -> Config:
         """Put the cameras in this order (the order of the Live page). Ones not named keep their
         place after these; each keeps its comments."""
@@ -573,7 +677,7 @@ class ConfigStore:
 
     def put_circle(self, circle_id: str, circle: CircleConfig) -> Config:
         data = circle.model_dump(exclude_defaults=True, by_alias=True)
-        data["name"], data["cameras"] = circle.name, list(circle.cameras)
+        data["cameras"] = list(circle.cameras)
         return self._put_entry("circles", circle_id, data)
 
     def remove_circle(self, circle_id: str) -> Config:
@@ -591,8 +695,9 @@ class ConfigStore:
                 self._doc[name] = section
         return section
 
+    @_edit
     def _put_entry(self, section: str, entry_id: str, data: dict[str, Any]) -> Config:
-        if not CAMERA_ID.match(entry_id):
+        if not CAMERA_ID.fullmatch(entry_id):
             raise ConfigError(f"id {entry_id!r} must be lowercase letters, digits and dashes")
         # Comments after the last camera belong to the end of the block, not to its last key.
         tail = _split_tail(self._doc) or None
@@ -600,34 +705,35 @@ class ConfigStore:
         entries.fa.set_block_style()
         existing = entries.get(entry_id)
         if isinstance(existing, CommentedMap):
-            for key in [k for k in existing if k not in data]:
-                del existing[key]
-            for key, value in data.items():
-                if existing.get(key) != value:
-                    existing[key] = _commented(value)
+            _merge(existing, data, entries)
         else:
             entries[entry_id] = _commented(data)
         if tail:
             _put_tail_comment(self._doc, tail)
         return self._commit()
 
+    @_edit
     def put_section(self, name: str, values: BaseModel) -> Config:
-        """Write a settings section (`recording`, ...). Keys at their default stay out of the file."""
+        """Write a settings section (`recording`, ...). Keys at their default stay out of the
+        file (one written by hand at its default stays, with its comment)."""
         if name not in Config.model_fields or name == "cameras":
             raise ConfigError(f"no settings section {name!r}")
         data = values.model_dump(by_alias=True)
         defaults = type(values)().model_dump(by_alias=True)
         tail = _split_tail(self._doc) or None
         section = self._section(name)
-        for key, value in data.items():
-            if value == defaults[key] and key not in section:
-                continue
-            if section.get(key) != value:
-                section[key] = _commented(value)
         for key in [k for k in section if k not in data]:
-            del section[key]
+            _delete(section, key, self._doc)
+        for key, value in data.items():
+            if key in section and section[key] == value:
+                continue
+            if value == defaults[key]:
+                if key in section:
+                    _delete(section, key, self._doc)
+            else:
+                section[key] = _commented(value)
         if not section:
-            del self._doc[name]
+            _delete(self._doc, name)
         if tail:
             _put_tail_comment(self._doc, tail)
         return self._commit()
@@ -635,14 +741,15 @@ class ConfigStore:
     def remove_camera(self, camera_id: str) -> Config:
         return self._remove_entry("cameras", camera_id)
 
+    @_edit
     def _remove_entry(self, section: str, entry_id: str) -> Config:
         entries = self._doc.get(section)
         if not isinstance(entries, CommentedMap) or entry_id not in entries:
             raise KeyError(entry_id)
         tail = _split_tail(self._doc) or None
-        del entries[entry_id]
+        _delete(entries, entry_id, self._doc)
         if not entries and section != "cameras":
-            del self._doc[section]  # an empty circles block is just noise
+            _delete(self._doc, section)  # an empty circles block is just noise
         elif not entries:
             # An empty block mapping after comments dumps as invalid YAML; `{}` is valid.
             entries.fa.set_flow_style()
@@ -656,7 +763,10 @@ class ConfigStore:
         return buffer.getvalue()
 
     def _commit(self) -> Config:
-        config = Config.model_validate(_plain(self._doc))
+        try:
+            config = Config.model_validate(_plain(self._doc))
+        except ValidationError as e:
+            raise ConfigError(short_error(e)) from e
         tmp = self.path.with_name(self.path.name + ".tmp")
         tmp.write_text(self.dump())
         os.replace(tmp, self.path)

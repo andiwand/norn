@@ -17,6 +17,7 @@ Written against the documented Integration API, not yet tested against a real co
 
 from __future__ import annotations
 
+import contextlib
 from typing import Any
 
 import httpx
@@ -68,8 +69,9 @@ class UnifiDriver(Driver):
             verify=False,  # consoles use self-signed certificates
             timeout=10,
         )
-        self.camera_id: str | None = None
+        self._protect_id: str | None = None  # the camera's id in Protect (self.camera_id is Norn's)
         self.urls: dict[str, str] = {}
+        self._urls_tried = False  # asked for the stream URLs again after a failed start
         self.data: dict[str, Any] = {}
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
@@ -84,29 +86,31 @@ class UnifiDriver(Driver):
         return response.json() if response.content else None
 
     async def _find(self) -> str:
-        if self.camera_id:
-            return self.camera_id
+        if self._protect_id:
+            return self._protect_id
         cameras = await self._request("GET", "/cameras")
         wanted = self.options.camera.strip().lower()
         for camera in cameras or []:
             if wanted in (str(camera.get("id", "")).lower(), str(camera.get("name", "")).lower()):
-                self.camera_id = camera["id"]
-                return self.camera_id
+                self._protect_id = camera["id"]
+                return camera["id"]
         names = ", ".join(str(c.get("name")) for c in cameras or [])
         raise DriverError(f"no camera {self.options.camera!r} in Protect (there are: {names})")
 
     async def start(self) -> None:
         try:
-            cid = await self._find()
-            urls = await self._request("GET", f"/cameras/{cid}/rtsps-stream") or {}
-            if not any(urls.get(q) for q in ("high", "low")):
-                urls = await self._request(
-                    "POST", f"/cameras/{cid}/rtsps-stream", json={"qualities": ["high", "low"]}
-                )
-            self.urls = {q: go2rtc_url(u) for q, u in (urls or {}).items() if isinstance(u, str) and u}
+            await self._load_urls()
         except DriverError as e:
-            self.urls = {}
             self.data = {"error": str(e)}
+
+    async def _load_urls(self) -> None:
+        cid = await self._find()
+        urls = await self._request("GET", f"/cameras/{cid}/rtsps-stream") or {}
+        if not any(urls.get(q) for q in ("high", "low")):
+            urls = await self._request(
+                "POST", f"/cameras/{cid}/rtsps-stream", json={"qualities": ["high", "low"]}
+            )
+        self.urls = {q: go2rtc_url(u) for q, u in (urls or {}).items() if isinstance(u, str) and u}
 
     async def stop(self) -> None:
         await self.client.aclose()
@@ -138,6 +142,12 @@ class UnifiDriver(Driver):
         state = data.get("state")
         if state and state != "CONNECTED":
             return DeviceInfo(online=False, error=f"Protect reports the camera as {state.lower()}")
+        if not self.urls and not self._urls_tried:  # the console or the camera was offline at start
+            self._urls_tried = True  # once: when Protect has none to give, asking again won't help
+            with contextlib.suppress(DriverError):
+                await self._load_urls()
+            if self.urls:
+                self.emit("camera.streams", {})
         return DeviceInfo(
             manufacturer="Ubiquiti",
             model=data.get("marketName") or data.get("modelKey") or data.get("type"),
@@ -182,9 +192,11 @@ class UnifiDriver(Driver):
     async def set_control(self, control_id: str, value: Any) -> None:
         cid = await self._find()
         if control_id == "led":
-            body: dict[str, Any] = {"ledSettings": {"isEnabled": bool(value)}}
+            value = bool(value)
+            body: dict[str, Any] = {"ledSettings": {"isEnabled": value}}
         elif control_id == "mic":
-            body = {"micVolume": max(0, min(100, int(value)))}
+            value = max(0, min(100, int(value)))
+            body = {"micVolume": value}
         else:
             raise NotSupportedError(f"no control {control_id!r}")
         await self._request("PATCH", f"/cameras/{cid}", json=body)

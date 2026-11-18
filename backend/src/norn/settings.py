@@ -8,6 +8,7 @@ environment, which is what Docker and compose expect.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,17 +23,16 @@ def _env(name: str, default: str) -> str:
     return value or default
 
 
-def default_buffer() -> str:
+def default_buffer(temp: Path) -> Path:
     """A folder in RAM: /dev/shm on Linux, if it is big enough (Docker gives 64 MB unless
-    `shm_size` says more). Else a folder beside the temporary storage, on disk."""
+    `shm_size` says more). Else a folder in the temporary storage, on disk (deep enough that
+    it never looks like a camera's day folder there)."""
     shm = Path("/dev/shm")
     try:
         big = shutil.disk_usage(shm).total >= 128_000_000 and os.access(shm, os.W_OK)
     except OSError:
         big = False
-    if big:
-        return str(shm / "norn")
-    return str(Path(_env("NORN_TEMP", "data/tmp")).with_name("buffer"))
+    return shm / "norn" if big else temp / ".norn" / "buffer"
 
 
 def _log_file(config: Path) -> Path | None:
@@ -87,11 +87,20 @@ class Settings:
         if mode not in ("managed", "external", "off"):
             raise ValueError(f"NORN_GO2RTC must be managed, external or off, not {mode!r}")
         static = os.environ.get("NORN_STATIC", "").strip()
+        config = Path(_env("NORN_CONFIG", "data/config/config.yaml"))
+        temp = Path(_env("NORN_TEMP", "data/tmp"))
+        buffer = os.environ.get("NORN_BUFFER", "").strip()
+        # MQTT topic levels: the topics Norn subscribes to and parses have no room for more.
+        prefix = _env("NORN_MQTT_PREFIX", "norn").strip("/")
+        discovery = _env("NORN_MQTT_DISCOVERY", "homeassistant").strip("/")
+        for name, level in (("NORN_MQTT_PREFIX", prefix), ("NORN_MQTT_DISCOVERY", discovery)):
+            if not re.fullmatch(r"[A-Za-z0-9_-]+", level):
+                raise ValueError(f"{name} may only have letters, digits, _ and -, not {level!r}")
         return cls(
-            config_path=Path(_env("NORN_CONFIG", "data/config/config.yaml")),
+            config_path=config,
             recordings_path=Path(_env("NORN_RECORDINGS", "data/recordings")),
-            buffer_path=Path(_env("NORN_BUFFER", default_buffer())),
-            temp_path=Path(_env("NORN_TEMP", "data/tmp")),
+            buffer_path=Path(buffer) if buffer else default_buffer(temp),
+            temp_path=temp,
             static_path=Path(static) if static else None,
             host=_env("NORN_HOST", "0.0.0.0"),
             port=int(_env("NORN_PORT", "8000")),
@@ -103,10 +112,10 @@ class Settings:
             webrtc_port=int(_env("NORN_WEBRTC_PORT", "8555")),
             ffmpeg_bin=_env("NORN_FFMPEG", "ffmpeg"),
             log_level=_env("NORN_LOG_LEVEL", "info").lower(),
-            log_file=_log_file(Path(_env("NORN_CONFIG", "data/config/config.yaml"))),
+            log_file=_log_file(config),
             access_log=_env("NORN_ACCESS_LOG", "0").lower() in ("1", "true", "yes"),
             mqtt_url=os.environ.get("NORN_MQTT", "").strip() or None,
-            mqtt_prefix=_env("NORN_MQTT_PREFIX", "norn").strip("/"),
-            mqtt_discovery=_env("NORN_MQTT_DISCOVERY", "homeassistant").strip("/"),
+            mqtt_prefix=prefix,
+            mqtt_discovery=discovery,
             mqtt_stills=int(_env("NORN_MQTT_STILLS", "0")),
         )

@@ -28,9 +28,10 @@ import psutil
 
 from .config import CAMERA_ID
 
-DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-STEM = re.compile(r"^(\d{2})-(\d{2})-(\d{2})_([a-z0-9-]{1,32})$")
-TRIGGER = re.compile(r"^[a-z0-9-]{1,32}$")
+# Used with fullmatch: `$` with match would let a trailing newline through.
+DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
+STEM = re.compile(r"(\d{2})-(\d{2})-(\d{2})_([a-z0-9-]{1,32})")
+TRIGGER = re.compile(r"[a-z0-9-]{1,32}")
 SUFFIXES = (".mp4", ".jpg", ".json")
 KEPT = frozenset({"manual"})  # triggers whose recordings never expire
 
@@ -91,10 +92,12 @@ class InvalidPathError(ValueError):
     pass
 
 
-def folder_size(root: Path) -> tuple[int, int]:
-    """Bytes and number of files under `root`."""
+def folder_size(root: Path, skip: Path | None = None) -> tuple[int, int]:
+    """Bytes and number of files under `root`, without the folder `skip`."""
     total = count = 0
-    for folder, _, files in os.walk(root):
+    for folder, folders, files in os.walk(root):
+        if skip is not None:
+            folders[:] = [f for f in folders if Path(folder, f) != skip]
         for name in files:
             try:
                 total += os.stat(os.path.join(folder, name)).st_size
@@ -110,22 +113,22 @@ class Library:
 
     def path(self, camera: str, day: str | None = None, name: str | None = None) -> Path:
         """The path of a camera, day or file, after checking each part, so no request leaves the root."""
-        if not CAMERA_ID.match(camera):
+        if not CAMERA_ID.fullmatch(camera):
             raise InvalidPathError(f"bad camera {camera!r}")
         path = self.root / camera
         if day is not None:
-            if not DAY.match(day):
+            if not DAY.fullmatch(day):
                 raise InvalidPathError(f"bad day {day!r}")
             path = path / day
         if name is not None:
             stem, dot, suffix = name.rpartition(".")
-            if not dot or not STEM.match(stem) or f".{suffix}" not in SUFFIXES:
+            if not dot or not STEM.fullmatch(stem) or f".{suffix}" not in SUFFIXES:
                 raise InvalidPathError(f"bad file {name!r}")
             path = path / name
         return path
 
     def file_path(self, camera: str, start: datetime, trigger: str, suffix: str = ".mp4") -> Path:
-        if not TRIGGER.match(trigger):
+        if not TRIGGER.fullmatch(trigger):
             raise InvalidPathError(f"bad trigger {trigger!r}")
         name = f"{start.strftime('%H-%M-%S')}_{trigger}{suffix}"
         return self.path(camera, start.strftime("%Y-%m-%d"), name)
@@ -133,7 +136,7 @@ class Library:
     def cameras(self) -> list[str]:
         if not self.root.is_dir():
             return []
-        return sorted(p.name for p in self.root.iterdir() if p.is_dir() and CAMERA_ID.match(p.name))
+        return sorted(p.name for p in self.root.iterdir() if p.is_dir() and CAMERA_ID.fullmatch(p.name))
 
     def days(self, camera: str) -> list[str]:
         folder = self.path(camera)
@@ -144,7 +147,9 @@ class Library:
             (
                 p.name
                 for p in folder.iterdir()
-                if p.is_dir() and DAY.match(p.name) and any(f.suffix in (".mp4", ".jpg") for f in p.iterdir())
+                if p.is_dir()
+                and DAY.fullmatch(p.name)
+                and any(f.suffix in (".mp4", ".jpg") for f in p.iterdir())
             ),
             reverse=True,
         )
@@ -197,8 +202,8 @@ class Library:
 
     def delete(self, camera: str, day: str, name: str) -> bool:
         """Delete a video or picture with its sidecar and thumbnail."""
-        path = self.path(camera, day, name)
-        if not path.is_file() or path.suffix not in (".mp4", ".jpg"):
+        path = self._file(camera, day, name)
+        if not path:
             return False
         for suffix in SUFFIXES:
             path.with_suffix(suffix).unlink(missing_ok=True)
@@ -266,16 +271,11 @@ class Library:
 
     def set_pinned(self, camera: str, day: str, name: str, pinned: bool) -> Recording | None:
         """Pin or unpin a recording: a flag in its JSON sidecar (made for it if it has none)."""
-        path = self.path(camera, day, name)
-        if not path.is_file() or path.suffix not in (".mp4", ".jpg"):
+        path = self._file(camera, day, name)
+        if not path:
             return None
         sidecar = path.with_suffix(".json")
-        meta: dict[str, Any] = {}
-        if sidecar.is_file():
-            try:
-                meta = json.loads(sidecar.read_text())
-            except (ValueError, OSError):
-                meta = {}
+        meta = _sidecar(path)
         if pinned:
             meta["pinned"] = True
         else:
@@ -295,11 +295,16 @@ class Library:
         for camera in self.cameras():
             folder = self.path(camera)
             for day_dir in sorted(folder.iterdir()):
-                if not (day_dir.is_dir() and DAY.match(day_dir.name)):
+                if not (day_dir.is_dir() and DAY.fullmatch(day_dir.name)):
                     continue
                 for path in sorted(day_dir.iterdir()):
-                    if path.suffix in SUFFIXES and STEM.match(path.stem):
+                    if path.suffix in SUFFIXES and STEM.fullmatch(path.stem):
                         yield camera, day_dir.name, path
+
+    def _file(self, camera: str, day: str, name: str) -> Path | None:
+        """The path of a video or picture, if there is one."""
+        path = self.path(camera, day, name)
+        return path if path.suffix in (".mp4", ".jpg") and path.is_file() else None
 
     def _day(self, camera: str, day: str) -> list[Recording]:
         folder = self.path(camera, day)
@@ -317,7 +322,7 @@ class Library:
         return found
 
     def _recording(self, camera: str, day: str, path: Path) -> Recording | None:
-        match = STEM.match(path.stem)
+        match = STEM.fullmatch(path.stem)
         if not match or path.suffix not in (".mp4", ".jpg"):
             return None
         hh, mm, ss, trigger = match.groups()
@@ -326,13 +331,7 @@ class Library:
             stat = path.stat()
         except (ValueError, FileNotFoundError):
             return None
-        meta: dict[str, Any] = {}
-        sidecar = path.with_suffix(".json")
-        if sidecar.is_file():
-            try:
-                meta = json.loads(sidecar.read_text())
-            except (ValueError, OSError):
-                meta = {}
+        meta = _sidecar(path)
         if path.suffix == ".jpg":
             return Recording(
                 camera=camera,
@@ -363,6 +362,15 @@ class Library:
             thumbnail=path.with_suffix(".jpg").is_file(),
             meta=meta,
         )
+
+
+def _sidecar(path: Path) -> dict[str, Any]:
+    """The details in a recording's JSON sidecar, if it has one."""
+    try:
+        meta = json.loads(path.with_suffix(".json").read_text())
+    except (ValueError, OSError):
+        return {}
+    return meta if isinstance(meta, dict) else {}
 
 
 def _thin(found: list[Recording], keep: int) -> list[Recording]:

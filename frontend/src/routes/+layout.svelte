@@ -17,6 +17,7 @@
 	import Activity from '@lucide/svelte/icons/activity';
 	import CircleHelp from '@lucide/svelte/icons/circle-help';
 	import { api } from '#lib/api.js';
+	import { serverTime } from '#lib/format.js';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import type { LayoutProps } from './$types';
 
@@ -25,14 +26,14 @@
 	// Away mode on or off at once. Off also ends a planned absence that is running now.
 	let switching = $state(false);
 	async function toggleAway() {
-		const away = store.info?.away;
-		if (!away || switching) return;
-		// Home also ends a planned absence that is running now; a later one stays planned.
+		const info = store.info;
+		const away = info?.away;
+		if (!info || !away || switching) return;
+		// Home also ends a planned absence that is running now; a later one stays planned. Its
+		// times are on the server's clock.
 		const now = Date.now();
-		const running =
-			!!away.start &&
-			new Date(away.start).getTime() <= now &&
-			(!away.end || now < new Date(away.end).getTime());
+		const at = (local: string) => serverTime(local, info.time.offset_minutes);
+		const running = !!away.start && at(away.start) <= now && (!away.end || now < at(away.end));
 		const body = away.now
 			? { active: false, ...(running ? { start: null, end: null } : {}) }
 			: { active: true };

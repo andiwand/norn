@@ -22,7 +22,6 @@ import asyncio
 import re
 from collections.abc import AsyncIterator
 from typing import Any
-from urllib.parse import quote
 
 import httpx
 from pydantic import Field
@@ -41,6 +40,8 @@ from .base import (
     Preset,
     PtzCommand,
     Stream,
+    sign,
+    userinfo,
 )
 
 VARS = re.compile(r"""var\s+(\w+)\s*=\s*(?:'([^']*)'|"([^"]*)"|([^;]*));""")
@@ -102,9 +103,7 @@ class FoscamDriver(Driver):
 
     def streams(self) -> list[Stream]:
         o = self.options
-        # go2rtc reads the credentials from the URL; they must be percent-encoded (# in a password).
-        auth = f"{quote(o.username, safe='')}:{quote(o.password, safe='')}@"
-        url = f"http://{auth}{o.host}:{o.port}/videostream.cgi"
+        url = f"http://{userinfo(o.username, o.password)}{o.host}:{o.port}/videostream.cgi"
         return [Stream(id="main", label="Main", source=url, codec="mjpeg")]
 
     def capabilities(self) -> set[Capability]:
@@ -300,15 +299,11 @@ class FoscamDriver(Driver):
                 raise ValueError(f"unknown preset {command.preset!r}")
             code = 29 + 2 * int(command.preset)
         else:
-            key = (_sign(command.pan), _sign(command.tilt))
+            key = (sign(command.pan), sign(command.tilt))
             if key == (0, 0):
                 raise NotSupportedError("this camera can't zoom")
             code = DIRECTIONS[key]
         await self._get("/decoder_control.cgi", command=code)
-
-
-def _sign(x: float, dead: float = 0.2) -> int:
-    return 0 if abs(x) < dead else (1 if x > 0 else -1)
 
 
 def _mac(device_id: str | None) -> str | None:

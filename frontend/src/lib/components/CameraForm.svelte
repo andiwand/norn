@@ -41,15 +41,28 @@
 		if (!camera && !idEdited) id = slugify(name);
 	});
 
-	// Selects start at the driver's default.
+	// Selects start at the driver's default; text fields show it as their placeholder.
 	$effect(() => {
 		for (const [key, prop] of fields) {
-			if (options[key] === undefined && prop.default != null) options[key] = String(prop.default);
+			if (options[key] === undefined && prop.default != null && enumOf(prop))
+				options[key] = String(prop.default);
 		}
 	});
 
 	function enumOf(prop: JsonSchemaProperty): string[] | undefined {
 		return prop.enum ?? prop.anyOf?.find((p) => p.enum)?.enum;
+	}
+
+	/** A field's value for config.yaml: none when empty or the default, numbers as numbers. */
+	function optionValue(prop: JsonSchemaProperty, text: string | undefined): unknown {
+		const value = text?.trim();
+		if (!value || (prop.default != null && value === String(prop.default))) return undefined;
+		const type = prop.type ?? prop.anyOf?.find((p) => p.type && p.type !== 'null')?.type;
+		if (type === 'integer' || type === 'number') {
+			const n = Number(value);
+			return Number.isFinite(n) ? n : value; // not a number: the server says what's wrong
+		}
+		return value;
 	}
 
 	/** A password Norn has but never sends back: left empty, it stays as it is. */
@@ -81,9 +94,9 @@
 			streams,
 			ready_streams: ready
 		};
-		for (const [key] of fields) {
-			const value = options[key]?.trim();
-			if (value) body[key] = value;
+		for (const [key, prop] of fields) {
+			const value = optionValue(prop, options[key]);
+			if (value !== undefined) body[key] = value;
 		}
 		try {
 			const saved = camera

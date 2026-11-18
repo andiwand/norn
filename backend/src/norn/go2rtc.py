@@ -39,7 +39,8 @@ class Go2rtc:
         self.bus = bus
         self.enabled = settings.go2rtc_mode != "off"
         self.config_path = settings.runtime_dir / "go2rtc.yaml"
-        self._streams: Streams = {}
+        self._wanted: Streams = {}  # the streams go2rtc should have
+        self._streams: Streams = {}  # those it has, as far as Norn knows (what it put there)
         self._process: asyncio.subprocess.Process | None = None
         self._supervisor: asyncio.Task[None] | None = None
         self._client = httpx.AsyncClient(base_url=settings.go2rtc_api, timeout=10)
@@ -72,7 +73,7 @@ class Go2rtc:
         self.config_path.write_text("# Written by Norn from config.yaml. Don't edit.\n" + buffer.getvalue())
 
     async def start(self, streams: Streams) -> None:
-        self._streams = dict(streams)
+        self._wanted = dict(streams)
         if not self.enabled:
             return
         if self.settings.go2rtc_mode == "managed":
@@ -96,20 +97,45 @@ class Go2rtc:
     async def apply(self, streams: Streams) -> None:
         """Make go2rtc's streams match `streams`, adding, changing and removing only what differs."""
         async with self._lock:
-            old, self._streams = self._streams, dict(streams)
+            self._wanted = dict(streams)
             if not self.enabled:
                 return
             if self.settings.go2rtc_mode == "managed":
                 self.write_config(streams)
-            if not self.ready.is_set():
-                return  # the sync after start picks up the new streams
-            for name in old.keys() - streams.keys():
-                await self._request("DELETE", "/api/streams", params={"src": name})
-            for name, source in streams.items():
-                if old.get(name) != source:
-                    if name in old:
-                        await self._request("DELETE", "/api/streams", params={"src": name})
+            if self.ready.is_set():  # else the sync after start picks up the new streams
+                await self._push()
+
+    async def _push(self) -> None:
+        """Send go2rtc what differs. `_streams` follows each request that worked, so one that
+        failed is tried again with the next push; the others go ahead. Holds the lock."""
+        errors = []
+        gone: dict[str, str | None] = dict.fromkeys(self._streams.keys() - self._wanted.keys())
+        for name, source in (gone | self._wanted).items():
+            if self._streams.get(name) == source:
+                continue
+            try:
+                if name in self._streams:
+                    await self._request("DELETE", "/api/streams", params={"src": name})
+                    del self._streams[name]
+                if source is not None:
                     await self._request("PUT", "/api/streams", params={"name": name, "src": source})
+                    self._streams[name] = source
+            except Go2rtcUnavailableError as e:
+                errors.append(str(e))
+        if errors:
+            raise Go2rtcUnavailableError("; ".join(errors))
+
+    async def _catch_up(self, have: Streams | None = None) -> bool:
+        """After go2rtc started with `have`: send it what changed since. False if it failed."""
+        async with self._lock:
+            if have is not None:
+                self._streams = have
+            try:
+                await self._push()
+                return True
+            except Go2rtcUnavailableError as e:
+                log.error("go2rtc didn't take the streams: %s", e)
+                return False
 
     async def frame(self, stream: str) -> bytes:
         """One JPEG frame of a stream."""
@@ -157,12 +183,16 @@ class Go2rtc:
         while not await self._wait_api():
             log.warning("go2rtc at %s does not answer yet", self.settings.go2rtc_api)
         self.ready.set()
+        # Of the streams go2rtc has, only those with Norn's names are Norn's: it may serve others
+        # too (Frigate, Home Assistant), which Norn must leave alone.
         existing: Streams = {}
-        with contextlib.suppress(Go2rtcUnavailableError):
-            existing = {k: "" for k in (await self._request("GET", "/api/streams")).json()}
-        async with self._lock:
-            wanted, self._streams = self._streams, existing
-        await self.apply(wanted)
+        with contextlib.suppress(Go2rtcUnavailableError, ValueError):  # ValueError: not JSON
+            names = (await self._request("GET", "/api/streams")).json()
+            existing = {k: "" for k in names if k in self._wanted}
+        done, delay = await self._catch_up(existing), 5.0
+        while not done:
+            await asyncio.sleep(delay)
+            done, delay = await self._catch_up(), min(delay * 2, 60)
         self.bus.publish("go2rtc.ready")
 
     async def _supervise(self) -> None:
@@ -171,7 +201,7 @@ class Go2rtc:
             self.ready.clear()
             log.info("starting go2rtc")
             async with self._lock:
-                started_with = dict(self._streams)
+                started_with = dict(self._wanted)
                 self.write_config(started_with)
             self._process = await asyncio.create_subprocess_exec(
                 self.settings.go2rtc_bin,
@@ -185,9 +215,7 @@ class Go2rtc:
                 if await self._wait_api():
                     self.ready.set()
                     # Catch up on changes that came in while go2rtc was starting.
-                    async with self._lock:
-                        wanted, self._streams = self._streams, started_with
-                    await self.apply(wanted)
+                    await self._catch_up(started_with)
                     self.bus.publish("go2rtc.ready")
                     delay = 1.0
                 code = await self._process.wait()

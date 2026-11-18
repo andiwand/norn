@@ -15,8 +15,10 @@ Tested against pytapo's documented functions, not yet against a real camera.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import logging
+import time
 from typing import Any
-from urllib.parse import quote
 
 from pydantic import Field
 
@@ -33,9 +35,15 @@ from .base import (
     Preset,
     PtzCommand,
     Stream,
+    userinfo,
 )
 
+log = logging.getLogger("norn.tapo")
+
 DAY_NIGHT = {"auto": "Auto", "off": "Day", "on": "Night"}
+# After a failed login, wait this long before the next: Tapo locks the account after a few.
+LOGIN_PAUSE = 60
+AUTH_WORDS = ("auth", "password", "login", "suspension")
 
 
 def find(data: Any, key: str) -> Any:
@@ -74,6 +82,8 @@ class TapoDriver(Driver):
         super().__init__(*args, **kwargs)
         self._tapo: Any = None
         self._lock = asyncio.Lock()
+        self._login_failed: tuple[float, str] | None = None  # when, and why
+        self._siren: asyncio.Task[None] | None = None  # stops the siren after 10 s
         self.has_ptz = True
 
     def _client(self) -> Any:
@@ -84,22 +94,39 @@ class TapoDriver(Driver):
         return self._tapo
 
     async def _call(self, method: str, *args: Any) -> Any:
-        def run() -> Any:
-            return getattr(self._client(), method)(*args)
-
         async with self._lock:
+            client = self._tapo
+            if client is None:
+                if self._login_failed and time.monotonic() - self._login_failed[0] < LOGIN_PAUSE:
+                    raise DriverError(self._login_failed[1])
+                try:
+                    client = await asyncio.to_thread(self._client)
+                except Exception as e:  # pytapo raises plain Exceptions
+                    self._login_failed = (time.monotonic(), f"login failed: {e}")
+                    raise DriverError(self._login_failed[1]) from e
+                self._login_failed = None
             try:
-                return await asyncio.to_thread(run)
-            except Exception as e:  # pytapo raises plain Exceptions
-                self._tapo = None  # log in again next time
+                return await asyncio.to_thread(getattr(client, method), *args)
+            except Exception as e:
+                # A lost connection (requests' errors are OSErrors) or session: log in again.
+                if isinstance(e, OSError) or any(word in str(e).lower() for word in AUTH_WORDS):
+                    self._tapo = None
                 raise DriverError(str(e)) from e
+
+    async def stop(self) -> None:
+        if self._siren is not None and not self._siren.done():
+            self._siren.cancel()
+            await self._stop_siren(wait=0)
+        if self._tapo is not None:
+            with contextlib.suppress(Exception):
+                await asyncio.to_thread(self._tapo.close)
 
     def web_url(self) -> str | None:
         return None  # Tapo cameras have no web page for users
 
     def streams(self) -> list[Stream]:
         o = self.options
-        auth = f"{quote(o.camera_username, safe='')}:{quote(o.camera_password, safe='')}@"
+        auth = userinfo(o.camera_username, o.camera_password)
         return [
             Stream(id="main", label="Main", source=f"rtsp://{auth}{o.host}:554/stream1", codec="h264"),
             Stream(id="sub", label="Sub", source=f"rtsp://{auth}{o.host}:554/stream2", codec="h264"),
@@ -180,12 +207,19 @@ class TapoDriver(Driver):
             await self._call("setMotionDetection", bool(value))
         elif control_id == "alarm":
             await self._call("startManualAlarm")
-            asyncio.get_running_loop().call_later(
-                10, lambda: asyncio.ensure_future(self._call("stopManualAlarm"))
-            )
+            if self._siren is not None:
+                self._siren.cancel()
+            self._siren = asyncio.create_task(self._stop_siren())
         else:
             raise NotSupportedError(f"no control {control_id!r}")
         self.emit("camera.control", {"control": control_id, "value": value})
+
+    async def _stop_siren(self, wait: float = 10) -> None:
+        await asyncio.sleep(wait)
+        try:
+            await self._call("stopManualAlarm")
+        except DriverError as e:
+            log.warning("%s: couldn't stop the siren: %s", self.camera_id, e)
 
     async def presets(self) -> list[Preset]:
         if not self.has_ptz:

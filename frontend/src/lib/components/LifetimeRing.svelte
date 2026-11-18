@@ -1,16 +1,16 @@
 <script lang="ts">
 	// How much of a recording's lifetime is left, as a ring that empties until Norn deletes it.
 	import { formatRemaining } from '../format';
+	import { clock } from '../recordings.svelte';
 
 	let {
 		start,
 		expires,
-		now = Date.now(),
 		class: className = ''
-	}: { start: string; expires: string; now?: number; class?: string } = $props();
+	}: { start: string; expires: string; class?: string } = $props();
 
 	const total = $derived(new Date(expires).getTime() - new Date(start).getTime());
-	const left = $derived(Math.max(0, new Date(expires).getTime() - now));
+	const left = $derived(Math.max(0, new Date(expires).getTime() - clock.now));
 	const fraction = $derived(total > 0 ? Math.min(1, left / total) : 0);
 	const r = 7;
 	const circumference = 2 * Math.PI * r;

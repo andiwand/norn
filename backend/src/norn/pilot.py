@@ -20,6 +20,7 @@ import contextlib
 import logging
 import random
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -36,6 +37,7 @@ MOVE_TIMEOUT = 8.0  # seconds a move from the API runs without a new command (th
 NUDGE_SECONDS = 0.35  # how long one nudge toward a followed person turns the camera
 DEAD_ZONE = 0.15  # how far off the middle (of -1..1) a person may be before Norn turns
 DEFAULT_AFTER_MANUAL = 30.0  # at least this long after a hand command before going back to the default
+FOLLOW_AFTER_MANUAL = 15.0  # following leaves the camera alone this long after a hand command
 
 
 class Pilot:
@@ -115,8 +117,9 @@ class Pilot:
         self._moved()
         mine = self._moves
         await driver.ptz(PtzCommand(action="goto", preset=preset.slot))
-        if self._moves == mine:  # nothing else moved it meanwhile
-            self.at_preset = preset_id
+        if self._moves != mine:
+            return  # something else moved it meanwhile: its settings don't apply
+        self.at_preset = preset_id
         for control_id, value in preset.controls.items():
             try:
                 await driver.set_control(control_id, value)
@@ -154,8 +157,8 @@ class Pilot:
     async def nudge(self, people: list[Detection], aspect: float) -> None:
         """Norn's following: turn a little toward the largest person in the still (the
         detector's letterboxed input: the picture fills the width, from the top)."""
-        if not people:
-            return
+        if not people or self.moving() or time.monotonic() - self.last_manual < FOLLOW_AFTER_MANUAL:
+            return  # someone steers it by hand
         from .detect import OBJECT_SIZE
 
         target = max(people, key=lambda d: (d.box[2] - d.box[0]) * (d.box[3] - d.box[1]))
@@ -170,9 +173,11 @@ class Pilot:
         driver = self.hub.get_driver(self.camera_id)
         pan = max(-1.0, min(1.0, x * 0.8)) if abs(x) >= DEAD_ZONE else 0.0
         tilt = max(-1.0, min(1.0, -y * 0.8)) if abs(y) >= DEAD_ZONE else 0.0
-        await driver.ptz(PtzCommand(action="move", pan=pan, tilt=tilt))
-        await asyncio.sleep(NUDGE_SECONDS)
-        await driver.ptz(PtzCommand(action="stop"))
+        try:
+            await driver.ptz(PtzCommand(action="move", pan=pan, tilt=tilt))
+            await asyncio.sleep(NUDGE_SECONDS)
+        finally:  # also when cancelled: the camera mustn't keep turning
+            await asyncio.shield(driver.ptz(PtzCommand(action="stop")))
 
     async def _own_tracking(self) -> None:
         """Switch the camera's own tracking on while following is wanted, back off after."""
@@ -242,7 +247,12 @@ class Pilot:
                     continue
                 patrol = cfg.patrol
                 stops = [p for p in (patrol.presets if patrol else []) if p in cfg.presets]
-                if not patrol or not patrol.enabled or not stops or not in_schedule(patrol.schedule, _now()):
+                if (
+                    not patrol
+                    or not patrol.enabled
+                    or not stops
+                    or not in_schedule(patrol.schedule, datetime.now())
+                ):
                     await self._to_default()
                     await asyncio.sleep(5)
                     continue
@@ -261,9 +271,3 @@ class Pilot:
             except Exception as e:
                 log.info("%s: patrol: %s", self.camera_id, e)
                 await asyncio.sleep(30)
-
-
-def _now() -> Any:
-    from datetime import datetime
-
-    return datetime.now()

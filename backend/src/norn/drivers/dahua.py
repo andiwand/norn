@@ -18,13 +18,13 @@ from __future__ import annotations
 
 import contextlib
 from typing import Any
-from urllib.parse import quote
 
 import httpx
 from pydantic import Field
 
 from . import register
 from .base import (
+    DIRECTIONS,
     Capability,
     Control,
     DeviceInfo,
@@ -36,33 +36,12 @@ from .base import (
     Preset,
     PtzCommand,
     Stream,
+    parse_table,
+    sign,
+    userinfo,
 )
 
-DIRECTIONS = {
-    (0, 1): "Up",
-    (0, -1): "Down",
-    (-1, 0): "Left",
-    (1, 0): "Right",
-    (-1, 1): "LeftUp",
-    (1, 1): "RightUp",
-    (-1, -1): "LeftDown",
-    (1, -1): "RightDown",
-}
 DAY_NIGHT = {"0": "Colour", "1": "Auto", "2": "Black and white"}
-
-
-def parse_table(text: str) -> dict[str, str]:
-    """`table.X[0].Y=1` and `key=value` lines into a dict (keys without the `table.` prefix)."""
-    result = {}
-    for line in text.splitlines():
-        key, sep, value = line.strip().partition("=")
-        if sep:
-            result[key.removeprefix("table.")] = value.strip()
-    return result
-
-
-def _sign(x: float, dead: float = 0.2) -> int:
-    return 0 if abs(x) < dead else (1 if x > 0 else -1)
 
 
 class DahuaOptions(DriverOptions):
@@ -107,7 +86,7 @@ class DahuaDriver(Driver):
 
     def streams(self) -> list[Stream]:
         o = self.options
-        auth = f"{quote(o.username, safe='')}:{quote(o.password, safe='')}@"
+        auth = userinfo(o.username, o.password)
         base = f"rtsp://{auth}{o.host}:{o.rtsp_port}/cam/realmonitor?channel={o.channel}&subtype="
         return [
             Stream(id="main", label="Main", source=f"{base}0"),
@@ -116,7 +95,7 @@ class DahuaDriver(Driver):
 
     def extra_streams(self) -> list[Stream]:
         o = self.options
-        auth = f"{quote(o.username, safe='')}:{quote(o.password, safe='')}@"
+        auth = userinfo(o.username, o.password)
         base = f"rtsp://{auth}{o.host}:{o.rtsp_port}/cam/realmonitor?channel={o.channel}&subtype="
         return [Stream(id="third", label="Third", source=f"{base}2")]
 
@@ -243,12 +222,16 @@ class DahuaDriver(Driver):
         if control_id == "daynight":
             if str(value) not in DAY_NIGHT:
                 raise ValueError(f"{value!r} is not one of {', '.join(DAY_NIGHT)}")
-            await self._set(f"VideoInOptions[{ch}].DayNightColor", str(value))
+            value = str(value)
+            await self._set(f"VideoInOptions[{ch}].DayNightColor", value)
         elif control_id == "flip":
+            value = bool(value)
             await self._set(f"VideoInOptions[{ch}].Flip", "true" if value else "false")
         elif control_id == "brightness":
-            await self._set(f"VideoInOptions[{ch}].Brightness", str(max(0, min(100, int(value)))))
+            value = max(0, min(100, int(value)))
+            await self._set(f"VideoInOptions[{ch}].Brightness", str(value))
         elif control_id == "motion":
+            value = bool(value)
             await self._set(f"MotionDetect[{ch}].Enable", "true" if value else "false")
         else:
             raise NotSupportedError(f"no control {control_id!r}")
@@ -300,11 +283,14 @@ class DahuaDriver(Driver):
             return
         if command.zoom and not (command.pan or command.tilt):
             code = "ZoomTele" if command.zoom > 0 else "ZoomWide"
-            speed = 0
+            speed = vertical = 0
         else:
-            key = (_sign(command.pan), _sign(command.tilt))
+            key = (sign(command.pan), sign(command.tilt))
             if key == (0, 0):
                 raise ValueError("no direction")
             code = DIRECTIONS[key]
             speed = max(1, min(8, round(max(abs(command.pan), abs(command.tilt)) * 8)))
-        await self._get("ptz.cgi", action="start", channel=channel, code=code, arg1=0, arg2=speed, arg3=0)
+            vertical = speed if all(key) else 0  # diagonals: arg1 is the vertical speed, arg2 the horizontal
+        await self._get(
+            "ptz.cgi", action="start", channel=channel, code=code, arg1=vertical, arg2=speed, arg3=0
+        )

@@ -1,19 +1,12 @@
 <script lang="ts" module>
 	// Which panels are open, by name, for all cameras: folding "Device" folds it everywhere.
+	import { readStoredJson, writeStored } from '../stored';
+
 	const KEY = 'norn.panels';
-	let saved: Record<string, boolean> = {};
-	try {
-		saved = JSON.parse(localStorage.getItem(KEY) ?? '{}');
-	} catch {
-		saved = {};
-	}
+	const saved = readStoredJson<Record<string, boolean>>(KEY, {});
 	function remember(name: string, open: boolean) {
 		saved[name] = open;
-		try {
-			localStorage.setItem(KEY, JSON.stringify(saved));
-		} catch {
-			// only a convenience
-		}
+		writeStored(KEY, JSON.stringify(saved));
 	}
 </script>
 

@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { api, urls, type Recording } from '../api';
+	import { urls, type Recording } from '../api';
+	import { deleteRecording } from '../recordings.svelte';
 	import { formatBytes, formatDay, formatDuration, formatTime, triggerLabel } from '../format';
 	import { store } from '../state.svelte';
 	import Download from '@lucide/svelte/icons/download';
@@ -48,14 +49,9 @@
 	async function remove() {
 		if (!recording) return;
 		const r = recording;
-		try {
-			await api.deleteRecording(r.id);
-			store.toast('Recording deleted', 'success');
-			recording = null;
-			ondeleted?.(r);
-		} catch (e) {
-			store.toast(e instanceof Error ? e.message : String(e), 'error');
-		}
+		if (!(await deleteRecording(r))) return;
+		recording = null;
+		ondeleted?.(r);
 	}
 </script>
 

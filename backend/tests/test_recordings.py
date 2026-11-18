@@ -104,6 +104,9 @@ def test_usage(library: Library) -> None:
         ("door", "../x", None),
         ("door", "2026-11-15", "../../etc.mp4"),
         ("door", "2026-11-15", "a.sh"),
+        ("door", "2026-11-15\n", None),
+        ("door", "2026-11-15", "08-00-00_manual\n.mp4"),
+        ("door\n", None, None),
     ],
 )
 def test_path_rejects_escapes(library: Library, camera: str, day: str | None, name: str | None) -> None:

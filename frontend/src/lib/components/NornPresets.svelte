@@ -58,7 +58,10 @@
 
 	async function save(e: SubmitEvent) {
 		e.preventDefault();
-		const id = slugify(name) || `preset-${Date.now().toString(36)}`;
+		// A new preset: a free id, never one of the existing ones ("garden-2" next to "garden").
+		const base = slugify(name) || 'preset';
+		let id = base;
+		for (let n = 2; id in (camera.presets_norn ?? {}); n++) id = `${base}-${n}`;
 		saving = true;
 		const ok = await store.attempt(
 			() => api.savePreset(camera.id, id, { name: name.trim(), controls: keep }),

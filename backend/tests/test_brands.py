@@ -84,7 +84,9 @@ async def test_dahua() -> None:
     await d.set_control("flip", True)
     assert seen[-1].url.params["VideoInOptions[0].Flip"] == "true"
     await d.ptz(PtzCommand(action="move", pan=-0.5, tilt=0.5))
-    assert (seen[-1].url.params["code"], seen[-1].url.params["arg2"]) == ("LeftUp", "4")
+    assert [seen[-1].url.params[k] for k in ("code", "arg1", "arg2")] == ["LeftUp", "4", "4"]
+    await d.ptz(PtzCommand(action="move", pan=0.5))
+    assert [seen[-1].url.params[k] for k in ("code", "arg1", "arg2")] == ["Right", "0", "4"]
     assert d.streams()[1].source == "rtsp://admin:p%23@10.0.0.9:554/cam/realmonitor?channel=1&subtype=1"
 
 
@@ -121,6 +123,10 @@ async def test_axis() -> None:
     assert seen[-1].url.params["continuouspantiltmove"] == "50,-25"
     await d.set_control("ircut", "yes")
     assert seen[-1].url.params["ImageSource.I0.DayNight.IrCutFilter"] == "yes"
+    ircut = (await d.controls())[0]
+    assert {o.value: o.label for o in ircut.options or []}["yes"] == "Day (filter on)"
+    await d.save_preset("norn-gate", "Gate")
+    assert seen[-1].url.params["setserverpresetname"] == "norn-gate"
 
 
 async def test_foscam_hd() -> None:
@@ -161,7 +167,11 @@ async def test_foscam_hd() -> None:
 
 
 async def test_unifi() -> None:
-    d = make("unifi", host="10.0.0.1", api_key="k", camera="Garden")
+    cls = DRIVERS["unifi"]
+    events: list[tuple[str, dict[str, Any]]] = []
+    options = cls.Options.model_validate({"host": "10.0.0.1", "api_key": "k", "camera": "Garden"})
+    d = cls("garden", options, lambda kind, data: events.append((kind, data)))
+    offline = True
     camera = {
         "id": "abc",
         "name": "Garden",
@@ -177,6 +187,8 @@ async def test_unifi() -> None:
         path = request.url.path
         if path.endswith("/cameras"):
             return httpx.Response(200, json=[{"id": "zzz", "name": "Door"}, camera])
+        if offline:
+            return httpx.Response(503)
         if path.endswith("/rtsps-stream"):
             if request.method == "GET":
                 return httpx.Response(200, json={})
@@ -192,13 +204,18 @@ async def test_unifi() -> None:
         return httpx.Response(200, json=camera)
 
     seen = mock(d, "https://10.0.0.1/proxy/protect/integration/v1", handler)
-    await d.start()
-    assert [s.source for s in d.streams()] == ["rtspx://10.0.0.1:7441/tok1", "rtspx://10.0.0.1:7441/tok2"]
+    await d.start()  # the console is offline at start: no streams yet
+    assert d.streams() == []
+    offline = False
     info = await d.info()
     assert (info.model, info.name) == ("G4 Bullet", "Garden")
+    assert [s.source for s in d.streams()] == ["rtspx://10.0.0.1:7441/tok1", "rtspx://10.0.0.1:7441/tok2"]
+    assert events == [("camera.streams", {"camera": "garden"})]
     assert {c.id: c.value for c in await d.controls()} == {"led": True, "mic": 80}
     await d.set_control("led", False)
     assert seen[-1].method == "PATCH" and b'"isEnabled":false' in seen[-1].content.replace(b" ", b"")
+    await d.set_control("mic", 150)
+    assert events[-1] == ("camera.control", {"camera": "garden", "control": "mic", "value": 100})
     assert go2rtc_url("rtsp://x/y") == "rtsp://x/y"
 
 
@@ -259,3 +276,23 @@ async def test_tapo(monkeypatch: pytest.MonkeyPatch) -> None:
     assert await d.firmware_online_check() == "1.4.2"
     assert d.streams()[0].source == "rtsp://cam:c%23p@10.0.0.6:554/stream1"
     assert find({"a": [{"b": {"c": 1}}]}, "c") == 1
+
+
+async def test_tapo_pauses_after_a_failed_login(monkeypatch: pytest.MonkeyPatch) -> None:
+    d = make("tapo", host="10.0.0.6", camera_username="cam", camera_password="pw", cloud_password="bad")
+    logins = 0
+
+    def login() -> Any:
+        nonlocal logins
+        logins += 1
+        raise Exception("Invalid authentication data")
+
+    monkeypatch.setattr(d, "_client", login)
+    assert [c.id for c in await d.controls()] == ["alarm"]  # every getter fails
+    assert logins == 1  # one login, then a pause instead of a burst that locks the account
+    assert (await d.info()).error == "login failed: Invalid authentication data"
+    assert logins == 1
+
+
+def test_hikvision_event_kinds() -> None:
+    assert make("hikvision", host="10.0.0.3", password="p").event_kinds() == ["motion", "person", "vehicle"]

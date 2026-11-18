@@ -48,6 +48,22 @@ export function formatTime(iso: string): string {
 	return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+/** The moment (ms) of a time without a zone on the server's clock (`offsetMinutes` east of UTC),
+ * like away mode's start and end: the browser may be in another zone. */
+export function serverTime(local: string, offsetMinutes: number): number {
+	const [date, time = '00:00'] = local.split('T');
+	const [y, mo, d] = date.split('-').map(Number);
+	const [h, mi, s = 0] = time.split(':').map(Number);
+	return Date.UTC(y, mo - 1, d, h, mi, Math.floor(s)) - offsetMinutes * 60_000;
+}
+
+/** The browser's day (YYYY-MM-DD) of a moment, to group times shown in the browser's zone. */
+export function localDay(iso: string): string {
+	const t = new Date(iso);
+	const pad = (n: number) => String(n).padStart(2, '0');
+	return `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
+}
+
 /** "Today", "Yesterday", or a date like "Fri, Nov 13", for a YYYY-MM-DD day. */
 export function formatDay(day: string, today = new Date()): string {
 	const [y, m, d] = day.split('-').map(Number);
@@ -62,6 +78,21 @@ export function formatDay(day: string, today = new Date()): string {
 		day: 'numeric',
 		year: date.getFullYear() === today.getFullYear() ? undefined : 'numeric'
 	});
+}
+
+/** Controls by their group, in the order the groups first appear. */
+export function byGroup<T extends { group: string }>(controls: T[]): [string, T[]][] {
+	const groups: Record<string, T[]> = {};
+	for (const c of controls) (groups[c.group] ??= []).push(c);
+	return Object.entries(groups);
+}
+
+/** What a camera is: "Reolink E1 Zoom", else its driver. */
+export function cameraModel(c: {
+	driver: string;
+	device: { manufacturer: string | null; model: string | null } | null;
+}): string {
+	return [c.device?.manufacturer, c.device?.model].filter(Boolean).join(' ') || c.driver;
 }
 
 /** A camera id from a name: "Front Door" -> "front-door". */

@@ -48,8 +48,10 @@ def measured(recordings: list[Recording], now: datetime) -> list[Rate]:
             first_of[r.camera] = min(first_of.get(r.camera, r.start), r.start)
     rates = []
     for (camera, trigger), items in groups.items():
-        seconds = (now - first_of[camera]).total_seconds()
         timed = trigger in ("continuous", "interval")
+        # A timed trigger records from when it was switched on; events since the camera records.
+        first = min(r.start for r in items) if timed else first_of[camera]
+        seconds = (now - first).total_seconds()
         if timed and seconds < MIN_MEASURED:
             continue  # too early to tell: the estimate is better
         # Events (clips) come when they come: one clip isn't a rate until a day has passed.
@@ -135,7 +137,7 @@ def forecast(
     growing = sum(t["per_day"] for t in triggers if t["steady"] is None)  # never levels off
     steady = sum(t["steady"] or 0 for t in triggers)
     # Expiring recordings grow from what they hold now up to their level; the rest keeps growing.
-    expiring_now = sum(r.size for r in recordings if r.trigger not in KEPT)
+    expiring_now = sum(r.size for r in recordings if not r.kept)
     days_full = None
     if free is not None and per_day > 0:
         headroom = free - max(0, steady - expiring_now)
@@ -163,7 +165,7 @@ def forecast(
         "per_day": per_day,
         "steady": steady,
         "growing_per_day": growing,
-        "days_until_full": round(days_full, 1) if days_full is not None and not limit else None,
+        "days_until_full": round(days_full, 1) if days_full is not None and limit is None else None,
         # With a size or free-space limit, the disk doesn't fill up: old recordings go earlier
         # than their retention time once the limit is reached.
         "limit": limit,

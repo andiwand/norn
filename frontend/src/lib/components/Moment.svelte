@@ -28,7 +28,15 @@
 		onopen: (r: Recording, seconds: number) => void;
 	} = $props();
 
-	const byCamera = $derived(Map.groupBy(items, (i) => i.r.camera));
+	const byCamera = $derived.by(() => {
+		const map = new Map<string, TimelineItem[]>();
+		for (const i of items) {
+			const list = map.get(i.r.camera);
+			if (list) list.push(i);
+			else map.set(i.r.camera, [i]);
+		}
+		return map;
+	});
 
 	const tiles = $derived(
 		cameras.map((camera) => {

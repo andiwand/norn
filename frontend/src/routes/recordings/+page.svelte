@@ -3,7 +3,8 @@
 	import { goto } from '$app/navigation';
 	import { api, type Recording } from '#lib/api.js';
 	import { store } from '#lib/state.svelte.js';
-	import { formatDay } from '#lib/format.js';
+	import { RecordingList } from '#lib/recordings.svelte.js';
+	import { formatDay, localDay } from '#lib/format.js';
 	import RecordingTile from '#lib/components/RecordingTile.svelte';
 	import RecordingDialog from '#lib/components/RecordingDialog.svelte';
 	import Timeline from '#lib/components/Timeline.svelte';
@@ -18,7 +19,7 @@
 	let at = $state(0);
 
 	const LIMIT = 1000;
-	let recordings = $state<Recording[]>([]);
+	const list = new RecordingList();
 	let truncated = $state(false);
 	let loading = $state(true);
 	let open = $state<Recording | null>(null);
@@ -37,7 +38,7 @@
 			})
 			.catch(() => null);
 		if (mine !== sequence) return; // the filter changed meanwhile
-		recordings = data?.recordings ?? [];
+		list.items = data?.recordings ?? [];
 		truncated = data?.truncated ?? false;
 		loading = false;
 	}
@@ -64,39 +65,15 @@
 		};
 	});
 
-	// The lifetime rings count down.
-	let now = $state(Date.now());
-	$effect(() => {
-		const timer = setInterval(() => (now = Date.now()), 60_000);
-		return () => clearInterval(timer);
-	});
-
-	const filtered = $derived(recordings);
+	// By the browser's day, like the times on the tiles (the server's day may differ).
 	const byDay = $derived(
 		Object.entries(
-			filtered.reduce<Record<string, Recording[]>>((acc, r) => {
-				(acc[r.day] ??= []).push(r);
+			list.items.reduce<Record<string, Recording[]>>((acc, r) => {
+				(acc[localDay(r.start)] ??= []).push(r);
 				return acc;
 			}, {})
 		)
 	);
-
-	async function pin(r: Recording, pinned: boolean) {
-		const updated = await store.pin(r, pinned);
-		if (updated) replace(updated);
-	}
-
-	function replace(updated: Recording) {
-		recordings = recordings.map((x) => (x.id === updated.id ? updated : x));
-	}
-
-	async function remove(r: Recording) {
-		const ok = await store.attempt(async () => {
-			await api.deleteRecording(r.id);
-			return true;
-		}, 'Recording deleted');
-		if (ok) recordings = recordings.filter((x) => x.id !== r.id);
-	}
 
 	function setFilter(key: string, value: string) {
 		const url = new URL(page.url.href);
@@ -176,13 +153,13 @@
 			open = r;
 		}}
 	/>
-{:else if loading && !recordings.length}
+{:else if loading && !list.items.length}
 	<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
 		{#each Array(8) as _, i (i)}
 			<div class="aspect-[4/3] animate-pulse rounded-2xl bg-surface-2"></div>
 		{/each}
 	</div>
-{:else if !filtered.length}
+{:else if !list.items.length}
 	<div class="mx-auto mt-10 flex max-w-md flex-col items-center card px-8 py-14 text-center">
 		<span class="mb-5 grid size-14 place-items-center rounded-2xl bg-accent/15 text-accent"
 			><Film class="size-7" /></span
@@ -216,9 +193,8 @@
 								at = 0;
 								open = x;
 							}}
-							ondelete={remove}
-							onpin={pin}
-							{now}
+							ondelete={list.remove}
+							onpin={list.pin}
 						/>
 					{/each}
 				</div>
@@ -227,9 +203,4 @@
 	</div>
 {/if}
 
-<RecordingDialog
-	bind:recording={open}
-	onchanged={replace}
-	{at}
-	ondeleted={(r) => (recordings = recordings.filter((x) => x.id !== r.id))}
-/>
+<RecordingDialog bind:recording={open} onchanged={list.replace} {at} ondeleted={list.drop} />

@@ -48,8 +48,10 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote, urlsplit
 
+from pydantic import ValidationError
+
 from . import __version__
-from .config import AwaySettings
+from .config import AwaySettings, short_error
 from .drivers.base import Control
 from .labels import LABELS
 
@@ -175,6 +177,9 @@ class Mqtt:
         # controls are read, unless Norn still publishes them.
         self._found: set[str] = set()
         self._ready = False
+        # The kinds of events each camera reported while online: some (Reolink's AI) only know
+        # theirs while connected, and their sensors must not vanish while the camera is offline.
+        self._kinds: dict[str, tuple[str, set[str]]] = {}  # camera -> (driver, kinds)
 
     @property
     def enabled(self) -> bool:
@@ -356,7 +361,7 @@ class Mqtt:
             )
 
             events = camera.events_json(hub.norn_kinds(cid)) or {"kinds": [], "active": []}
-            for kind in events["kinds"]:
+            for kind in self._event_kinds(camera, events["kinds"]):
                 label = LABELS.get(kind)
                 self._config(
                     configs,
@@ -371,7 +376,7 @@ class Mqtt:
                 states[f"{base}/event/{slug(kind)}"] = on_off(kind in events["active"])
 
             names = preset_names(camera)
-            if names and cid in hub.pilots:
+            if names:
                 self._config(
                     configs,
                     "select",
@@ -424,12 +429,30 @@ class Mqtt:
             and (parts[2] == self.prefix and parts[4] == "config")
         )
 
+    def _event_kinds(self, camera: Camera, kinds: list[str]) -> list[str]:
+        """The camera's kinds now, and those its driver reported while it was online before."""
+        driver, known = self._kinds.get(camera.id, ("", set()))
+        if driver != camera.config.driver:
+            known = set()
+        if camera.device and camera.device.online:
+            known = known | set(camera.camera_kinds())
+            self._kinds[camera.id] = (camera.config.driver, known)
+        return [k for k in LABELS if k in kinds or k in known]
+
     def _unknown(self, topic: str) -> bool:
-        """A control's topic of a camera whose controls Norn couldn't read (yet): keep it, or Home
-        Assistant would drop the entity while the camera is offline."""
+        """A topic of what Norn can't know (yet) about a camera: its controls, until they are read,
+        and its events, until it was online. Keep it, or Home Assistant would drop the entity
+        while the camera is offline."""
         for cid, camera in self.hub.cameras.items():
             if camera.controls is None and (
                 f"/camera/{cid}/control/" in topic or f"/{slug(cid)}_control_" in topic
+            ):
+                return True
+            if (
+                cid not in self._kinds
+                and camera.driver
+                and camera.config.enabled
+                and (f"/camera/{cid}/event/" in topic or f"/{cid}_event_" in topic)
             ):
                 return True
         return False
@@ -440,11 +463,15 @@ class Mqtt:
             return
         want = self.desired()
         gone = [t for t in self._sent if t not in want]
-        if self._ready:
+        # Not while config.yaml has an error: the hub then runs without cameras, and clearing
+        # their topics would make Home Assistant delete the devices.
+        if self._ready and not self.hub.config_error:
             gone += [t for t in self._found if t not in want and t not in self._sent]
-            self._found.clear()
+            self._found = set()
         for topic in gone:
             if self._unknown(topic):
+                if topic not in self._sent:
+                    self._found.add(topic)  # for a later sync
                 continue
             await self._publish(topic, "")
             self._sent.pop(topic, None)
@@ -493,7 +520,7 @@ class Mqtt:
                     raise ValueError(f"{payload!r} is not ON or OFF")
                 await self._away(payload.upper() == ON)
             case ["camera", cid, "record"]:
-                await self._record(cid, payload)
+                await self._record(cid, *self._record_args(payload))
             case ["camera", cid, "preset"]:
                 await self._goto(cid, payload)
             case ["camera", cid, "control", control_id]:
@@ -501,8 +528,15 @@ class Mqtt:
             case ["circle", circle_id, "record"]:
                 if circle_id not in hub.config.circles:
                     raise ValueError(f"no circle {circle_id!r}")
+                args = self._record_args(payload)
+                errors = []
                 for cid in hub.circle_members(circle_id):
-                    await self._record(cid, payload)
+                    try:
+                        await self._record(cid, *args)
+                    except Exception as e:
+                        errors.append(f"{cid}: {e}")
+                if errors:
+                    raise RuntimeError("; ".join(errors))
             case _:
                 raise ValueError("unknown command")
         self._dirty.set()
@@ -524,19 +558,26 @@ class Mqtt:
             values["start"] = values["end"] = None
         await self.hub.put_settings({"away": AwaySettings.model_validate(values)})
 
-    async def _record(self, cid: str, payload: str) -> None:
-        self._camera(cid)
+    @staticmethod
+    def _record_args(payload: str) -> tuple[bool, str, int | None]:
+        """A record command: (stop, trigger, seconds), checked like the API's."""
+        from .api import RecordBody  # the API imports the hub, which imports this
+
         if payload.upper() == "STOP":
+            return True, "", None
+        body = json.loads(payload) if payload.startswith("{") else {}
+        try:
+            record = RecordBody.model_validate({"trigger": "mqtt", **body})
+        except ValidationError as e:
+            raise ValueError(short_error(e)) from None
+        return False, record.trigger, record.seconds
+
+    async def _record(self, cid: str, stop: bool, trigger: str, seconds: int | None) -> None:
+        self._camera(cid)
+        if stop:
             await self.hub.recorder.stop_clip(cid)
-            return
-        trigger, seconds = "mqtt", None
-        if payload.startswith("{"):
-            body = json.loads(payload)
-            trigger = str(body.get("trigger", trigger))
-            seconds = int(body["seconds"]) if body.get("seconds") is not None else None
-        if not re.fullmatch(r"[a-z0-9-]{1,32}", trigger):
-            raise ValueError(f"bad trigger {trigger!r}")
-        await self.hub.recorder.record_clip(cid, trigger, seconds)
+        else:
+            await self.hub.recorder.record_clip(cid, trigger, seconds)
 
     async def _goto(self, cid: str, payload: str) -> None:
         camera = self._camera(cid)
@@ -551,7 +592,7 @@ class Mqtt:
     async def _set_control(self, cid: str, control_id: str, payload: str) -> None:
         camera = self._camera(cid)
         control = next((c for c in camera.controls or [] if slug(c.id) == control_id), None)
-        if control is None or camera.driver is None:
+        if control is None:
             raise ValueError(f"no control {control_id!r}")
         value = control_value(control, payload)
         await camera.driver.set_control(control.id, value)
@@ -602,10 +643,7 @@ class Mqtt:
                     self._found, self._ready = set(), False
                     delay = 5.0
                     log.info("connected to the MQTT broker %s:%d", broker.host, broker.port)
-                    await client.subscribe(f"{self.prefix}/#")
-                    if self.discovery:
-                        await client.subscribe(f"{self.discovery}/status")
-                        await client.subscribe(f"{self.discovery}/+/{self.prefix}/+/config")
+                    await client.subscribe([(topic, 0) for topic in self.subscriptions()])
                     await publish(status, "online")
                     async with asyncio.TaskGroup() as group:
                         group.create_task(self._load_controls(first=True))
@@ -623,6 +661,18 @@ class Mqtt:
                 self._changed(False, error)
             await asyncio.sleep(delay)
             delay = min(delay * 2, 300)
+
+    def subscriptions(self) -> list[str]:
+        """Commands, and Norn's retained topics from before (to clear what is gone); not `#`,
+        which would send every still back to Norn."""
+        p, camera = self.prefix, f"{self.prefix}/camera/+"
+        topics = [f"{p}/away", f"{p}/away/set", f"{p}/error", f"{p}/error/attributes"]
+        topics += [f"{camera}/{state}" for state in ("available", "online", "recording", "preset")]
+        topics += [f"{camera}/event/+", f"{camera}/control/+", f"{camera}/control/+/set"]
+        topics += [f"{camera}/record/set", f"{camera}/preset/set", f"{p}/circle/+/record/set"]
+        if self.discovery:
+            topics += [f"{self.discovery}/status", f"{self.discovery}/+/{p}/+/config"]
+        return topics
 
     async def _listen(self, client: Any) -> None:
         async for message in client.messages:
@@ -643,6 +693,7 @@ class Mqtt:
     async def _watch_hub(self) -> None:
         """Sync after anything that changes what Norn publishes; bursts are sent as one."""
         async with self.hub.bus.subscribe() as queue:
+            loads: set[asyncio.Task[None]] = set()
 
             async def mark() -> None:
                 while True:
@@ -651,7 +702,9 @@ class Mqtt:
                         # A new or changed camera: read its controls, so they appear at once.
                         camera = self.hub.cameras.get(event["data"].get("camera", ""))
                         if camera is None or camera.controls is None:
-                            asyncio.create_task(self._load_controls())  # noqa: RUF006
+                            task = asyncio.create_task(self._load_controls())
+                            loads.add(task)
+                            task.add_done_callback(loads.discard)
                     self._dirty.set()
 
             marker = asyncio.create_task(mark())
@@ -663,7 +716,8 @@ class Mqtt:
                     self._dirty.clear()
                     await self.sync()
             finally:
-                marker.cancel()
+                for task in (marker, *loads):
+                    task.cancel()
 
     async def send_stills(self) -> None:
         """Each camera's newest still, to `.../still` (Home Assistant's MQTT camera)."""

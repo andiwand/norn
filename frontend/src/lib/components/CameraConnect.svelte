@@ -87,11 +87,11 @@
 			`  - resource: ${api}`,
 			'    scan_interval: 5',
 			'    binary_sensor:',
-			`      - name: ${camera.name} recording`,
+			`      - name: ${JSON.stringify(`${camera.name} recording`)}`,
 			'        value_template: "{{ value_json.recording is not none }}"',
 			...kinds.map((k) =>
 				[
-					`      - name: ${camera.name} ${k}`,
+					`      - name: ${JSON.stringify(`${camera.name} ${k}`)}`,
 					`        value_template: "{{ '${k}' in ((value_json.events or {}).active or []) }}"`
 				].join('\n')
 			)

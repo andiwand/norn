@@ -35,6 +35,7 @@ from .config import (
     DetectionSettings,
     FirmwareSettings,
     RecordingSettings,
+    short_error,
 )
 from .detect import MODELS
 from .drivers import DRIVERS, describe
@@ -138,6 +139,7 @@ class RecordBody(BaseModel):
 
 
 OPTIONAL_LISTS = ("presets", "reactions", "follow")
+FIRMWARE_MAX = 256_000_000  # real firmware files are tens of MB
 
 
 def camera_config(data: dict[str, Any]) -> CameraConfig:
@@ -147,9 +149,7 @@ def camera_config(data: dict[str, Any]) -> CameraConfig:
     try:
         return CameraConfig.model_validate(data)
     except ValidationError as e:
-        raise ConfigError(
-            "; ".join(f"{'.'.join(map(str, err['loc']))}: {err['msg']}" for err in e.errors())
-        ) from e
+        raise ConfigError(short_error(e)) from e
 
 
 def default_static() -> Path | None:
@@ -369,12 +369,19 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
     async def update_firmware(camera_id: str, request: Request) -> dict[str, Any]:
         """Install firmware: the request body is the firmware file. Empty: the driver's online update."""
         driver = driver_of(camera_id)
-        image = await request.body()
+        too_big = HTTPException(413, f"a firmware file is at most {FIRMWARE_MAX // 1_000_000} MB")
+        if int(request.headers.get("content-length") or 0) > FIRMWARE_MAX:
+            raise too_big
+        image = bytearray()
+        async for chunk in request.stream():
+            image += chunk
+            if len(image) > FIRMWARE_MAX:
+                raise too_big
         needed = Capability.FIRMWARE_UPLOAD if image else Capability.FIRMWARE_ONLINE
         if needed not in driver.capabilities():
             raise HTTPException(409, f"{driver.label} can't install firmware this way")
         try:
-            await hub.update_firmware(camera_id, image or None)
+            await hub.update_firmware(camera_id, bytes(image) or None)
         except RuntimeError as e:
             raise HTTPException(409, str(e)) from e
         except Exception as e:
@@ -426,6 +433,8 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
         """Save what the camera shows now as a Norn preset (into a camera preset slot), with the
         current values of `controls` and a picture."""
         driver = driver_of(camera_id)
+        if not CAMERA_ID.fullmatch(preset_id):
+            raise HTTPException(400, "bad preset id")
         if Capability.PRESET_SAVE not in driver.capabilities():
             raise HTTPException(409, "this camera can't save presets")
         try:
@@ -488,7 +497,7 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
     @api.get("/cameras/{camera_id}/presets/{preset_id}.jpg")
     async def preset_picture(camera_id: str, preset_id: str) -> FileResponse:
         camera_or_404(camera_id)
-        if not CAMERA_ID.match(preset_id):
+        if not CAMERA_ID.fullmatch(preset_id):
             raise HTTPException(400, "bad preset id")
         path = hub.pilots[camera_id].picture(preset_id)
         if not path.is_file():
@@ -720,7 +729,7 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
         """go2rtc's WebSocket (WebRTC signaling and MSE video), forwarded."""
         try:
             hub.get_driver(camera)
-        except (KeyError, LookupError):
+        except LookupError:
             await ws.close(code=4404)
             return
         if stream not in hub.stream_ids(camera):

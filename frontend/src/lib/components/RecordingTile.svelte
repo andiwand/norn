@@ -14,8 +14,7 @@
 		cameraName,
 		onopen,
 		ondelete,
-		onpin,
-		now
+		onpin
 	}: {
 		recording: Recording;
 		cameraName?: string;
@@ -23,8 +22,6 @@
 		ondelete?: (r: Recording) => void;
 		/** Pin or unpin; without it the tile has no pin button. */
 		onpin?: (r: Recording, pinned: boolean) => void;
-		/** The time the lifetime rings count from; the page ticks it. */
-		now?: number;
 	} = $props();
 
 	// Deleting takes two clicks: the first arms the button, the second deletes.
@@ -101,7 +98,6 @@
 		<LifetimeRing
 			start={recording.start}
 			expires={recording.expires}
-			{now}
 			class="pointer-events-auto absolute top-2 left-2"
 		/>
 	{/if}

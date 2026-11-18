@@ -11,7 +11,7 @@ import asyncio
 import logging
 import re
 from typing import Any
-from urllib.parse import quote, urlsplit, urlunsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import Field
 
@@ -29,6 +29,7 @@ from .base import (
     Preset,
     PtzCommand,
     Stream,
+    userinfo,
 )
 
 log = logging.getLogger("norn.onvif")
@@ -49,7 +50,7 @@ class OnvifOptions(DriverOptions):
 def with_credentials(uri: str, username: str, password: str) -> str:
     parts = urlsplit(uri)
     host = parts.hostname or ""
-    netloc = f"{quote(username, safe='')}:{quote(password, safe='')}@{host}"
+    netloc = f"{userinfo(username, password)}{host}"
     if parts.port:
         netloc += f":{parts.port}"
     return urlunsplit(parts._replace(netloc=netloc))
@@ -126,11 +127,14 @@ class OnvifDriver(Driver):
         return self.profiles[0]
 
     async def info(self) -> DeviceInfo:
+        streams = self.streams()
         try:
             await self._connect()
             device = await self.client.device_information()
         except (OnvifError, DriverError) as e:
             return DeviceInfo(online=False, error=str(e))
+        if self.streams() != streams:  # offline at start, or reconnected with other streams
+            self.emit("camera.streams", {})
         main = self._profile
         details = {}
         if main.width and main.height:
@@ -210,10 +214,13 @@ class OnvifDriver(Driver):
             raise DriverError(str(e)) from e
         self.emit("camera.control", {"control": control_id, "value": value_})
 
-    async def save_preset(self, slot: str, name: str) -> None:
-        """ONVIF SetPreset: `slot` is the preset token (new ones get theirs from the camera)."""
+    async def save_preset(self, slot: str, name: str) -> str | None:
+        """ONVIF SetPreset: overwrites preset `slot` if the camera has it; else the camera makes a
+        new preset (a token it doesn't know is a fault) and its token is returned."""
+        profile = self._profile.token
         try:
-            await self.client.set_preset(self._profile.token, slot or None, name)
+            tokens = {token for token, _ in await self.client.presets(profile)}
+            return await self.client.set_preset(profile, slot if slot in tokens else None, name) or None
         except OnvifError as e:
             raise DriverError(f"the camera didn't save the preset: {e}") from e
 

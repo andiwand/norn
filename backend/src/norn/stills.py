@@ -93,8 +93,11 @@ def split_jpegs(buffer: bytes) -> tuple[list[bytes], bytes]:
     while True:
         start = buffer.find(b"\xff\xd8")
         end = buffer.find(b"\xff\xd9", start + 2) if start >= 0 else -1
-        if start < 0 or end < 0:
-            return found, buffer[start:] if start >= 0 else b""
+        if start >= 0 and end < 0:
+            return found, buffer[start:]
+        if start < 0:
+            # A chunk can end between the two bytes of a start marker: keep its first half.
+            return found, buffer[-1:] if buffer.endswith(b"\xff") else b""
         found.append(buffer[start : end + 2])
         buffer = buffer[end + 2 :]
 
@@ -111,6 +114,10 @@ class StillStream:
         self._task: asyncio.Task[None] | None = None
         self.running = False
         self._last_frame = 0.0
+
+    @property
+    def idle(self) -> bool:
+        return not self.subscriptions and (self._task is None or self._task.done())
 
     def wanted(self) -> tuple[dict[Format, None], float]:
         formats: dict[Format, None] = {s.format: None for s in self.subscriptions}
@@ -174,10 +181,15 @@ class StillStream:
 
     async def _ffmpeg(self, formats: list[Format], every: float) -> str | None:
         """Run FFmpeg until the subscribers need other outputs (None) or it fails (why)."""
-        pipes: dict[Format, tuple[int, int]] = {f: os.pipe() for f in formats if f != "jpeg"}
-        outputs: dict[Format, str] = {f: "pipe:1" if f == "jpeg" else f"pipe:{pipes[f][1]}" for f in formats}
-        cmd = still_command(self.ffmpeg, self.source, self.mode, every, outputs)
+        pipes: dict[Format, tuple[int, int]] = {}
         try:
+            for f in formats:
+                if f != "jpeg":
+                    pipes[f] = os.pipe()
+            outputs: dict[Format, str] = {
+                f: "pipe:1" if f == "jpeg" else f"pipe:{pipes[f][1]}" for f in formats
+            }
+            cmd = still_command(self.ffmpeg, self.source, self.mode, every, outputs)
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
@@ -194,6 +206,7 @@ class StillStream:
         self.running = True
         self._last_frame = time.monotonic()
         loop = asyncio.get_running_loop()
+        unclaimed = {r for r, _ in pipes.values()}  # read ends no transport owns yet
         readers: list[asyncio.Task[None]] = []
         transports = []
         errors: deque[str] = deque(maxlen=5)  # FFmpeg's last words; read all along, or it blocks
@@ -204,9 +217,15 @@ class StillStream:
                 readers.append(asyncio.create_task(self._read_jpegs(process.stdout)))
             for fmt, (r, _) in pipes.items():
                 reader = asyncio.StreamReader(limit=FRAME_BYTES[fmt] * 4)
-                transport, _ = await loop.connect_read_pipe(
-                    lambda reader=reader: asyncio.StreamReaderProtocol(reader), os.fdopen(r, "rb", 0)
-                )
+                pipe = os.fdopen(r, "rb", 0)
+                unclaimed.discard(r)
+                try:
+                    transport, _ = await loop.connect_read_pipe(
+                        lambda reader=reader: asyncio.StreamReaderProtocol(reader), pipe
+                    )
+                except BaseException:
+                    pipe.close()
+                    raise
                 transports.append(transport)
                 readers.append(asyncio.create_task(self._read_frames(reader, fmt)))
             exited = asyncio.create_task(process.wait())
@@ -233,6 +252,8 @@ class StillStream:
                 await process.wait()
             for transport in transports:
                 transport.close()
+            for r in unclaimed:
+                os.close(r)
 
     def _deliver(self, fmt: Format, data: bytes) -> None:
         now = time.monotonic()
@@ -264,6 +285,9 @@ class Stills:
         self.streams: dict[tuple[str, Mode, str], StillStream] = {}
 
     def stream(self, camera: str, source: str, mode: Mode) -> StillStream:
+        # The camera's source changed: its streams of the old one go once they are idle.
+        for old in [k for k, s in self.streams.items() if k[0] == camera and k[2] != source and s.idle]:
+            del self.streams[old]
         key = (camera, mode, source)
         if key not in self.streams:
             self.streams[key] = StillStream(self.ffmpeg, source, mode, f"{camera}/{mode}")

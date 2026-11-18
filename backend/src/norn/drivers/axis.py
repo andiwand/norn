@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from urllib.parse import quote
 
 import httpx
 from pydantic import Field
@@ -34,10 +33,12 @@ from .base import (
     Preset,
     PtzCommand,
     Stream,
+    parse_table,
+    userinfo,
 )
-from .dahua import parse_table
 
-IR_CUT = {"auto": "Auto", "no": "Day (filter on)", "yes": "Night (filter off)"}
+# IrCutFilter=yes puts the filter in: day mode.
+IR_CUT = {"auto": "Auto", "yes": "Day (filter on)", "no": "Night (filter off)"}
 
 
 class AxisOptions(DriverOptions):
@@ -81,7 +82,7 @@ class AxisDriver(Driver):
 
     def streams(self) -> list[Stream]:
         o = self.options
-        auth = f"{quote(o.username, safe='')}:{quote(o.password, safe='')}@"
+        auth = userinfo(o.username, o.password)
         base = f"rtsp://{auth}{o.host}:{o.rtsp_port}/axis-media/media.amp?videocodec=h264"
         return [
             Stream(id="main", label="Main", source=base, codec="h264"),
@@ -96,7 +97,7 @@ class AxisDriver(Driver):
 
     async def save_preset(self, slot: str, name: str) -> None:
         """Axis presets are named: the slot is the name."""
-        await self._request("GET", "com/ptz.cgi", params={"camera": 1, "setserverpresetname": slot or name})
+        await self._request("GET", "com/ptz.cgi", params={"camera": 1, "setserverpresetname": slot})
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         try:

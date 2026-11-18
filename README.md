@@ -176,7 +176,7 @@ The settings of the process come from environment variables:
 | `NORN_CONFIG`      | `data/config/config.yaml` | The config file (`/config/config.yaml` in the image).         |
 | `NORN_RECORDINGS`  | `data/recordings`         | The recordings folder (`/recordings` in the image).           |
 | `NORN_TEMP`        | `data/tmp`                | What is being recorded (`/temp`); best a local disk.          |
-| `NORN_BUFFER`      | `/dev/shm/norn`           | The pre-recording buffer; RAM if /dev/shm has 128 MB or more. |
+| `NORN_BUFFER`      | `/dev/shm/norn`           | The pre-recording buffer; RAM if /dev/shm has 128 MB or more, else `<temp>/.norn/buffer`. |
 | `NORN_PORT`        | `8000`                    | The port of the web app and the API.                          |
 | `NORN_WEBRTC_PORT` | `8555`                    | The port of WebRTC media, TCP and UDP.                        |
 | `NORN_LOG_FILE`    | `<config>/.norn/logs/norn.log` | The log file (rotated, 5 × 5 MB); `off` for none.   |
@@ -185,8 +185,8 @@ The settings of the process come from environment variables:
 | `NORN_GO2RTC_API`  | `http://127.0.0.1:1984`   | The API of go2rtc; set it for an `external` go2rtc.           |
 | `NORN_RTSP_SHARE`  | `0`                       | `1`: serve the RTSP streams to the network (Home Assistant).  |
 | `NORN_MQTT`        |                           | An MQTT broker, `mqtt://user:password@host:1883` (`mqtts://` for TLS). |
-| `NORN_MQTT_PREFIX` | `norn`                    | The first level of Norn's MQTT topics.                        |
-| `NORN_MQTT_DISCOVERY` | `homeassistant`        | Home Assistant's discovery prefix; `off` for none.            |
+| `NORN_MQTT_PREFIX` | `norn`                    | The first level of Norn's MQTT topics (letters, digits, `_`, `-`). |
+| `NORN_MQTT_DISCOVERY` | `homeassistant`        | Home Assistant's discovery prefix (one level, like the prefix); `off` for none. |
 | `NORN_MQTT_STILLS` | `0`                       | Send each camera's still over MQTT every so many seconds (at least 5); `0` for none. |
 | `NORN_GO2RTC_BIN`  | `go2rtc`                  | The go2rtc binary.                                            |
 | `NORN_FFMPEG`      | `ffmpeg`                  | The FFmpeg binary.                                            |
@@ -253,7 +253,8 @@ Away mode goes both ways: an automation can turn it on when everyone has left, a
 follow it when it changes in Norn (by hand or as planned).
 
 While a camera doesn't answer, its controls, presets and still show as unavailable in Home
-Assistant; its sensors and record buttons stay. A command that fails shows as the Norn device's
+Assistant; its sensors and record buttons stay. While config.yaml has an error, Norn leaves the
+devices it had in Home Assistant alone. A command that fails shows as the Norn device's
 **Last error**, and the entity goes back to the camera's real state. Diagnostics shows whether
 Norn is connected to the broker, and the last failed command.
 
@@ -272,7 +273,7 @@ The topics, for other home automation (states are retained; `ON`/`OFF` for on an
 | `norn/camera/<id>/event/<kind>`        | A detection (`motion`, `person`, ...).                     |
 | `norn/camera/<id>/recording`           | Whether the camera records.                                |
 | `norn/camera/<id>/online`              | Whether the camera answers.                                |
-| `norn/camera/<id>/record/set`          | `PRESS` starts a clip, `STOP` ends it; or `{"trigger": "doorbell", "seconds": 30}`. |
+| `norn/camera/<id>/record/set`          | `PRESS` starts a clip, `STOP` ends it; or `{"trigger": "doorbell", "seconds": 30}` (5 to 3600 seconds). |
 | `norn/camera/<id>/preset`, `.../set`   | The Norn preset, by name.                                  |
 | `norn/camera/<id>/control/<id>`, `.../set` | A control: `ON`/`OFF`, an option's label, or a number. |
 | `norn/circle/<id>/record/set`          | Like a camera's: all the circle's cameras.                 |

@@ -5,6 +5,7 @@
 	import Settings2 from '@lucide/svelte/icons/settings-2';
 	import CameraTile, { type TileView } from '#lib/components/CameraTile.svelte';
 	import { api } from '#lib/api.js';
+	import { readStored, writeStored } from '#lib/stored.js';
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 	import ArrowRight from '@lucide/svelte/icons/arrow-right';
 	import GripVertical from '@lucide/svelte/icons/grip-vertical';
@@ -19,20 +20,12 @@
 	let density = $state<Density>(loadDensity());
 
 	function loadDensity(): Density {
-		try {
-			const value = Number(localStorage.getItem('norn.density'));
-			return value === 1 || value === 2 || value === 3 ? value : 2;
-		} catch {
-			return 2;
-		}
+		const value = Number(readStored('norn.density'));
+		return value === 1 || value === 2 || value === 3 ? value : 2;
 	}
 	function setDensity(value: Density) {
 		density = value;
-		try {
-			localStorage.setItem('norn.density', String(value));
-		} catch {
-			// private mode
-		}
+		writeStored('norn.density', String(value));
 	}
 
 	// How the tiles show: Auto adapts to the connection; HD and SD are fixed; Stills is a
@@ -45,22 +38,13 @@
 	];
 	let view = $state<TileView>(loadView());
 	function loadView(): TileView {
-		try {
-			const saved =
-				localStorage.getItem('norn.view') ??
-				(localStorage.getItem('norn.stills') === '1' ? 'stills' : 'auto');
-			return (['auto', 'hd', 'sd', 'stills'] as const).find((v) => v === saved) ?? 'auto';
-		} catch {
-			return 'auto';
-		}
+		const saved =
+			readStored('norn.view') ?? (readStored('norn.stills') === '1' ? 'stills' : 'auto');
+		return (['auto', 'hd', 'sd', 'stills'] as const).find((v) => v === saved) ?? 'auto';
 	}
 	function setView(value: TileView) {
 		view = value;
-		try {
-			localStorage.setItem('norn.view', value);
-		} catch {
-			// private mode
-		}
+		writeStored('norn.view', value);
 	}
 
 	// Arranging: drag tiles (or move them with the arrows), then save the order in config.yaml.

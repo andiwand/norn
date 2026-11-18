@@ -3,7 +3,8 @@
 	import { page } from '$app/state';
 	import { api, urls, type Control, type Recording } from '#lib/api.js';
 	import { store } from '#lib/state.svelte.js';
-	import { ownSettings } from '#lib/format.js';
+	import { RecordingList } from '#lib/recordings.svelte.js';
+	import { byGroup, ownSettings } from '#lib/format.js';
 	import LiveVideo from '#lib/components/LiveVideo.svelte';
 	import PtzPad from '#lib/components/PtzPad.svelte';
 	import ControlField from '#lib/components/ControlField.svelte';
@@ -43,20 +44,13 @@
 		Object.values(camera?.presets_norn ?? {}).filter((p) => ownSettings(p).length).length
 	);
 	const enabled = $derived(camera?.enabled ?? false);
-	let recent = $state<Recording[]>([]);
+	const recent = new RecordingList();
 	let open = $state<Recording | null>(null);
 
-	const groups = $derived(
-		Object.entries(
-			controls.reduce<Record<string, Control[]>>((acc, c) => {
-				(acc[c.group] ??= []).push(c);
-				return acc;
-			}, {})
-		)
-	);
+	const groups = $derived(byGroup(controls));
 
 	async function loadRecent(cameraId: string) {
-		recent =
+		recent.items =
 			// Videos: with pictures on a timer, the newest eight would all be pictures.
 			(await api.recordings({ camera: cameraId, limit: 8, kind: 'video' }).catch(() => null))
 				?.recordings ?? [];
@@ -75,34 +69,10 @@
 		});
 	});
 
-	// The lifetime rings on the recent recordings count down.
-	let ringNow = $state(Date.now());
-	$effect(() => {
-		const timer = setInterval(() => (ringNow = Date.now()), 60_000);
-		return () => clearInterval(timer);
-	});
-
-	async function pin(r: Recording, pinned: boolean) {
-		const updated = await store.pin(r, pinned);
-		if (updated) replace(updated);
-	}
-
-	function replace(updated: Recording) {
-		recent = recent.map((x) => (x.id === updated.id ? updated : x));
-	}
-
-	async function remove(r: Recording) {
-		const ok = await store.attempt(async () => {
-			await api.deleteRecording(r.id);
-			return true;
-		}, 'Recording deleted');
-		if (ok) recent = recent.filter((x) => x.id !== r.id);
-	}
-
 	async function setControl(control: Control, value: unknown) {
 		const previous = control.value;
 		if (control.kind !== 'button') control.value = value;
-		const ok = await store.attempt(() => api.setControl(id, control.id, value).then(() => true));
+		const ok = await store.attempt(() => api.setControl(id, control.id, value));
 		if (ok === undefined && control.kind !== 'button') control.value = previous;
 		else if (control.kind === 'button') store.toast(`${control.label} triggered`, 'success');
 	}
@@ -296,21 +266,22 @@
 		{/if}
 		<div class="min-w-0 space-y-4">
 			<Panel title="Recent recordings" name="recent" open>
-				{#snippet summary()}{recent.length ? `${recent.length} videos` : 'None yet'}{/snippet}
+				{#snippet summary()}{recent.items.length
+						? `${recent.items.length} videos`
+						: 'None yet'}{/snippet}
 				{#snippet actions()}<a
 						href="/recordings?camera={camera.id}"
 						class="px-2 text-sm text-accent hover:underline">All</a
 					>{/snippet}
-				{#if recent.length}
+				{#if recent.items.length}
 					<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
-						{#each recent as r (r.id)}
+						{#each recent.items as r (r.id)}
 							<RecordingTile
 								recording={r}
 								cameraName={camera.name}
 								onopen={(x) => (open = x)}
-								ondelete={remove}
-								onpin={pin}
-								now={ringNow}
+								ondelete={recent.remove}
+								onpin={recent.pin}
 							/>
 						{/each}
 					</div>
@@ -364,5 +335,9 @@
 		</div>
 	</div>
 
-	<RecordingDialog bind:recording={open} onchanged={replace} ondeleted={() => loadRecent(id)} />
+	<RecordingDialog
+		bind:recording={open}
+		onchanged={recent.replace}
+		ondeleted={() => loadRecent(id)}
+	/>
 {/if}

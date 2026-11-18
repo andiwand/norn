@@ -2,8 +2,7 @@
 	// Create or edit a circle: its name, its cameras, and settings for the cameras in it.
 	import { untrack } from 'svelte';
 	import { api, type Circle, type Window } from '../api';
-	import { slugify } from '../format';
-	import { numberOrNull } from '../format';
+	import { cameraModel, numberOrNull, slugify } from '../format';
 	import { store } from '../state.svelte';
 	import IntervalSetting from './IntervalSetting.svelte';
 	import TriggerSetting from './TriggerSetting.svelte';
@@ -87,10 +86,7 @@
 					/>
 					<span class="min-w-0">
 						<span class="block truncate text-sm font-medium">{camera.name}</span>
-						<span class="block truncate text-xs text-muted"
-							>{[camera.device?.manufacturer, camera.device?.model].filter(Boolean).join(' ') ||
-								camera.driver}</span
-						>
+						<span class="block truncate text-xs text-muted">{cameraModel(camera)}</span>
 					</span>
 				</label>
 			{/each}

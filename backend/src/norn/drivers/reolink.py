@@ -21,7 +21,6 @@ import time
 import zipfile
 from collections.abc import AsyncIterator
 from typing import Any
-from urllib.parse import quote
 from xml.sax.saxutils import escape
 
 import httpx
@@ -33,6 +32,7 @@ from reolink_aio.exceptions import ReolinkError
 from ..labels import REOLINK_AI
 from . import register
 from .base import (
+    DIRECTIONS,
     Capability,
     Control,
     DeviceInfo,
@@ -45,21 +45,14 @@ from .base import (
     Preset,
     PtzCommand,
     Stream,
+    sign,
+    userinfo,
 )
 
 log = logging.getLogger("norn.reolink")
 
 CHANNEL = 0  # a camera is channel 0; an NVR's cameras would be 0..n
-DIRECTIONS = {
-    (0, 1): "Up",
-    (0, -1): "Down",
-    (-1, 0): "Left",
-    (1, 0): "Right",
-    (-1, 1): "LeftUp",
-    (1, 1): "RightUp",
-    (-1, -1): "LeftDown",
-    (1, -1): "RightDown",
-}
+FIRMWARE_HOSTS = ("https://home-cdn.reolink.us/", "https://reolink.com/", "https://cdn.reolink.com/")
 DAY_NIGHT = {"Auto": "Auto", "Color": "Colour", "Black&White": "Black and white"}
 # Reolink's HTTP API refuses passwords with other characters; Baichuan doesn't mind.
 HTTP_SAFE = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@$*~_-+=!?.,:;'()[]")
@@ -83,10 +76,6 @@ class ReolinkOptions(DriverOptions):
     baichuan_port: int = Field(
         9000, title="Baichuan port", ge=1, le=65535, description="Reolink's app protocol"
     )
-
-
-def _sign(x: float, dead: float = 0.2) -> int:
-    return 0 if abs(x) < dead else (1 if x > 0 else -1)
 
 
 @register
@@ -172,6 +161,7 @@ class ReolinkDriver(Driver):
         await self._call(self.api.baichuan.subscribe_events)
         self.api.baichuan.register_callback(callback, changed.set, cmd_id=33)
         last: dict[str, bool] = {}
+        was_active = False  # reolink_aio counts the subscription active from the first push on
         try:
             while True:
                 try:
@@ -179,6 +169,10 @@ class ReolinkDriver(Driver):
                     await asyncio.wait_for(changed.wait(), 60)
                 except TimeoutError:
                     await self._call(self.api.baichuan.check_subscribe_events)
+                    if was_active and not self.api.baichuan.events_active:
+                        # The connection dropped: the states may be stale (motion stuck "on").
+                        raise DriverError("lost the event subscription") from None
+                was_active = was_active or self.api.baichuan.events_active
                 changed.clear()
                 for kind, active in self._detections().items():
                     if last.get(kind, False) != active:
@@ -189,7 +183,12 @@ class ReolinkDriver(Driver):
             self.api.baichuan.unregister_callback(callback)
 
     async def stop(self) -> None:
+        if self._restore is not None:
+            self._restore.cancel()
         if self._api is not None:
+            # Logging out keeps the connection (and its keepalive) while subscribed to events.
+            with contextlib.suppress(ReolinkError, OSError):
+                await self._api.baichuan.unsubscribe_events()
             with contextlib.suppress(ReolinkError, OSError):
                 await self._api.logout()
 
@@ -199,8 +198,7 @@ class ReolinkDriver(Driver):
 
     def streams(self) -> list[Stream]:
         o = self.options
-        auth = f"{quote(o.username, safe='')}:{quote(o.password, safe='')}@"
-        base = f"rtsp://{auth}{o.host}:{o.rtsp_port}/h264Preview_01_"
+        base = f"rtsp://{userinfo(o.username, o.password)}{o.host}:{o.rtsp_port}/h264Preview_01_"
         return [
             Stream(id="main", label="Main", source=f"{base}main", codec="h264"),
             Stream(id="sub", label="Sub", source=f"{base}sub", codec="h264"),
@@ -208,9 +206,8 @@ class ReolinkDriver(Driver):
 
     def extra_streams(self) -> list[Stream]:
         o = self.options
-        auth = f"{quote(o.username, safe='')}:{quote(o.password, safe='')}@"
         # The "fluent" third stream of some models.
-        source = f"rtsp://{auth}{o.host}:{o.rtsp_port}/h264Preview_01_ext"
+        source = f"rtsp://{userinfo(o.username, o.password)}{o.host}:{o.rtsp_port}/h264Preview_01_ext"
         return [Stream(id="ext", label="Third", source=source, codec="h264")]
 
     def _supported(self, feature: str, channel: int | None = CHANNEL) -> bool:
@@ -340,7 +337,8 @@ class ReolinkDriver(Driver):
                     value=a.auto_track_enabled(ch),
                 )
             )
-        if self._supported("md_sensitivity"):
+        # reolink_aio says 0 without data, and averages zones (a float).
+        if self._supported("md_sensitivity") and (sensitivity := a.md_sensitivity(ch)):
             controls.append(
                 Control(
                     id="sensitivity",
@@ -348,7 +346,7 @@ class ReolinkDriver(Driver):
                     kind="range",
                     group="Alarm",
                     icon="activity",
-                    value=a.md_sensitivity(ch),
+                    value=max(1, min(50, round(sensitivity))),
                     min=1,
                     max=50,
                     step=1,
@@ -386,18 +384,22 @@ class ReolinkDriver(Driver):
 
     async def set_control(self, control_id: str, value: Any) -> None:
         a, ch = self.api, CHANNEL
+        if control_id == "sensitivity":
+            value = max(1, min(50, int(value)))
+        elif control_id not in ("daynight", "siren"):
+            value = bool(value)
         setters = {
             "daynight": lambda: a.set_daynight(ch, str(value)),
-            "ir": lambda: a.set_ir_lights(ch, bool(value)),
-            "spotlight": lambda: a.set_whiteled(ch, state=bool(value)),
-            "led": lambda: a.set_status_led(ch, bool(value)),
-            "autotrack": lambda: a.set_auto_tracking(ch, bool(value)),
-            "sensitivity": lambda: a.set_md_sensitivity(ch, max(1, min(50, int(value)))),
+            "ir": lambda: a.set_ir_lights(ch, value),
+            "spotlight": lambda: a.set_whiteled(ch, state=value),
+            "led": lambda: a.set_status_led(ch, value),
+            "autotrack": lambda: a.set_auto_tracking(ch, value),
+            "sensitivity": lambda: a.set_md_sensitivity(ch, value),
             "siren": lambda: a.set_siren(ch, True, 2),
-            "privacy": lambda: a.baichuan.set_privacy_mode(enable=bool(value)),
+            "privacy": lambda: a.baichuan.set_privacy_mode(enable=value),
             # Older firmware stores these but runs no web server; newer firmware serves the API.
-            "http": lambda: a.baichuan.set_port_enabled(PortType.http, bool(value)),
-            "https": lambda: a.baichuan.set_port_enabled(PortType.https, bool(value)),
+            "http": lambda: a.baichuan.set_port_enabled(PortType.http, value),
+            "https": lambda: a.baichuan.set_port_enabled(PortType.https, value),
         }
         if control_id not in setters:
             raise NotSupportedError(f"no control {control_id!r}")
@@ -451,7 +453,7 @@ class ReolinkDriver(Driver):
         elif command.zoom and not (command.pan or command.tilt):
             op = {"command": "ZoomInc" if command.zoom > 0 else "ZoomDec"}
         else:
-            key = (_sign(command.pan), _sign(command.tilt))
+            key = (sign(command.pan), sign(command.tilt))
             if key == (0, 0):
                 raise ValueError("no direction")
             op = {"command": DIRECTIONS[key]}
@@ -476,13 +478,15 @@ class ReolinkDriver(Driver):
         if self._latest is None and not await self.firmware_online_check():
             raise DriverError("no newer firmware is available")
         url = self._latest.download_url
-        if not url.startswith(
-            ("https://home-cdn.reolink.us/", "https://reolink.com/", "https://cdn.reolink.com/")
-        ):
-            raise DriverError(f"refusing firmware from an unexpected address: {url}")
         log.warning("%s: downloading firmware %s", self.camera_id, self._latest.version_string)
-        async with httpx.AsyncClient(timeout=300, follow_redirects=True) as client:
-            response = await client.get(url)
+        async with httpx.AsyncClient(timeout=300) as client:
+            for _ in range(5):  # follow redirects, but only to Reolink's own servers
+                if not url.startswith(FIRMWARE_HOSTS):
+                    raise DriverError(f"refusing firmware from an unexpected address: {url}")
+                response = await client.get(url)
+                if response.next_request is None:
+                    break
+                url = str(response.next_request.url)
         if response.status_code != 200:
             raise DriverError(f"download failed: HTTP {response.status_code}")
         package, file_name = None, None
@@ -524,9 +528,12 @@ class ReolinkDriver(Driver):
                 self._connected = False
                 await asyncio.sleep(20)
                 continue
-            for name in names:
-                if not ports.get(name, {}).get("enable"):
-                    log.warning("%s: the update turned %s off; turning it on again", self.camera_id, name)
-                    await self._call(self.api.baichuan.set_port_enabled, PortType[name], True)
+            try:
+                for name in names:
+                    if not ports.get(name, {}).get("enable"):
+                        log.warning("%s: the update turned %s off; turning it on again", self.camera_id, name)
+                        await self._call(self.api.baichuan.set_port_enabled, PortType[name], True)
+            except Exception:
+                log.exception("%s: couldn't turn the ports on again after the update", self.camera_id)
             return
         log.error("%s: didn't come back after the update to restore its ports", self.camera_id)

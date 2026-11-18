@@ -12,13 +12,31 @@ export class SettingsForm {
 
 	/** Load, and follow changes made elsewhere while nothing is being edited here. */
 	watch(): () => void {
-		api.settings().then((d) => this.take(d));
-		return store.on((e) => {
+		let retry: ReturnType<typeof setTimeout> | undefined;
+		let stopped = false;
+		// Until the first load works (the server may be restarting), try again every few seconds.
+		const load = () =>
+			api
+				.settings()
+				.then((d) => this.take(d))
+				.catch(() => {
+					if (!stopped) retry = setTimeout(load, 3000);
+				});
+		load();
+		const off = store.on((e) => {
 			if (['settings.changed', 'cameras.changed', 'away.changed'].includes(e.type) && !this.dirty) {
 				// Edits made while this loads win.
-				api.settings().then((d) => !this.dirty && !this.saving && this.take(d));
+				api
+					.settings()
+					.then((d) => !this.dirty && !this.saving && this.take(d))
+					.catch(() => {}); // the next change brings it
 			}
 		});
+		return () => {
+			stopped = true;
+			clearTimeout(retry);
+			off();
+		};
 	}
 
 	take(data: SettingsData) {

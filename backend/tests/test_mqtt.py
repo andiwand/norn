@@ -237,3 +237,79 @@ async def test_listen_skips_left_and_cleared_commands(hub: Hub, broker: dict[str
     await asyncio.gather(*hub.mqtt._commands)
     assert state["brightness"] == brightness and state["spotlight"] is True
     assert hub.mqtt.last_error is None
+
+
+async def test_nothing_is_cleared_while_the_config_has_an_error(hub: Hub, broker: dict[str, str]) -> None:
+    old = "homeassistant/button/norn/porch_record/config"
+    broker[old] = "{}"
+    await hub.mqtt.handle(old, "{}")
+    hub.config_error = "a typo"  # the hub then runs without the cameras of the file
+    await hub.mqtt.sync()
+    assert old in broker
+    hub.config_error = None
+    await hub.mqtt.sync()
+    assert old not in broker
+
+
+async def test_offline_cameras_keep_their_entities(hub: Hub, broker: dict[str, str]) -> None:
+    mqtt, camera = hub.mqtt, hub.cameras["yard"]
+    # Before the camera answered: its controls and events from an earlier run stay.
+    camera.controls, camera.device = None, None
+    mqtt._kinds.clear()
+    found = [
+        "homeassistant/switch/norn/yard_control_old/config",
+        "norn/camera/yard/control/old",
+        "homeassistant/binary_sensor/norn/yard_event_animal/config",
+        "norn/camera/yard/event/animal",
+    ]
+    for topic in found:
+        broker[topic] = "x"
+        await mqtt.handle(topic, "x")
+    await mqtt.sync()
+    assert all(t in broker for t in found)
+
+    # Online: what it reports now counts, and the rest goes.
+    camera.device = DeviceInfo(online=True)
+    await hub.refresh_controls("yard")
+    await mqtt.sync()
+    assert not any(t in broker for t in found)
+
+    # A kind the camera knows only while connected (Reolink's AI) stays while it is offline.
+    driver = hub.get_driver("yard")
+    assert "homeassistant/binary_sensor/norn/yard_event_person/config" in broker
+    driver.event_kinds = lambda: ["motion"]  # type: ignore[method-assign]
+    camera.device = DeviceInfo(online=False)
+    await mqtt.sync()
+    assert "homeassistant/binary_sensor/norn/yard_event_person/config" in broker
+
+
+async def test_record_commands(hub: Hub, broker: dict[str, str]) -> None:
+    clips: list[tuple[str, str, int | None]] = []
+
+    async def record_clip(camera: str, trigger: str = "manual", seconds: int | None = None) -> None:
+        clips.append((camera, trigger, seconds))
+
+    hub.recorder.record_clip = record_clip  # type: ignore[method-assign]
+    mqtt = hub.mqtt
+    await mqtt.handle("norn/camera/yard/record/set", "PRESS")
+    await mqtt.handle("norn/camera/yard/record/set", '{"trigger": "doorbell", "seconds": 30}')
+    assert clips == [("yard", "mqtt", None), ("yard", "doorbell", 30)]
+    for bad in ('{"seconds": -1}', '{"seconds": 100000}', '{"trigger": "continuous"}', '{"seconds": "x"}'):
+        await mqtt.handle("norn/camera/yard/record/set", bad)
+        assert mqtt.last_error and bad in mqtt.last_error["command"]
+    assert len(clips) == 2
+
+    # A circle records every camera it can, and says which failed.
+    hub.circle_members = lambda circle_id: ["gone", "yard"]  # type: ignore[method-assign]
+    await mqtt.handle("norn/circle/outside/record/set", "PRESS")
+    assert clips[-1] == ("yard", "mqtt", None)
+    assert "gone" in mqtt.last_error["error"]
+
+
+def test_subscriptions(hub: Hub) -> None:
+    from paho.mqtt.client import topic_matches_sub
+
+    topics = hub.mqtt.subscriptions()
+    for wanted in ("norn/camera/yard/control/ir/set", "norn/camera/yard/event/person", "norn/away"):
+        assert any(topic_matches_sub(t, wanted) for t in topics)
+    assert not any(topic_matches_sub(t, "norn/camera/yard/still") for t in topics)  # Norn's own JPEGs

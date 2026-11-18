@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { store } from '#lib/state.svelte.js';
 	import type { Camera } from '#lib/api.js';
+	import { cameraModel } from '#lib/format.js';
 	import Plus from '@lucide/svelte/icons/plus';
 	import Pencil from '@lucide/svelte/icons/pencil';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
@@ -17,8 +18,6 @@
 		if (c.device) return ['OK', 'text-success'];
 		return ['…', 'text-muted'];
 	}
-	const model = (c: Camera) =>
-		[c.device?.manufacturer, c.device?.model].filter(Boolean).join(' ') || c.driver;
 	const row =
 		'group flex cursor-pointer items-center gap-4 px-5 py-3.5 transition hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none';
 </script>
@@ -54,7 +53,7 @@
 						<span class="min-w-0 flex-1">
 							<span class="block truncate font-medium group-hover:text-accent">{c.name}</span>
 							<span class="block truncate text-xs text-muted"
-								>{model(c)}{#if c.device?.firmware}<span class="font-mono">
+								>{cameraModel(c)}{#if c.device?.firmware}<span class="font-mono">
 										· {c.device.firmware}</span
 									>{/if}</span
 							>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatBytes, formatDay, formatDuration, slugify } from './format';
+import { formatBytes, formatDay, formatDuration, serverTime, slugify } from './format';
 import { errorText } from './api';
 
 describe('format', () => {
@@ -7,6 +7,11 @@ describe('format', () => {
 		expect(formatBytes(512)).toBe('512 B');
 		expect(formatBytes(1_500_000)).toBe('1.5 MB');
 		expect(formatBytes(42_000_000_000)).toBe('42 GB');
+	});
+
+	it('reads times on the server clock', () => {
+		expect(serverTime('2026-11-15T12:00', 60)).toBe(Date.UTC(2026, 10, 15, 11));
+		expect(serverTime('2026-11-15T12:00:30', -300)).toBe(Date.UTC(2026, 10, 15, 17, 0, 30));
 	});
 
 	it('formats durations', () => {

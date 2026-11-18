@@ -58,25 +58,38 @@
 	});
 
 	// Pointer events cover mouse and touch; capture keeps the release on the button that started.
+	// From the keyboard, Enter or Space held on a focused button moves the same way.
 	function hold(node: HTMLElement, args: [string, number, number, number]) {
 		let current = args;
 		const down = (e: PointerEvent) => {
 			node.setPointerCapture(e.pointerId);
 			start(...current);
 		};
+		const press = (e: KeyboardEvent) => e.key === 'Enter' || e.key === ' ';
+		const keydown = (e: KeyboardEvent) => {
+			if (!press(e)) return;
+			e.preventDefault();
+			if (!e.repeat) start(...current);
+		};
+		const keyup = (e: KeyboardEvent) => {
+			if (!press(e)) return;
+			e.preventDefault();
+			stop();
+		};
+		const stops = ['pointerup', 'pointercancel', 'lostpointercapture', 'blur'] as const;
 		node.addEventListener('pointerdown', down);
-		node.addEventListener('pointerup', stop);
-		node.addEventListener('pointercancel', stop);
-		node.addEventListener('lostpointercapture', stop);
+		node.addEventListener('keydown', keydown);
+		node.addEventListener('keyup', keyup);
+		for (const type of stops) node.addEventListener(type, stop);
 		return {
 			update(next: [string, number, number, number]) {
 				current = next;
 			},
 			destroy() {
 				node.removeEventListener('pointerdown', down);
-				node.removeEventListener('pointerup', stop);
-				node.removeEventListener('pointercancel', stop);
-				node.removeEventListener('lostpointercapture', stop);
+				node.removeEventListener('keydown', keydown);
+				node.removeEventListener('keyup', keyup);
+				for (const type of stops) node.removeEventListener(type, stop);
 			}
 		};
 	}

@@ -34,6 +34,7 @@ import json
 import logging
 import os
 import shutil
+import signal
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -166,12 +167,18 @@ async def run(cmd: list[str], timeout: float = 120, stdout: bool = False) -> tup
     return process.returncode or 0, (text or b"").decode(errors="replace").strip()
 
 
+def finish(process: asyncio.subprocess.Process) -> None:
+    """Ask FFmpeg to stop: SIGINT makes it finish the file properly, unlike a kill."""
+    if process.returncode is None:
+        with contextlib.suppress(ProcessLookupError):
+            process.send_signal(signal.SIGINT)
+
+
 async def interrupt(process: asyncio.subprocess.Process, grace: float = 5) -> None:
-    """Stop FFmpeg the clean way (SIGINT: it finishes the file), and for sure after `grace`."""
+    """Stop FFmpeg the clean way (it finishes the file), and for sure after `grace`."""
     if process.returncode is not None:
         return
-    with contextlib.suppress(ProcessLookupError):
-        process.send_signal(2)
+    finish(process)
     try:
         await asyncio.wait_for(asyncio.shield(process.wait()), grace)
     except TimeoutError:
@@ -260,21 +267,23 @@ class Buffer:
             cmd = buffer_command(
                 settings.ffmpeg_bin, go2rtc.rtsp_url(self.camera), self.folder, start, self.transcode
             )
-            process = await asyncio.create_subprocess_exec(*cmd, stderr=asyncio.subprocess.PIPE)
-            self.running = True
+            process = None
             pruner = asyncio.create_task(self._prune_loop())
             try:
+                process = await asyncio.create_subprocess_exec(*cmd, stderr=asyncio.subprocess.PIPE)
+                self.running = True
                 _, stderr = await process.communicate()
+                error = f"({process.returncode}) {stderr.decode(errors='replace').strip()[-300:]}"
+            except OSError as e:  # FFmpeg missing, too many open files, ...
+                error = f"can't start FFmpeg: {e}"
             except asyncio.CancelledError:
-                await interrupt(process)
+                if process:
+                    await interrupt(process)
                 raise
             finally:
                 self.running = False
                 pruner.cancel()
-            log.warning(
-                "buffer of %s stopped (%s): %s; retrying in %.0fs",
-                self.camera, process.returncode, stderr.decode(errors="replace").strip()[-300:], delay,
-            )  # fmt: skip
+            log.warning("buffer of %s stopped %s; retrying in %.0fs", self.camera, error, delay)
             await asyncio.sleep(delay)
             delay = min(delay * 2, 60)
 
@@ -297,6 +306,7 @@ class Clip:
     seconds: int
     end: float = 0  # time.time() when the clip should end
     events: set[str] = field(default_factory=set)  # every trigger that started or extended it
+    closing: bool = False  # its end is fixed: a trigger now starts a new clip
     process: asyncio.subprocess.Process | None = None
     task: asyncio.Task[None] | None = field(default=None, repr=False)
 
@@ -325,7 +335,8 @@ class Recorder:
         self._buffers: dict[str, Buffer] = {}
         self._pictures: dict[str, tuple[int, asyncio.Task[None]]] = {}
         self.transcode: set[str] = set()
-        self.clips: dict[str, Clip] = {}
+        self.clips: dict[str, Clip] = {}  # the current clip of each camera
+        self._clip_tasks: set[asyncio.Task[None]] = set()  # with clips that are still closing
         self._housekeeping: asyncio.Task[None] | None = None
         self._evict_paused_until = 0.0
         self._config = Config()
@@ -344,17 +355,19 @@ class Recorder:
     async def stop(self) -> None:
         tasks = [
             *self._continuous.values(),
-            *self._stopping.values(),
-            *(c.task for c in self.clips.values() if c.task),
+            *self._clip_tasks,
             *(task for _, task in self._pictures.values()),
         ]
         if self._housekeeping:
             tasks.append(self._housekeeping)
         for task in tasks:
             task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+        # Stopped ones are already finishing their file: cancelling again would cut that short.
+        await asyncio.gather(*tasks, *self._stopping.values(), return_exceptions=True)
         await asyncio.gather(*(b.stop() for b in self._buffers.values()), return_exceptions=True)
         self._continuous.clear()
+        self._continuous_args.clear()
+        self._stopping.clear()
         self._buffers.clear()
         self._pictures.clear()
         if self.available:
@@ -431,7 +444,7 @@ class Recorder:
         buffer = self._buffers.get(camera)
         if not buffer or not buffer.running:
             return 0
-        pieces = buffer.pieces()
+        pieces = [p for p in buffer.pieces() if p.index >= buffer.run_first]  # a clip joins only these
         if len(pieces) < 2:
             return 0
         return min(buffer.seconds, max(0, round(time.time() - pieces[0].end)))
@@ -450,8 +463,12 @@ class Recorder:
     def usage(self) -> dict[str, Any]:
         """What each storage stage holds. Walks the folders: call it in a thread."""
         stages = {}
-        for key, path in (("buffer", self.settings.buffer_path), ("temp", self.settings.temp_path)):
-            used, files = folder_size(path) if path.is_dir() else (0, 0)
+        buffer, temp = self.settings.buffer_path, self.settings.temp_path
+        for key, path in (("buffer", buffer), ("temp", temp)):
+            # The buffer may sit inside the temporary storage (when /dev/shm is too small).
+            used, files = (
+                folder_size(path, skip=buffer if key == "temp" else None) if path.is_dir() else (0, 0)
+            )
             stages[key] = {"path": str(path), "used": used, "files": files, **disk(path)}
         stages["recordings"] = self.library.usage()
         return stages
@@ -463,11 +480,11 @@ class Recorder:
             raise RuntimeError("recording needs go2rtc and ffmpeg")
         preset = self.preset_of(camera)
         seconds = seconds or self._config.setting(camera, "clip_seconds", preset)[0]
-        if camera in self.clips:
-            clip = self.clips[camera]
+        clip = self.clips.get(camera)
+        if clip and not clip.closing:
             # A trigger during a clip (a detection, the button, a webhook) makes it last long
-            # enough for this one too: one longer video, not a second.
-            clip.end = max(clip.end, time.time() + seconds)
+            # enough for this one too: one longer video, not a second. Up to a limit.
+            clip.end = min(max(clip.end, time.time() + seconds), clip.start.timestamp() + MAX_CLIP_SECONDS)
             clip.seconds = round(clip.end - clip.triggered.timestamp())
             clip.events.add(trigger)
             return clip
@@ -490,6 +507,8 @@ class Recorder:
         self.clips[camera] = clip
         runner = self._run_buffered_clip(clip, buffer) if buffer and before else self._run_clip(clip)
         clip.task = asyncio.create_task(runner, name=f"clip-{camera}")
+        self._clip_tasks.add(clip.task)
+        clip.task.add_done_callback(self._clip_tasks.discard)
         self.bus.publish("recording.started", clip.to_json())
         return clip
 
@@ -498,17 +517,20 @@ class Recorder:
         if not clip:
             return False
         clip.end = min(clip.end, time.time())
-        if clip.process and clip.process.returncode is None:
-            # SIGINT makes FFmpeg finish the file properly, unlike a kill.
-            with contextlib.suppress(ProcessLookupError):
-                clip.process.send_signal(2)
+        self._close(clip)
         return True
+
+    def _close(self, clip: Clip) -> None:
+        """The clip's end is fixed: a trigger from now on starts a new one."""
+        clip.closing = True
+        if clip.process:
+            finish(clip.process)
 
     async def _run_clip(self, clip: Clip) -> None:
         """A clip without a buffer: FFmpeg records from now on."""
         meta = self._meta(clip)
+        snapshot = asyncio.create_task(self._thumbnail(clip))
         try:
-            snapshot = asyncio.create_task(self._thumbnail(clip))
             cmd = clip_command(
                 self.settings.ffmpeg_bin,
                 self.go2rtc.rtsp_url(clip.camera),
@@ -518,30 +540,39 @@ class Recorder:
             )
             clip.process = await asyncio.create_subprocess_exec(*cmd, stderr=asyncio.subprocess.PIPE)
             watcher = asyncio.create_task(self._stop_at_end(clip))
-            _, stderr = await clip.process.communicate()
-            watcher.cancel()
-            await snapshot
-            if clip.process.returncode not in (0, 255) or not clip.path.exists():
-                error = stderr.decode(errors="replace").strip()
-                log.warning("clip of %s failed: %s", clip.camera, error)
-                meta["error"] = error[-500:] or "ffmpeg failed"
-            meta["duration"] = (
-                await duration_of(self.settings.ffmpeg_bin, clip.path) if clip.path.exists() else None
-            ) or round((datetime.now() - clip.start).total_seconds(), 1)
+            try:
+                _, stderr = await clip.process.communicate()
+            finally:
+                watcher.cancel()
+                clip.closing = True
+            ok = clip.process.returncode in (0, 255)
+            await self._check_video(clip, meta, ok, stderr.decode(errors="replace").strip())
         except asyncio.CancelledError:
+            snapshot.cancel()  # Norn stops: no waiting for a thumbnail
             if clip.process:
                 await interrupt(clip.process)
             raise
+        except Exception as e:
+            log.exception("clip of %s failed", clip.camera)
+            meta["error"] = str(e)
         finally:
-            await self._finish_clip(clip, meta)
+            await self._finish_clip(clip, meta, snapshot)
 
     async def _stop_at_end(self, clip: Clip) -> None:
         while clip.process and clip.process.returncode is None:
             if time.time() >= clip.end:
-                with contextlib.suppress(ProcessLookupError):
-                    clip.process.send_signal(2)
+                self._close(clip)
                 return
             await asyncio.sleep(0.5)
+
+    async def _check_video(self, clip: Clip, meta: dict[str, Any], ok: bool, error: str) -> None:
+        """Note in the clip's details whether FFmpeg made its video, and how long it is."""
+        if not ok or not clip.path.exists():
+            log.warning("clip of %s failed: %s", clip.camera, error)
+            meta["error"] = error[-500:] or "ffmpeg failed"
+        meta["duration"] = (
+            await duration_of(self.settings.ffmpeg_bin, clip.path) if clip.path.exists() else None
+        ) or round(time.time() - clip.start.timestamp(), 1)
 
     async def _run_buffered_clip(self, clip: Clip, buffer: Buffer) -> None:
         """A clip from the buffer: the pieces since `start` go into one file in the temporary
@@ -556,32 +587,36 @@ class Recorder:
         buffer.claims[claim] = -1
         snapshot = asyncio.create_task(self._thumbnail(clip))
         try:
-            await self._collect(clip, buffer, joined, claim)
+            try:
+                await self._collect(clip, buffer, joined, claim)
+            except Exception as e:
+                log.exception("clip of %s: collecting the buffer failed", clip.camera)
+                meta["error"] = str(e)
+            finally:
+                buffer.claims.pop(claim, None)
+                clip.closing = True
+            size = joined.stat().st_size if joined.exists() else 0
+            if size == 0:
+                meta.setdefault("error", "the buffer had no video")
+            else:
+                # Remuxing only copies, but a long clip on a slow disk takes a while.
+                timeout = max(120, size / 5_000_000)
+                code, error = await run(remux_command(self.settings.ffmpeg_bin, joined, clip.path), timeout)
+                await self._check_video(clip, meta, code == 0, error)
+            joined.unlink(missing_ok=True)
         except asyncio.CancelledError:
+            # Norn stops: the joined pieces stay for _recover, with the thumbnail if there are any.
             snapshot.cancel()
-            self.clips.pop(clip.camera, None)
+            await asyncio.wait([snapshot])
+            if not joined.exists():
+                clip.path.with_suffix(".jpg").unlink(missing_ok=True)
+            if self.clips.get(clip.camera) is clip:
+                del self.clips[clip.camera]
             raise
         except Exception as e:
-            log.exception("clip of %s: collecting the buffer failed", clip.camera)
+            log.exception("clip of %s failed", clip.camera)
             meta["error"] = str(e)
-        finally:
-            buffer.claims.pop(claim, None)
-        await snapshot
-        size = joined.stat().st_size if joined.exists() else 0
-        if size == 0:
-            meta.setdefault("error", "the buffer had no video")
-        else:
-            # Remuxing only copies, but a long clip on a slow disk takes a while.
-            timeout = max(120, size / 5_000_000)
-            code, error = await run(remux_command(self.settings.ffmpeg_bin, joined, clip.path), timeout)
-            if code != 0 or not clip.path.exists():
-                log.warning("clip of %s failed: %s", clip.camera, error)
-                meta["error"] = error[-500:] or "ffmpeg failed"
-            meta["duration"] = (
-                await duration_of(self.settings.ffmpeg_bin, clip.path) if clip.path.exists() else None
-            ) or round(time.time() - clip.start.timestamp(), 1)
-        joined.unlink(missing_ok=True)
-        await self._finish_clip(clip, meta)
+        await self._finish_clip(clip, meta, snapshot)
 
     async def _collect(self, clip: Clip, buffer: Buffer, joined: Path, claim: int) -> None:
         """Append the buffer's finished pieces from the clip's start to its end to `joined`."""
@@ -596,9 +631,11 @@ class Recorder:
                 # The buffer restarted: its new pieces can't be joined to these. End here.
                 last = buffer.run_first - 1
                 deadline = time.time()
+                self._close(clip)
             elif last is None and time.time() >= clip.end:
                 last = pieces[-1].index if pieces else taken
                 deadline = time.time() + PIECE_SECONDS * 5
+                self._close(clip)
             done = [p for p in pieces[:-1] if p.index > taken and p.end >= since]
             if last is not None:
                 done = [p for p in done if p.index <= last]
@@ -620,8 +657,12 @@ class Recorder:
             "camera": clip.camera,
         }
 
-    async def _finish_clip(self, clip: Clip, meta: dict[str, Any]) -> None:
-        self.clips.pop(clip.camera, None)
+    async def _finish_clip(self, clip: Clip, meta: dict[str, Any], snapshot: asyncio.Task[None]) -> None:
+        if self.clips.get(clip.camera) is clip:  # not a new clip a trigger started meanwhile
+            del self.clips[clip.camera]
+        if not clip.path.exists():
+            snapshot.cancel()
+        await asyncio.wait([snapshot])  # its .jpg is written now, or never
         if clip.events != {clip.trigger}:
             meta["events"] = sorted(clip.events)
         moved = None
@@ -638,10 +679,9 @@ class Recorder:
     async def _thumbnail(self, clip: Clip) -> None:
         try:
             jpeg = await self.go2rtc.frame(clip.camera)
-        except Go2rtcUnavailableError as e:
+            clip.path.with_suffix(".jpg").write_bytes(jpeg)
+        except (Go2rtcUnavailableError, OSError) as e:
             log.info("no thumbnail for %s: %s", clip.camera, e)
-            return
-        clip.path.with_suffix(".jpg").write_bytes(jpeg)
 
     async def _take_pictures(self, camera: str, every: int) -> None:
         """A picture every `every` seconds, on the local clock (every hour: at :00)."""
@@ -704,10 +744,9 @@ class Recorder:
         """A full-size picture of the camera now: as the `stills` setting says, from the newest
         finished piece of its buffer (one decoded frame, no new connection), or from go2rtc."""
         piece = self.keyframe_piece(camera, self._config.detection_for(camera).stills)
-        pieces = [piece] if piece else []
-        if pieces:
+        if piece:
             code, error = await run(
-                thumbnail_command(self.settings.ffmpeg_bin, pieces[-1].path, path, width=None), timeout=20
+                thumbnail_command(self.settings.ffmpeg_bin, piece.path, path, width=None), timeout=20
             )
             if code == 0 and await asyncio.to_thread(path.exists):
                 return True
@@ -723,21 +762,21 @@ class Recorder:
     async def _to_library(self, camera: str, path: Path) -> Path | None:
         """Move a finished recording (video or picture, with its sidecars) from the temporary
         storage into the recordings. The video moves first: a .jpg alone would look like a picture."""
-        target = self.library.path(camera, path.parent.name, path.name)
 
-        def move() -> None:
+        def move() -> Path:
+            target = _unused(self.library.path(camera, path.parent.name, path.name))
             target.parent.mkdir(parents=True, exist_ok=True)
             for suffix in (path.suffix, ".jpg", ".json"):
                 source = path.with_suffix(suffix)
                 if source.exists():
                     _move(source, target.with_suffix(suffix))
+            return target
 
         try:
-            await asyncio.to_thread(move)
+            return await asyncio.to_thread(move)
         except OSError as e:
             log.error("can't move %s into the recordings: %s", path, e)
             return None
-        return target
 
     async def _run_continuous(self, camera: str, seconds: int, transcode: bool) -> None:
         delay = 2.0
@@ -749,17 +788,19 @@ class Recorder:
             )
             log.info("recording %s continuously", camera)
             self.bus.publish("recording.continuous", {"camera": camera, "active": True})
-            process = await asyncio.create_subprocess_exec(*cmd, stderr=asyncio.subprocess.PIPE)
+            process = None
             try:
+                process = await asyncio.create_subprocess_exec(*cmd, stderr=asyncio.subprocess.PIPE)
                 _, stderr = await process.communicate()
+                error = f"({process.returncode}) {stderr.decode(errors='replace').strip()[-300:]}"
+            except OSError as e:  # FFmpeg missing, too many open files, ...
+                error = f"can't start FFmpeg: {e}"
             except asyncio.CancelledError:
-                await interrupt(process)
+                if process:
+                    await interrupt(process)
                 self.bus.publish("recording.continuous", {"camera": camera, "active": False})
                 raise
-            log.warning(
-                "recording of %s stopped (%s): %s; retrying in %.0fs",
-                camera, process.returncode, stderr.decode(errors="replace").strip()[-300:], delay,
-            )  # fmt: skip
+            log.warning("recording of %s stopped %s; retrying in %.0fs", camera, error, delay)
             await asyncio.sleep(delay)
             delay = min(delay * 2, 60)
 
@@ -771,15 +812,20 @@ class Recorder:
             for camera, _, path in self.temp.iter_files()
             if path.suffix == ".mp4" and path.stem.endswith("_continuous")
         ]
+        # The newest by time written, not by name: in the hour after the clocks go back, names repeat.
         newest: dict[str, Path] = {}
-        for camera, path in files:  # iter_files goes through days and names in order
-            newest[camera] = path
+        written: dict[Path, float] = {}
+        for camera, path in files:
+            with contextlib.suppress(FileNotFoundError):
+                written[path] = path.stat().st_mtime
+                if camera not in newest or written[path] >= written[newest[camera]]:
+                    newest[camera] = path
         for cid, task in list(self._stopping.items()):
             if task.done():
                 del self._stopping[cid]
         active = set(self._continuous) | set(self._stopping)  # FFmpeg may still write their newest
         for camera, path in files:
-            if not everything and camera in active and newest[camera] == path:
+            if not everything and camera in active and newest.get(camera) == path:
                 continue
             if path.stat().st_size == 0:
                 path.unlink(missing_ok=True)
@@ -813,9 +859,11 @@ class Recorder:
                 joined.with_suffix(".jpg").unlink(missing_ok=True)
         for camera, _, path in list(self.temp.iter_files()):
             clip = path.suffix == ".mp4" and not path.stem.endswith("_continuous")
-            picture = path.suffix == ".jpg" and not path.with_suffix(".mp4").exists()
-            if clip or picture:
+            alone = path.suffix == ".jpg" and not path.with_suffix(".mp4").exists()
+            if clip or (alone and path.stem.endswith("_interval")):
                 await self._to_library(camera, path)
+            elif alone:
+                path.unlink(missing_ok=True)  # the thumbnail of a clip that never got a video
         await self._move_finished(everything=True)
 
     def _ensure_days(self, camera: str) -> None:
@@ -894,6 +942,16 @@ def _id(path: Path) -> str:
 def _append(piece: Path, joined: Path) -> None:
     with piece.open("rb") as source, joined.open("ab") as out:
         shutil.copyfileobj(source, out)
+
+
+def _unused(target: Path) -> Path:
+    """`target`, else the same name a second later (and so on), so a move never overwrites a
+    recording: in the hour after the clocks go back, names repeat."""
+    while any(target.with_suffix(s).exists() for s in (".mp4", ".jpg", ".json")):
+        when, _, rest = target.name.partition("_")
+        later = datetime.strptime(when, "%H-%M-%S") + timedelta(seconds=1)
+        target = target.with_name(f"{later:%H-%M-%S}_{rest}")
+    return target
 
 
 def _move(source: Path, target: Path) -> None:

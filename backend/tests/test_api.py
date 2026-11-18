@@ -4,8 +4,10 @@ import dataclasses
 import time
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
+from norn import api
 from norn.api import create_app
 from norn.events import EventBus
 from norn.go2rtc import Go2rtc
@@ -350,3 +352,10 @@ def test_preset_recording_survives_other_saves(client: TestClient) -> None:
     assert client.put("/api/cameras/demo", json=body).status_code == 200
     assert gate()["clip_seconds"] == 90
     assert client.get("/api/cameras/demo").json()["clip_seconds"] == 40
+
+
+def test_preset_ids_and_firmware_size(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    camera = client.get("/api/cameras").json()[0]["id"]
+    assert client.put(f"/api/cameras/{camera}/presets/Bad Id", json={"name": "X"}).status_code == 400
+    monkeypatch.setattr(api, "FIRMWARE_MAX", 10)
+    assert client.post(f"/api/cameras/{camera}/firmware", content=b"x" * 11).status_code == 413

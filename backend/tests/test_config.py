@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from norn.config import DEFAULT_CONFIG, CameraConfig, ConfigError, ConfigStore
+from norn.config import DEFAULT_CONFIG, CameraConfig, ConfigError, ConfigStore, Patrol
 
 
 def test_writes_default_config(tmp_path: Path) -> None:
@@ -170,3 +170,144 @@ def test_nested_values_stay_above_the_comments_at_the_end(tmp_path: Path) -> Non
         last = "      - person" if "triggers" in update else "        slot: norn-porch"
         assert last in text
         assert text.index(last) < text.index("# A plain RTSP camera"), text
+
+
+def _store(tmp_path: Path, text: str) -> ConfigStore:
+    path = tmp_path / "config.yaml"
+    path.write_text(text)
+    store = ConfigStore(path)
+    store.load()
+    return store
+
+
+def test_changes_keep_a_hand_edit_and_never_overwrite_a_broken_file(tmp_path: Path) -> None:
+    store = _store(tmp_path, "cameras:\n  a: {name: A, driver: demo}\n")
+    store.path.write_text("cameras:\n  a: {name: A by hand, driver: demo}\n")
+    config = store.put_camera("b", CameraConfig(name="B", driver="demo"))
+    assert config.cameras["a"].name == "A by hand" and "A by hand" in store.path.read_text()
+    broken = "cameras:\n  a: {name: A, driver: demo, record: sometimes, password: hunter2}\n"
+    store.path.write_text(broken)
+    with pytest.raises(ConfigError) as error:
+        store.put_camera("c", CameraConfig(name="C", driver="demo"))
+    assert store.path.read_text() == broken
+    assert "hunter2" not in str(error.value)  # the message never quotes values
+    # A file that never loaded (Norn started with it broken) isn't overwritten either.
+    with pytest.raises(ConfigError):
+        ConfigStore(store.path).put_camera("c", CameraConfig(name="C", driver="demo"))
+    assert store.path.read_text() == broken
+
+
+def test_a_failed_change_is_forgotten(tmp_path: Path) -> None:
+    from norn.config import RecordingSettings
+
+    store = _store(tmp_path, "cameras:\n  a: {name: A, driver: demo}\n")
+    with pytest.raises(ConfigError):  # a default preset it doesn't have
+        store.put_camera(
+            "x", CameraConfig(name="X", driver="demo").model_copy(update={"default_preset": "no"})
+        )
+    store.put_section("recording", RecordingSettings(retention_days=3))
+    assert "x:" not in store.path.read_text()
+
+
+def test_invalid_utf8_and_yaml_errors(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_bytes(b"cameras:\n  a:\n    name: \xff\n")
+    with pytest.raises(ConfigError):
+        ConfigStore(path).load()
+    path.write_text("cameras:\n  a: [\n    password: hunter2\n  b: c\n")
+    with pytest.raises(ConfigError) as error:
+        ConfigStore(path).load()
+    assert "hunter2" not in str(error.value) and "line" in str(error.value)
+
+
+def test_nested_changes_and_deletions_keep_comments(tmp_path: Path) -> None:
+    from norn.config import NornPreset
+
+    store = _store(
+        tmp_path,
+        "cameras:\n"
+        "  a:\n"
+        "    name: A\n"
+        "    driver: rtsp\n"
+        "    enabled: true\n"
+        "    # main stream\n"
+        "    url: rtsp://x/1\n"
+        "    presets:\n"
+        "      # porch view\n"
+        "      porch:\n"
+        "        name: Porch   # the good one\n"
+        "        slot: '1'\n",
+    )
+    a = store.config.cameras["a"]
+    presets = {**a.presets, "gate": NornPreset(name="Gate", slot="2")}
+    store.put_camera("a", a.model_copy(update={"name": "A2", "presets": presets}))
+    text = store.path.read_text()
+    assert "enabled" not in text
+    assert "    driver: rtsp\n    # main stream\n    url: rtsp://x/1\n" in text
+    assert "      # porch view\n      porch:\n        name: Porch   # the good one\n" in text
+    assert "      gate:\n        name: Gate\n" in text
+
+
+@pytest.mark.parametrize("removed", ["a", "b", "c"])
+def test_remove_keeps_the_others_comments(tmp_path: Path, removed: str) -> None:
+    store = _store(
+        tmp_path,
+        "cameras:\n"
+        "  # A at the door\n"
+        "  a:\n"
+        "    name: A\n"
+        "    driver: demo\n"
+        "  # B in the garage\n"
+        "  b: {name: B, driver: demo}\n"
+        "  # C at the gate\n"
+        "  c:\n"
+        "    name: C\n"
+        "    driver: demo\n"
+        "# the end\n",
+    )
+    store.remove_camera(removed)
+    lines = store.path.read_text().splitlines()
+    assert f"# {removed.upper()} " not in store.path.read_text()
+    for camera in {"a", "b", "c"} - {removed}:
+        i = next(n for n, line in enumerate(lines) if line.startswith(f"  # {camera.upper()} "))
+        assert lines[i + 1].startswith(f"  {camera}:"), lines
+    assert lines[-1] == "# the end"
+    assert list(ConfigStore(store.path).load().cameras) == sorted({"a", "b", "c"} - {removed})
+
+
+def test_a_setting_back_at_its_default_leaves_the_file(tmp_path: Path) -> None:
+    from norn.config import RecordingSettings
+
+    store = _store(tmp_path, "recording:\n  retention_days: 14  # two weeks\n  clip_seconds: 60\n")
+    store.put_section("recording", RecordingSettings(retention_days=14, clip_seconds=30))
+    assert store.path.read_text() == "recording:\n  retention_days: 14  # two weeks\n"
+
+
+def test_ids_and_detection_layers(tmp_path: Path) -> None:
+    from norn.config import Config
+
+    for bad in (
+        'cameras: {"a\\n": {name: A, driver: demo}}\n',
+        "cameras: {a: {name: A, driver: demo, presets: {'../x': {name: X, slot: '1'}}}}\n",
+    ):
+        with pytest.raises(ConfigError):
+            _store(tmp_path, bad)
+    with pytest.raises(ConfigError):
+        _store(tmp_path, "cameras: {}\n").put_camera("a\n", CameraConfig(name="A", driver="demo"))
+    config = Config.model_validate(
+        {
+            "circles": {
+                "first": {"name": "F", "cameras": ["a"]},
+                "second": {"name": "S", "cameras": ["a"], "detection": {"motion": True}},
+            },
+            "cameras": {"a": {"name": "A", "driver": "demo"}},
+        }
+    )
+    assert config.detection_for("a").motion  # the first circle that sets any
+
+
+def test_default_patrol_stays_out(tmp_path: Path) -> None:
+    store = ConfigStore(tmp_path / "config.yaml")
+    store.load()
+    store.put_camera("a", CameraConfig(name="A", driver="demo", patrol=Patrol()))
+    assert "patrol" not in store.dump()
