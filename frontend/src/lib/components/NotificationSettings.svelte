@@ -157,74 +157,81 @@
 
 <SettingsSection
 	title="When"
-	description="For all devices, whether the detection records or not. With “Only if Norn agrees” (on Triggers), a camera's own alarm notifies once Norn's AI confirms it."
+	description={store.isAdmin
+		? "For all devices, whether the detection records or not. With “Only if Norn agrees” (on Triggers), a camera's own alarm notifies once Norn's AI confirms it."
+		: 'For all devices. An admin sets these.'}
 	icon={Bell}
 >
-	<ChoiceSetting label="Notifications" bind:value={rules.enabled} choices={ON_OFF} />
-	{#if rules.enabled}
-		<TriggerSetting
-			label="For"
-			hint="What is detected."
-			bind:value={
-				() => rules.kinds,
-				(v) => {
-					rules.kinds = v ?? [];
+	<!-- A viewer sees the rules; an admin changes them. -->
+	<fieldset disabled={!store.isAdmin} class="contents">
+		<ChoiceSetting label="Notifications" bind:value={rules.enabled} choices={ON_OFF} />
+		{#if rules.enabled}
+			<TriggerSetting
+				label="For"
+				hint="What is detected."
+				bind:value={
+					() => rules.kinds,
+					(v) => {
+						rules.kinds = v ?? [];
+					}
 				}
-			}
-		/>
-		<div class="@container flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-5 py-3.5">
-			<div class="min-w-0 flex-1 basis-56">
-				<span class="block text-sm font-medium">Cameras</span>
-				<span class="mt-0.5 block text-xs text-muted"
-					>{rules.cameras.length ? 'Only these.' : 'All of them.'}</span
-				>
-			</div>
-			<div class="flex w-full shrink-0 flex-wrap items-center justify-end gap-1.5 @[33rem]:w-60">
-				{#each store.cameras as c (c.id)}
-					{@const on = !rules.cameras.length || rules.cameras.includes(c.id)}
-					<button
-						type="button"
-						class="chip {on ? 'chip-active' : ''}"
-						aria-pressed={on}
-						onclick={() => toggleRuleCamera(c.id)}>{c.name}</button
+			/>
+			<div
+				class="@container flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-5 py-3.5"
+			>
+				<div class="min-w-0 flex-1 basis-56">
+					<span class="block text-sm font-medium">Cameras</span>
+					<span class="mt-0.5 block text-xs text-muted"
+						>{rules.cameras.length ? 'Only these.' : 'All of them.'}</span
 					>
-				{/each}
+				</div>
+				<div class="flex w-full shrink-0 flex-wrap items-center justify-end gap-1.5 @[33rem]:w-60">
+					{#each store.cameras as c (c.id)}
+						{@const on = !rules.cameras.length || rules.cameras.includes(c.id)}
+						<button
+							type="button"
+							class="chip {on ? 'chip-active' : ''}"
+							aria-pressed={on}
+							onclick={() => toggleRuleCamera(c.id)}>{c.name}</button
+						>
+					{/each}
+				</div>
 			</div>
-		</div>
-		<ChoiceSetting
-			label="While"
-			bind:value={rules.away_only}
-			choices={[
-				[false, 'Always'],
-				[true, 'Only while away']
-			]}
-		/>
-		<ScheduleSetting
-			label="Quiet hours"
-			hint="No notifications in these times (detections still record)."
-			bind:value={
-				() => rules.quiet,
-				(v) => {
-					rules.quiet = v ?? [];
+			<ChoiceSetting
+				label="While"
+				bind:value={rules.away_only}
+				choices={[
+					[false, 'Always'],
+					[true, 'Only while away']
+				]}
+			/>
+			<ScheduleSetting
+				label="Quiet hours"
+				hint="No notifications in these times (detections still record)."
+				bind:value={
+					() => rules.quiet,
+					(v) => {
+						rules.quiet = v ?? [];
+					}
 				}
-			}
-			empty="None."
-		/>
-		<NumberSetting
-			label="At most every"
-			hint="One notification per camera; what it detects meanwhile stays quiet. 0: each time."
-			bind:value={rules.every_minutes}
-			fallback={defaults.every_minutes}
-			max={1440}
-			unit="min"
-		/>
-		<ChoiceSetting
-			label="Picture"
-			hint="The camera's picture at that moment. Android shows it; iPhones show none in notifications."
-			bind:value={rules.picture}
-			choices={ON_OFF}
-		/>
-	{/if}
+				empty="None."
+			/>
+			<NumberSetting
+				label="At most every"
+				hint="One notification per camera; what it detects meanwhile stays quiet. 0: each time."
+				bind:value={rules.every_minutes}
+				fallback={defaults.every_minutes}
+				max={1440}
+				unit="min"
+			/>
+			<ChoiceSetting
+				label="Picture"
+				hint="The camera's picture at that moment. Android shows it; iPhones show none in notifications."
+				bind:value={rules.picture}
+				choices={ON_OFF}
+			/>
+		{/if}
+	</fieldset>
 </SettingsSection>
 
 <SettingsSection title="Devices" description="Phones and browsers that get notifications.">

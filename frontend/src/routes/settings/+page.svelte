@@ -58,7 +58,7 @@
 	const tab = $derived<Tab>(
 		TABS.find(([id]) => id === page.url.searchParams.get('tab'))?.[0] ?? first
 	);
-	const saves = $derived(tab !== 'users' && tab !== 'account');
+	const saves = $derived(store.isAdmin && tab !== 'users' && tab !== 'account');
 	function show(next: Tab) {
 		goto(next === first ? '/settings' : `/settings?tab=${next}`, {
 			replace: true,
