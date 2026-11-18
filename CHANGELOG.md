@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.1 — 2026-11-18
+
+Fixes from a review of the whole code:
+
+- config.yaml: a save from the web app no longer overwrites a hand edit made just before, or a
+  file with an error (which could empty it); comments inside presets, schedules and removed
+  cameras stay where they belong; error messages never show a password.
+- Recording: a detection while a clip is being finished starts a new clip instead of getting
+  lost; clips have a length limit with pre-recording too; a failing FFmpeg start is retried; the
+  hour the clocks go back no longer overwrites recordings.
+- MQTT: an error in config.yaml, or a camera that is offline at start, no longer removes devices
+  and sensors from Home Assistant; a circle's record button records on every camera even if one
+  fails; `NORN_MQTT_PREFIX` is checked at start.
+- go2rtc: with an external go2rtc, Norn leaves streams it didn't make alone; a stream that
+  failed to sync is retried.
+- Cameras: ONVIF and UniFi cameras that are offline when Norn starts get their video once they
+  are back; Axis day and night were swapped; Dahua diagonal moves; Reolink closes its connection
+  when a camera is edited or removed; Tapo pauses after a failed login instead of locking the
+  account; Hikvision person and vehicle detections can be triggers.
+- Web app: the timeline keeps working after filtering by camera; turning a patrol off sticks;
+  "Save this view" no longer replaces a preset of the same name; Away's home switch works when
+  the server's time zone differs; players close their connection when they are gone; the pan
+  and tilt pad works with the keyboard.
+
 ## 0.7.0 — 2026-11-17
 
 - Home Assistant over MQTT: with `NORN_MQTT` set to a broker, each camera appears in Home
