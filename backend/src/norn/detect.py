@@ -212,16 +212,22 @@ class Track:
     seen: float
     still_since: float
     first: float  # when it was first seen
+    anchor: tuple[float, float, float, float]  # where it has stood since still_since
 
 
 @dataclass
 class Tracker:
     """Which detected objects count: new or moving ones. One that stays where it is for
     `still_after` seconds stops counting until it moves (a parked car, a garden gnome). One seen
-    for less than `confirm` seconds doesn't count yet."""
+    for less than `confirm` seconds doesn't count yet.
+
+    Moving means away from where it stood (`anchor`), by more than `moved_below` overlap: the
+    boxes of a still object wobble from still to still (noise, infrared, a different crop of
+    the same thing), and comparing with the last box made a draped sheet "move" every minute."""
 
     still_after: float = 60
     forget_after: float = 30
+    moved_below: float = 0.6
     tracks: list[Track] = field(default_factory=list)
 
     def update(self, found: list[Detection], now: float | None = None, confirm: float = 0) -> set[str]:
@@ -233,11 +239,11 @@ class Tracker:
                 default=None,
             )
             if match is not None and iou(match.box, d.box) > 0.3:
-                if iou(match.box, d.box) < 0.85:  # it moved
-                    match.still_since = now
+                if iou(match.anchor, d.box) < self.moved_below:  # it moved
+                    match.still_since, match.anchor = now, d.box
                 match.box, match.seen = d.box, now
             else:
-                self.tracks.append(Track(d.kind, d.box, now, now, now))
+                self.tracks.append(Track(d.kind, d.box, now, now, now, d.box))
         self.tracks = [t for t in self.tracks if now - t.seen <= self.forget_after]
         return {
             t.kind

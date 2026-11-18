@@ -50,6 +50,18 @@ def test_decode_and_tracker() -> None:
     assert tracker.update([moved], now=62) == {"vehicle"}  # it drives off
 
 
+def test_tracker_wobble_is_not_moving() -> None:
+    """A still object's box wobbles from still to still (a sheet on a chair in infrared): that
+    doesn't restart its minute, as long as it stays where it stood."""
+    tracker = Tracker(still_after=60)
+    sheet = (100, 100, 200, 300)
+    wobbles = [(100, 100, 200, 300), (90, 110, 190, 290), (100, 100, 200, 300), (110, 95, 205, 305)]
+    for t in range(0, 70, 2):
+        found = tracker.update([Detection("person", 0.67, wobbles[t // 2 % len(wobbles)])], now=t)
+    assert found == set()  # IoU with the last box went below 0.85, but it never left its place
+    assert tracker.update([Detection("person", 0.7, sheet)], now=72) == set()
+
+
 def test_tracker_confirm() -> None:
     tracker = Tracker()
     person = Detection("person", 0.6, (0, 0, 50, 100))
