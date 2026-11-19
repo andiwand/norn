@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.9.0 — 2026-11-19
+
+- Sign-in, new: add the first user in Settings → Users and Norn asks everyone to sign in, the
+  web app, the API and its WebSockets alike. Two roles: admins change everything; viewers
+  watch, steer, record and see the recordings, but change no settings. Settings → Account
+  lists the signed-in devices (sign out one, or all) and makes API tokens (`Authorization:
+  Bearer norn_...`) for scripts and webhooks. Passwords are kept as scrypt hashes in
+  config.yaml; after five wrong ones a name waits five minutes. HTTPS stays with a reverse proxy.
+  Without users Norn stays open, as before.
+- Notifications on phones and computers, new (web push): turn them on per device in
+  Settings → Notifications, with a test button. Rules say what notifies (person, vehicle,
+  animal, ...), from which cameras, how often and when (only while away, quiet hours); a
+  device can narrow the cameras. With a picture of the moment; a tap opens the camera. On
+  iPhone from the installed app (iOS 16.4 or newer).
+- Add camera: Find cameras looks for ONVIF cameras in the network (WS-Discovery), or checks
+  one address and says what answers there (Foscam/supra, ONVIF, Hikvision, Reolink), and
+  fills in the form. Only requests that need no login and change nothing.
+- Website: a tour of Norn with real screenshots; no more "early preview" and roadmap.
+
 ## 0.8.1 — 2026-11-18
 
 - Phones: on Diagnostics and Help the back arrow sits on the title's line.
