@@ -38,6 +38,67 @@
   body.dataset.chapter = '';
   show('hero');
 
+  // The hero's ruler: the playhead drifts through the day (slower over a recording) and shows the
+  // time where it stands and what was recorded there. The pointer takes it over, a finger too.
+  const ruler = document.querySelector('.ruler-track');
+  if (ruler) {
+    const head = ruler.querySelector('.playhead');
+    const label = head.querySelector('em');
+    const clips = [...ruler.querySelectorAll('.clip')].map((el) => {
+      const left = parseFloat(el.style.left) / 100;
+      return { el, from: left - 0.004, to: left + parseFloat(el.style.width) / 100 + 0.004 };
+    });
+    const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let at = 0.88;
+    let speed = -0.045; // of the day per second
+    let held = false;
+    let release = 0;
+    let hit = null;
+
+    function place(fraction) {
+      at = Math.min(1, Math.max(0, fraction));
+      const minutes = Math.min(Math.round(at * 1440), 1439);
+      const time = `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+      hit = clips.find((c) => at >= c.from && at <= c.to) ?? null;
+      for (const c of clips) c.el.classList.toggle('hit', c === hit);
+      head.style.left = `${at * 100}%`;
+      head.classList.toggle('flip', at > 0.6);
+      label.textContent = hit ? `${time} · ${hit.el.dataset.what}` : time;
+    }
+
+    function follow(e) {
+      const box = ruler.getBoundingClientRect();
+      held = true;
+      clearTimeout(release);
+      place((e.clientX - box.left) / box.width);
+    }
+    ruler.addEventListener('pointermove', (e) => {
+      if (e.pointerType === 'mouse' || e.buttons) follow(e);
+    });
+    ruler.addEventListener('pointerdown', follow);
+    ruler.addEventListener('pointerleave', () => (held = false));
+    ruler.addEventListener('pointerup', (e) => {
+      if (e.pointerType !== 'mouse') release = setTimeout(() => (held = false), 2000);
+    });
+
+    let last = 0;
+    function drift(now) {
+      const seconds = Math.min(0.1, (now - last) / 1000 || 0);
+      last = now;
+      if (!held) {
+        let next = at + speed * seconds * (hit ? 0.3 : 1);
+        if (next < 0.04 || next > 0.96) {
+          speed = -speed;
+          next = Math.min(0.96, Math.max(0.04, next));
+        }
+        place(next);
+      }
+      requestAnimationFrame(drift);
+    }
+    place(at);
+    if (!still) requestAnimationFrame(drift);
+  }
+
   // Install: Docker or Python.
   const tabs = [...document.querySelectorAll('.tabs [role="tab"]')];
   function pick(tab) {

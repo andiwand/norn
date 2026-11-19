@@ -28,7 +28,8 @@
     <div class="browser-bar"><i></i><i></i><i></i><span class="url">norn.local:8000</span></div>
     <div class="screen">
       <img data-for="live" src="img/live-desktop.webp" width="1360" height="850" alt="">
-      <img data-for="camera ai" src="img/camera-desktop.webp" width="1360" height="850" alt="" loading="lazy">
+      <img data-for="camera" src="img/camera-desktop.webp" width="1360" height="850" alt="" loading="lazy">
+      <img data-for="ai" src="img/detect-desktop.webp" width="1360" height="850" alt="" loading="lazy">
       <img data-for="recordings" src="img/recordings-desktop.webp" width="1360" height="850" alt="" loading="lazy">
       <img data-for="timeline" src="img/timeline-desktop.webp" width="1360" height="850" alt="" loading="lazy">
     </div>
@@ -81,18 +82,19 @@
     </div>
     <p class="pills"><span>Open source, MIT</span><span>Local, no cloud</span><span>Docker or PyPI</span><span>Home Assistant</span></p>
   </div>
-  <!-- A recording timeline with its playhead: what Norn shows all day. -->
+  <!-- A day of recordings with its playhead, the thing Norn shows all day. site.js moves it, and
+       the pointer takes it over: the time where it stands, and the recording under it. -->
   <div class="ruler" aria-hidden="true">
     <div class="ruler-track">
-      <span class="clip" style="left:7%;width:2%"></span>
-      <span class="clip" style="left:16%;width:1%"></span>
-      <span class="clip warm" style="left:30%;width:4%"></span>
-      <span class="clip" style="left:51%;width:1.5%"></span>
-      <span class="clip warm" style="left:62%;width:2%"></span>
-      <span class="clip" style="left:77%;width:3%"></span>
-      <span class="playhead"><em>21:47</em></span>
+      <span class="clip" style="left:7%;width:2%" data-what="Animal · Garden"></span>
+      <span class="clip" style="left:16%;width:1%" data-what="Motion · Hallway"></span>
+      <span class="clip warm" style="left:30%;width:4%" data-what="Person · Front door"></span>
+      <span class="clip" style="left:51%;width:1.5%" data-what="Vehicle · Street"></span>
+      <span class="clip warm" style="left:62%;width:2%" data-what="Person · Sidewalk"></span>
+      <span class="clip" style="left:77%;width:3%" data-what="Vehicle · Car park"></span>
+      <span class="playhead"><em>21:07</em></span>
     </div>
-    <div class="ruler-ticks"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>now</span></div>
+    <div class="ruler-ticks"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div>
   </div>
   <figure class="inline-shot hero-shot"><img src="img/live-desktop.webp" width="1360" height="850" alt="Norn's Live view: a grid of cameras with their names, the recording badge, and what each one detects."></figure>
   <p class="scroll-hint">A tour of Norn <span aria-hidden="true">↓</span></p>
@@ -133,14 +135,7 @@
       <li>When a camera's own AI reports a person, Norn looks too, and marks or skips the clips it can't confirm</li>
       <li>Certainty, confirmation delay and schedules for every camera</li>
     </ul>
-    <figure class="inline-shot detect">
-      <div class="detect-frame">
-        <span class="box solid" style="left:14%;top:20%;width:22%;height:68%"><em>Person 92 %</em></span>
-        <span class="box solid" style="left:50%;top:52%;width:36%;height:32%"><em>Vehicle 81 %</em></span>
-        <span class="box dashed" style="left:62%;top:8%;width:33%;height:34%"><em>Person 61 % · not moving</em></span>
-      </div>
-      <figcaption>Solid: it records. Dashed: Norn sees it, but doesn't count it.</figcaption>
-    </figure>
+    <figure class="inline-shot"><img src="img/detect-video.webp" width="928" height="522" loading="lazy" decoding="async" alt="A camera's video with Norn's box around a dog in the snow, labelled Animal 88 %, and the badge Animal · Norn."></figure>
   </article>
 </section>
 
