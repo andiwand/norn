@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Recordings: the boxes keep time with the video. A clip from the pre-recording buffer begins
+  with a piece from a few seconds before its start, and the boxes ran that much late. With
+  Norn looking only every 10 seconds or more, they no longer blink out between stills.
+
 ## 0.10.0 — 2026-11-20
 
 - Norn's AI: fewer false alarms from things that don't move. A street lamp's glow in infrared

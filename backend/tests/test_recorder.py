@@ -145,10 +145,11 @@ async def test_a_clip_keeps_norns_boxes(recorder: Recorder) -> None:
     recorder.note_objects("c", person)  # before the trigger, within the pre-recording
     clip = await recorder.record_clip("c", "person", 10)
     clip.start -= timedelta(seconds=5)
+    clip.began = clip.start.timestamp() - 2  # its first piece from the buffer began earlier
     recorder.note_objects("c", [])
     touch(clip.path)
     await recorder._finish_clip(clip, {}, asyncio.create_task(asyncio.sleep(0)))
     [video] = [p for p in recorder.library.root.rglob("*.mp4")]
     seen = json.loads(video.with_suffix(".objects.json").read_text())
     assert [s["objects"] for s in seen] == [person, []]
-    assert 4 <= seen[0]["at"] <= 6 and seen[0]["at"] <= seen[1]["at"]
+    assert 6 <= seen[0]["at"] <= 8 and seen[0]["at"] <= seen[1]["at"]

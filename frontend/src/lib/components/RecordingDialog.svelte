@@ -84,6 +84,7 @@
 	$effect(() => {
 		const r = recording;
 		seen = [];
+		time = 0;
 		if (!r || r.kind !== 'video' || r.live) return;
 		let gone = false;
 		fetch(urls.objects(r))
@@ -96,14 +97,12 @@
 			gone = true;
 		};
 	});
-	// The newest still at the playhead; none when it is older than a few stills' gap.
+	// The newest still at the playhead; none when it is older than two stills' gap (Norn
+	// stopped looking).
 	const boxes = $derived.by(() => {
-		let last: ClipObjects[number] | undefined;
-		for (const s of seen) {
-			if (s.at > time) break;
-			last = s;
-		}
-		return last && time - last.at < 8 ? last.objects : [];
+		const gap = seen.length > 1 ? (seen[seen.length - 1].at - seen[0].at) / (seen.length - 1) : 0;
+		const last = seen.findLast((s) => s.at <= time);
+		return last && time - last.at < Math.max(2 * gap, 8) ? last.objects : [];
 	});
 	// Where the picture is in the 16:9 player: the boxes are fractions of the picture.
 	const frame = $derived.by(() => {

@@ -313,6 +313,7 @@ class Clip:
     norn_saw: set[str] = field(default_factory=set)  # and found these
     # What Norn's AI found on each still during the clip (time.time(), boxes), for its player.
     seen: list[tuple[float, list[dict[str, Any]]]] = field(default_factory=list)
+    began: float | None = None  # time.time() where the video begins, when it isn't `start`
     closing: bool = False  # its end is fixed: a trigger now starts a new clip
     process: asyncio.subprocess.Process | None = None
     task: asyncio.Task[None] | None = field(default=None, repr=False)
@@ -521,7 +522,9 @@ class Recorder:
             by={trigger: set(by)},
         )
         self.clips[camera] = clip
-        clip.seen = [s for s in self._seen.get(camera, ()) if s[0] >= start.timestamp()]
+        # From a little earlier: a clip from the buffer begins with a piece from before `start`.
+        since = start.timestamp() - 2 * PIECE_SECONDS
+        clip.seen = [s for s in self._seen.get(camera, ()) if s[0] >= since]
         runner = self._run_buffered_clip(clip, buffer) if buffer and before else self._run_clip(clip)
         clip.task = asyncio.create_task(runner, name=f"clip-{camera}")
         self._clip_tasks.add(clip.task)
@@ -669,6 +672,9 @@ class Recorder:
             if last is not None:
                 done = [p for p in done if p.index <= last]
             for piece in done:
+                if clip.began is None:  # the first piece reaches back before `start`
+                    previous = next((p.end for p in pieces if p.index == piece.index - 1), None)
+                    clip.began = previous if previous is not None else piece.end - PIECE_SECONDS
                 try:
                     await asyncio.to_thread(_append, piece.path, joined)
                 except FileNotFoundError:
@@ -705,7 +711,7 @@ class Recorder:
         if clip.path.exists():
             clip.path.with_suffix(".json").write_text(json.dumps(meta, indent=2) + "\n")
             if any(objects for _, objects in clip.seen):
-                start = clip.start.timestamp()
+                start = clip.began or clip.start.timestamp()
                 seen = [{"at": round(t - start, 1), "objects": objects} for t, objects in clip.seen]
                 clip.path.with_suffix(OBJECTS).write_text(json.dumps(seen, separators=(",", ":")))
             moved = await self._to_library(clip.camera, clip.path)
