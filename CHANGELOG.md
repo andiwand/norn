@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.0 — 2026-11-20
 
 - Norn's AI: fewer false alarms from things that don't move. A street lamp's glow in infrared
   was a "person" all night (80 clips on one camera): its narrow box wobbled enough to count as
