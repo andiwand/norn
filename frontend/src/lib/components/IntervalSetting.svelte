@@ -1,7 +1,7 @@
 <script lang="ts">
 	// How often something happens, in seconds: off (0), or every N seconds/minutes/hours.
 	// With `inherit`, null means "as set above" (the global or circle value, `inherit` seconds).
-	import { formatInterval } from '../format';
+	import { shortInterval } from '../format';
 
 	let {
 		label,
@@ -63,16 +63,13 @@
 		<span class="block text-sm font-medium">{label}</span>
 		<span class="mt-0.5 block text-xs text-muted">
 			{#if hint}{hint}{/if}
-			{#if mode === 'inherit' && inherit !== undefined}
-				Now: {formatInterval(inherit)}, as set above.
-			{/if}
 		</span>
 	</label>
 	<div class="flex w-full shrink-0 flex-col items-end gap-2 @[33rem]:w-60">
 		{#if inherit !== undefined}
 			<!-- Three ways: as above, off, or its own interval. -->
 			<div class="flex rounded-xl bg-surface-3 p-1" role="radiogroup" aria-label={label}>
-				{#each [['inherit', 'Default'], ['off', 'Off'], ['on', 'Own']] as const as [m, text] (m)}
+				{#each [['inherit', `Default (${shortInterval(inherit)})`], ['off', 'Off'], ['on', 'Own']] as const as [m, text] (m)}
 					<button
 						type="button"
 						role="radio"

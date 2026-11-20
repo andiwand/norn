@@ -84,7 +84,8 @@
 				{hint}
 				{#if inherit !== undefined && !own}As set above: {describe(
 						windows
-					)}.{:else if !windows.length}{empty}{/if}
+					)}.{:else}{#if !windows.length}{empty}{/if}{#if inherit !== undefined}
+						Default: {describe(inherit)}.{/if}{/if}
 			</span>
 		</div>
 		<div class="flex shrink-0 items-center gap-2">

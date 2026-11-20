@@ -62,6 +62,24 @@ def test_tracker_wobble_is_not_moving() -> None:
     assert tracker.update([Detection("person", 0.7, sheet)], now=72) == set()
 
 
+def test_tracker_lamp_glow() -> None:
+    """The glow of a street lamp in infrared, seen as a person all night (a camera, Nov 2026):
+    a narrow box that wobbles (overlap ~0.5 with where it stood) and drops under the minimum score
+    for a while now and then. It stays still, also after a gap longer than `forget_after`."""
+    tracker = Tracker(still_after=60)
+    boxes = [(233, 100, 258, 166), (233, 120, 254, 170), (232, 96, 258, 170), (233, 108, 258, 170)]
+    found = set()
+    for t in range(0, 90, 2):
+        found = tracker.update([Detection("person", 0.5, boxes[t // 2 % len(boxes)])], now=t, confirm=4)
+    assert found == set()
+    for t in range(90, 300, 2):  # under the minimum score for 3.5 minutes
+        tracker.update([], now=t, confirm=4)
+    assert tracker.update([Detection("person", 0.6, boxes[1])], now=300, confirm=4) == set()
+    walker = Detection("person", 0.8, (300, 100, 330, 170))  # someone next to it
+    tracker.update([walker], now=302, confirm=4)
+    assert tracker.update([walker], now=306, confirm=4) == {"person"}
+
+
 def test_tracker_confirm() -> None:
     tracker = Tracker()
     person = Detection("person", 0.6, (0, 0, 50, 100))
@@ -71,6 +89,9 @@ def test_tracker_confirm() -> None:
     moth = Detection("person", 0.6, (300, 300, 340, 380))
     assert tracker.update([moth], now=6, confirm=3) == set()  # a new object waits again
     assert tracker.update([], now=8, confirm=3) == set()
+    assert tracker.update([moth], now=20, confirm=3) == set()  # seen again much later: not confirmed
+    assert tracker.update([moth], now=22, confirm=3) == set()
+    assert tracker.update([moth], now=24, confirm=3) == {"person"}
     assert Tracker().update([moth], now=0) == {"person"}  # without confirm: at once
 
 

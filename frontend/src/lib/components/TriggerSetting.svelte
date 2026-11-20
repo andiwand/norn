@@ -36,7 +36,9 @@
 		<span class="block text-sm font-medium">{label}</span>
 		<span class="mt-0.5 block text-xs text-muted">
 			{hint}
-			{#if inherit !== undefined && !own}As set above.{/if}
+			{#if inherit !== undefined}{own ? 'Default' : 'As set above'}: {inherit.length
+					? inherit.map(triggerLabel).join(', ')
+					: 'nothing'}.{/if}
 			{#if !choices.length}This camera reports no detections.{/if}
 		</span>
 	</div>

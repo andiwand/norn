@@ -3,6 +3,8 @@
     <root>/<camera>/<YYYY-MM-DD>/<HH-MM-SS>_<trigger>.mp4    a video
                                   <HH-MM-SS>_<trigger>.json   optional: details of a clip
                                   <HH-MM-SS>_<trigger>.jpg    its thumbnail, or a picture of its own
+                                  <HH-MM-SS>_<trigger>.objects.json   optional: what Norn's AI
+                                                              found on the stills during a clip
 
 The trigger is `continuous` for the files of a continuous recording, `interval` for the pictures
 taken on a timer, else what started the clip (`manual`, `webhook`, `motion`, ...). A .jpg without
@@ -32,7 +34,8 @@ from .config import CAMERA_ID
 DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
 STEM = re.compile(r"(\d{2})-(\d{2})-(\d{2})_([a-z0-9-]{1,32})")
 TRIGGER = re.compile(r"[a-z0-9-]{1,32}")
-SUFFIXES = (".mp4", ".jpg", ".json")
+OBJECTS = ".objects.json"  # a clip's boxes: [{"at": seconds into the video, "objects": [...]}]
+SUFFIXES = (".mp4", ".jpg", ".json", OBJECTS)
 KEPT = frozenset({"manual"})  # triggers whose recordings never expire
 
 

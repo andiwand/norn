@@ -108,6 +108,32 @@
 	});
 	let tabBar = $state<HTMLElement | null>(null);
 
+	// The tabs beside the video scroll inside, and are never taller than the room below their
+	// top: all of them in view without scrolling the page as well (they stick when the page
+	// scrolls for the activity). Unset (CSS fallback) until measured.
+	let grid = $state<HTMLElement | null>(null);
+	let side = $state<HTMLElement | null>(null);
+	let sideMax = $state<number | null>(null);
+	function fitSide() {
+		if (!grid || !side) return;
+		const top = grid.getBoundingClientRect().top + scrollY;
+		const main = side.closest('main');
+		const below = main ? parseFloat(getComputedStyle(main).paddingBottom) || 0 : 0;
+		sideMax = Math.max(innerHeight - top - below, 240);
+	}
+	$effect(() => {
+		if (!grid || !side) return;
+		// What is above them changes (an error, the header's notes) and the window's size.
+		const observer = new ResizeObserver(() => fitSide());
+		observer.observe(document.body);
+		addEventListener('resize', fitSide);
+		fitSide();
+		return () => {
+			observer.disconnect();
+			removeEventListener('resize', fitSide);
+		};
+	});
+
 	async function show(next: Tab, { scroll = false, focus = false } = {}) {
 		const url = new URL(page.url.href);
 		if (next === tabs[0]?.[0]) url.searchParams.delete('tab');
@@ -236,6 +262,7 @@
 	<!-- Wide screens: the video and the activity on the left, the tabs beside them. Phones: the
 	     video, the tabs (what's done with the camera), then the activity. -->
 	<div
+		bind:this={grid}
 		class="grid items-start gap-x-6 gap-y-4 {sideways
 			? 'lg:grid-cols-[minmax(0,1fr)_24rem] lg:grid-rows-[auto_1fr]'
 			: ''}"
@@ -372,7 +399,9 @@
 		     survives a look at another. -->
 		{#if sideways}
 			<aside
-				class="min-w-0 lg:sticky lg:top-20 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:max-h-[calc(100dvh-6rem)] lg:overflow-y-auto lg:overscroll-contain lg:rounded-2xl"
+				bind:this={side}
+				class="min-w-0 lg:sticky lg:top-20 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:max-h-[var(--side-max,calc(100dvh-6rem))] lg:overflow-y-auto lg:overscroll-contain lg:rounded-2xl"
+				style={sideMax ? `--side-max:${sideMax}px` : undefined}
 			>
 				<div
 					bind:this={tabBar}

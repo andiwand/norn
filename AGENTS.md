@@ -84,7 +84,9 @@ image or the PyPI package `norn-hub`. The name may change later.
     `camera.detecting` holds who sees each kind (`camera`, `norn`); `check_camera` in the
     detection settings has Norn's AI look while the camera's own AI reports an object (`check`,
     the default), or records such an alarm only once Norn confirms it (`require`). Clips note
-    it in their sidecar: `by` (per trigger, who detected it) and `norn_saw`. The hub's
+    it in their sidecar: `by` (per trigger, who detected it) and `norn_saw`. The boxes of each still
+    during a clip (and its pre-recording) go into `<clip>.objects.json` (`Recorder.note_objects`),
+    which the player draws. The hub's
     `_watch_stills` subscribes per camera when the camera's `detection_for` asks for it.
   - `pilot.py`: one Pilot per camera: Norn presets (`config.presets`: a camera slot plus
     controls; pictures in `.norn/presets/`), patrol, reactions (from `_react` in the hub) and

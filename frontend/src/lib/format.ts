@@ -30,6 +30,14 @@ export function formatRemaining(ms: number): string {
 }
 
 /** "every 30 seconds", "every 5 minutes", "every hour"; "off" for 0. */
+/** An interval in a few letters, for a button: "5 min", "1 h", "30 s", "off". */
+export function shortInterval(seconds: number): string {
+	if (!seconds) return 'off';
+	if (seconds % 3600 === 0) return `${seconds / 3600} h`;
+	if (seconds % 60 === 0) return `${seconds / 60} min`;
+	return `${seconds} s`;
+}
+
 export function formatInterval(seconds: number): string {
 	if (!seconds) return 'off';
 	for (const [unit, size] of [

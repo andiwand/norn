@@ -117,6 +117,11 @@
 		prebuffer_seconds: circle?.prebuffer_seconds ?? globals?.prebuffer_seconds ?? 0,
 		clip_seconds: circle?.clip_seconds ?? globals?.clip_seconds ?? 30
 	});
+	// Norn's detection without the camera's own values: its circle's over the global ones.
+	const inheritedDetection = $derived({
+		...store.info?.detection,
+		...Object.fromEntries(Object.entries(circle?.detection ?? {}).filter(([, v]) => v != null))
+	} as Partial<DetectionSettings>);
 	// What a preset without its own value gets: the camera's.
 	const cameraValue = $derived({
 		triggers: triggers ?? inherited.triggers,
@@ -201,6 +206,7 @@
 		label="Motion by Norn"
 		hint="Norn compares stills of this camera."
 		bind:value={detectMotion}
+		inherit={inheritedDetection.motion ?? null}
 		choices={[
 			[null, 'Default'],
 			[true, 'On'],
@@ -213,6 +219,7 @@
 			? `Not available: ${store.info.detection.objects_unavailable}.`
 			: "People, vehicles and animals, by Norn's AI."}
 		bind:value={detectObjects}
+		inherit={inheritedDetection.objects ?? null}
 		disabled={!!store.info?.detection.objects_unavailable}
 		choices={[
 			[null, 'Default'],
@@ -224,6 +231,7 @@
 		label="Stills"
 		hint="For pictures and Norn's detection."
 		bind:value={detectStills}
+		inherit={inheritedDetection.stills ?? null}
 		choices={[
 			[null, 'Default'],
 			['auto', 'Auto'],
@@ -239,7 +247,7 @@
 		max={60}
 		step={0.5}
 		unit="sec"
-		placeholder={String(store.info?.detection.every_seconds ?? '')}
+		placeholder={String(inheritedDetection.every_seconds ?? '')}
 	/>
 	<NumberSetting
 		label="Certainty"
@@ -249,7 +257,9 @@
 		max={95}
 		step={5}
 		unit="%"
-		placeholder={store.info ? String(Math.round(store.info.detection.min_score * 100)) : ''}
+		placeholder={inheritedDetection.min_score != null
+			? String(Math.round(inheritedDetection.min_score * 100))
+			: ''}
 	/>
 	<NumberSetting
 		label="Confirm after"
@@ -257,13 +267,14 @@
 		bind:value={confirm}
 		max={60}
 		unit="sec"
-		placeholder={String(store.info?.detection.confirm_seconds ?? '')}
+		placeholder={String(inheritedDetection.confirm_seconds ?? '')}
 	/>
 	{#if camera.events?.camera.some((k) => OBJECT_KINDS.includes(k))}
 		<ChoiceSetting
 			label="The camera's own AI"
 			hint="When this camera reports a person, vehicle or animal, Norn's AI can look too. Check: it records, and the clip says if Norn saw it. Only if Norn agrees: only what Norn's AI confirms records."
 			bind:value={checkCamera}
+			inherit={inheritedDetection.check_camera ?? null}
 			disabled={!!store.info?.detection.objects_unavailable}
 			choices={[
 				[null, 'Default'],

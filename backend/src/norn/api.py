@@ -52,7 +52,7 @@ from .hub import Hub, stream_name
 from .labels import describe as describe_labels
 from .push_api import push_routes
 from .recorder import RESERVED
-from .recordings import InvalidPathError
+from .recordings import OBJECTS, InvalidPathError
 from .secrets import keep as keep_secrets
 from .settings import Settings
 
@@ -748,6 +748,20 @@ def create_app(settings: Settings, hub: Hub | None = None) -> FastAPI:
         if jpeg is None:
             raise HTTPException(404, "no frame there")
         return Response(jpeg, media_type="image/jpeg", headers={"Cache-Control": "max-age=86400"})
+
+    @api.get("/recordings/{camera}/{day}/{name}/objects")
+    async def recording_objects(camera: str, day: str, name: str) -> Response:
+        """What Norn's AI found during a clip, for its player to draw: a list of stills, each
+        `at` seconds into the video with its boxes (as camera.objects). Empty when it has none."""
+        try:
+            path = hub.library.path(camera, day, name)
+        except InvalidPathError as e:
+            raise HTTPException(400, str(e)) from e
+        if path.suffix != ".mp4" or not path.is_file():
+            raise HTTPException(404, "not found")
+        boxes = path.with_suffix(OBJECTS)
+        content = boxes.read_bytes() if boxes.is_file() else b"[]"
+        return Response(content, media_type="application/json", headers={"Cache-Control": "max-age=3600"})
 
     @api.put("/recordings/{camera}/{day}/{name}/pin")
     async def pin_recording(camera: str, day: str, name: str, body: PinBody) -> dict[str, Any]:

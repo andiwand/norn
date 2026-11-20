@@ -1365,7 +1365,7 @@ class Hub:
                             # Following steers by every sighting; recording waits for confirmation.
                             counted = tracker.update(found, now, d.confirm_seconds)
                             camera.norn_looked = now
-                            self._publish_objects(camera, tracker.last)
+                            self.recorder.note_objects(camera.id, self._publish_objects(camera, tracker.last))
                             if checking_only():
                                 # Woken by the camera's alarm: Norn confirms what the camera
                                 # reports, and starts nothing of its own.
@@ -1397,11 +1397,11 @@ class Hub:
                     if self.still_source(camera) != stream.source:
                         break  # the camera's streams changed (probing, the user): follow them
 
-    def _publish_objects(self, camera: Camera, last: list[tuple[Detection, str]]) -> None:
+    def _publish_objects(self, camera: Camera, last: list[tuple[Detection, str]]) -> list[dict[str, Any]]:
         """What Norn sees on the newest still, for the camera page to draw: each box in fractions
         of the picture, with whether it counts. Sent when it changes, and every few seconds while
         something is there (so the page knows the boxes are current); one empty message clears
-        them, and then it is quiet."""
+        them, and then it is quiet. Returns the boxes."""
         # The detector's input is the still scaled into a square, from the top left.
         aspect = self.still_aspect(camera)
         width = OBJECT_SIZE * min(aspect, 1)
@@ -1420,7 +1420,7 @@ class Hub:
         ]
         now = time.monotonic()
         if camera.objects_sent is None and not objects:
-            return  # nothing shown, nothing to clear
+            return objects  # nothing shown, nothing to clear
 
         # Boxes of a still object wobble a little: only a visible change counts as one.
         def rough(sent: list[dict[str, Any]]) -> list[tuple[Any, ...]]:
@@ -1428,10 +1428,11 @@ class Hub:
 
         same = rough(objects) == rough(camera.objects_sent or [])
         if objects and same and now - camera.objects_sent_at < OBJECTS_HEARTBEAT:
-            return
+            return objects
         camera.objects_sent = objects or None
         camera.objects_sent_at = now
         self.bus.publish("camera.objects", {"camera": camera.id, "objects": objects})
+        return objects
 
     async def _hold(self, camera_id: str, trigger: str) -> None:
         """Keep a camera's clip going while what triggered it lasts; it then runs `clip_seconds`

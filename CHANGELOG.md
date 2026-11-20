@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- Norn's AI: fewer false alarms from things that don't move. A street lamp's glow in infrared
+  was a "person" all night (80 clips on one camera): its narrow box wobbled enough to count as
+  moving, and it came back as new after each time it dropped under the certainty. Moving now
+  means its middle shifted by a third of its size (or its size doubled); a still object is
+  remembered for 10 minutes out of sight; one seen again after a long gap is confirmed anew.
+- Recordings: the player draws the boxes of what Norn's AI found during a clip, with how sure it
+  was, over the video (not into it); a Boxes button hides them. They are kept next to the clip
+  (`.objects.json`), from before its trigger too.
+- Settings: "Default" says what it is: "Default (Off)", "Default (5 min)", and the triggers and
+  times say "Default: …" when a camera or circle has its own.
+- The detection badge on the video: "Person, Motion (Norn)", or "Person (Norn) · Motion
+  (camera)" when they differ; the clip's title says "Person (Norn)".
+- Camera page: the tabs beside the video are never taller than the room below their top, so
+  only they scroll, not the page as well.
+
 ## 0.9.0 — 2026-11-19
 
 - Sign-in, new: add the first user in Settings → Users and Norn asks everyone to sign in, the

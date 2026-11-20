@@ -1,6 +1,7 @@
 <script lang="ts">
-	// What a camera detects right now, and who sees it: "Person · camera", "Person · Norn",
-	// "Person · camera + Norn". A person said only by the camera, while Norn's AI looks and sees
+	// What a camera detects right now, and who sees it: "Person (camera)", "Person (Norn)",
+	// "Person (camera + Norn)"; "Person, Motion (Norn)" when one source sees them all, else
+	// "Person (Norn) · Motion (camera)". A person said only by the camera, while Norn's AI looks and sees
 	// nobody, may well be a false alarm: the badge tells them apart.
 	import { sourcesLabel, triggerLabel } from '../format';
 
@@ -14,7 +15,7 @@
 	const same = $derived(who.every((w) => w === who[0]));
 	const text = $derived(
 		same
-			? shown.map(triggerLabel).join(' · ') + (who[0] ? ` · ${who[0]}` : '')
+			? shown.map(triggerLabel).join(', ') + (who[0] ? ` (${who[0]})` : '')
 			: shown
 					.map((k, i) => (who[i] ? `${triggerLabel(k)} (${who[i]})` : triggerLabel(k)))
 					.join(' · ')

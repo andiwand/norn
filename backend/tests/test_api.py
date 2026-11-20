@@ -111,8 +111,14 @@ def test_recording_files(client: TestClient, settings: Settings) -> None:
     ranged = client.get(url, headers={"Range": "bytes=2-4"})
     assert ranged.status_code == 206 and ranged.content == b"234"
     assert client.get("/api/recordings/demo/2026-11-15/..%2F..%2Fx.mp4").status_code in (400, 404)
+    assert client.get(f"{url}/objects").json() == []  # no boxes noted
+    boxes = video.with_suffix(".objects.json")
+    boxes.write_text('[{"at":1.0,"objects":[]}]')
+    assert client.get(f"{url}/objects").json() == [{"at": 1.0, "objects": []}]
+    assert len(client.get("/api/recordings", params={"camera": "demo"}).json()["recordings"]) == 1
     assert client.delete(url).status_code == 204
-    assert client.get(url).status_code == 404
+    assert client.get(url).status_code == 404 and not boxes.exists()
+    assert client.get(f"{url}/objects").status_code == 404
 
 
 def test_settings_round_trip(client: TestClient, settings: Settings) -> None:

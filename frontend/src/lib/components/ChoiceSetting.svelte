@@ -1,18 +1,27 @@
 <script lang="ts" generics="T extends string | boolean | null">
-	// A setting with a few choices, as segmented buttons on the right.
+	// A setting with a few choices, as segmented buttons on the right. With `inherit`, the null
+	// choice ("Default") is the value from above, and says which: "Default (Off)".
 	let {
 		label,
 		hint = '',
 		value = $bindable(),
 		choices,
+		inherit,
 		disabled = false
 	}: {
 		label: string;
 		hint?: string;
 		value: T;
 		choices: [T, string][];
+		inherit?: T;
 		disabled?: boolean;
 	} = $props();
+
+	function text(choice: T, name: string): string {
+		if (choice !== null || inherit === undefined) return name;
+		const from = choices.find(([c]) => c === inherit && c !== null);
+		return from ? `${name} (${from[1]})` : name;
+	}
 </script>
 
 <div class="@container flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-5 py-3.5">
@@ -28,7 +37,7 @@
 			role="radiogroup"
 			aria-label={label}
 		>
-			{#each choices as [choice, text] (String(choice))}
+			{#each choices as [choice, name] (String(choice))}
 				<button
 					type="button"
 					role="radio"
@@ -38,7 +47,7 @@
 					choice
 						? 'bg-surface text-text shadow'
 						: 'text-muted hover:text-text'}"
-					onclick={() => (value = choice)}>{text}</button
+					onclick={() => (value = choice)}>{text(choice, name)}</button
 				>
 			{/each}
 		</div>

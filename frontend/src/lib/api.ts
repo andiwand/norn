@@ -227,6 +227,9 @@ export interface Driver {
 }
 
 /** What Norn's detector sees on a camera's newest still (the `camera.objects` event). */
+/** A clip's boxes: each still Norn's AI looked at, `at` seconds into the video. */
+export type ClipObjects = { at: number; objects: SeenObject[] }[];
+
 export interface SeenObject {
 	kind: string;
 	score: number;
@@ -764,6 +767,8 @@ export const urls = {
 	snapshot: (camera: string, stream = 'main') =>
 		`/api/cameras/${enc(camera)}/snapshot?stream=${enc(stream)}&t=${Date.now()}`,
 	recording: (r: Recording) => `/api/recordings/${r.id}`,
+	/** What Norn's AI found on the stills during a clip: `ClipObjects`. */
+	objects: (r: Recording) => `/api/recordings/${r.id}/objects`,
 	/** A video's frame `seconds` in, small, for scrubbing the timeline. */
 	frame: (r: Recording, seconds: number) => `/api/recordings/${r.id}/frame?at=${seconds}`,
 	/** A small image for lists: a picture's small copy, or the video's thumbnail. */

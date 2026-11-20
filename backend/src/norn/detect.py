@@ -221,13 +221,21 @@ class Tracker:
     `still_after` seconds stops counting until it moves (a parked car, a garden gnome). One seen
     for less than `confirm` seconds doesn't count yet.
 
-    Moving means away from where it stood (`anchor`), by more than `moved_below` overlap: the
-    boxes of a still object wobble from still to still (noise, infrared, a different crop of
-    the same thing), and comparing with the last box made a draped sheet "move" every minute."""
+    Moving means away from where it stood (`anchor`): its middle shifted by more than `moved_by`
+    of its width or height, or its size changed by more than `grown_by`. The boxes of a still
+    object wobble from still to still (noise, infrared, a different crop of the same thing);
+    comparing with the last box made a draped sheet "move" every minute, and an overlap test made
+    the narrow box of a street lamp's glow "move" all night.
+
+    An object out of sight for `forget_after` seconds is forgotten, a still one only after
+    `remember_still`: a false one (a lamp, a bush) drops under the minimum score now and then,
+    and must not come back as new each time."""
 
     still_after: float = 60
     forget_after: float = 30
-    moved_below: float = 0.6
+    remember_still: float = 600
+    moved_by: float = 0.35
+    grown_by: float = 2.0
     tracks: list[Track] = field(default_factory=list)
     last: list[tuple[Detection, str]] = field(default_factory=list)
 
@@ -242,24 +250,41 @@ class Tracker:
                 default=None,
             )
             if match is not None and iou(match.box, d.box) > 0.3:
-                if iou(match.anchor, d.box) < self.moved_below:  # it moved
+                if self.moved(match.anchor, d.box):
                     match.still_since, match.anchor = now, d.box
+                if confirm and now - match.seen > 2 * confirm:  # long out of sight: confirm anew
+                    match.first = now
                 match.box, match.seen = d.box, now
             else:
                 match = Track(d.kind, d.box, now, now, now, d.box)
                 self.tracks.append(match)
             matched.append((d, match))
-        self.tracks = [t for t in self.tracks if now - t.seen <= self.forget_after]
+        self.tracks = [t for t in self.tracks if now - t.seen <= self._keep(t)]
         self.last = [(d, self._status(t, now, confirm)) for d, t in matched]
         return {t.kind for t in self.tracks if t.seen == now and self._status(t, now, confirm) == "counts"}
+
+    def moved(self, anchor: tuple[float, ...], box: tuple[float, ...]) -> bool:
+        """Whether `box` stands somewhere else than `anchor`: see the class."""
+        w, h = anchor[2] - anchor[0], anchor[3] - anchor[1]
+        if w <= 0 or h <= 0:
+            return True
+        dx = abs((box[0] + box[2]) - (anchor[0] + anchor[2])) / 2
+        dy = abs((box[1] + box[3]) - (anchor[1] + anchor[3])) / 2
+        size = ((box[2] - box[0]) * (box[3] - box[1])) / (w * h)
+        resized = not 1 / self.grown_by <= size <= self.grown_by
+        return dx > self.moved_by * w or dy > self.moved_by * h or resized
+
+    def _keep(self, t: Track) -> float:
+        """How long an object out of sight is remembered."""
+        return self.remember_still if t.seen - t.still_since >= self.still_after else self.forget_after
 
     def _status(self, t: Track, now: float, confirm: float) -> str:
         """`counts`, or why not: `unconfirmed` (seen too briefly yet) or `still` (it hasn't moved
         for `still_after` seconds)."""
-        if now - t.first < confirm:
-            return "unconfirmed"
         if now - t.still_since >= self.still_after:
             return "still"
+        if now - t.first < confirm:
+            return "unconfirmed"
         return "counts"
 
 

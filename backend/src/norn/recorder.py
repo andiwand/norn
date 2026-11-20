@@ -36,6 +36,7 @@ import os
 import shutil
 import signal
 import time
+from collections import deque
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
@@ -45,7 +46,7 @@ from typing import Any
 from .config import Config
 from .events import EventBus
 from .go2rtc import Go2rtc, Go2rtcUnavailableError
-from .recordings import Library, disk, folder_size
+from .recordings import OBJECTS, SUFFIXES, Library, disk, folder_size
 from .settings import Settings
 
 log = logging.getLogger("norn.recorder")
@@ -53,6 +54,7 @@ log = logging.getLogger("norn.recorder")
 FRAGMENTED = "movflags=+frag_keyframe+empty_moov+default_base_moof"
 PIECE_SECONDS = 2  # length of a buffer piece; FFmpeg cuts at the next keyframe after it
 MAX_CLIP_SECONDS = 4 * 3600  # however often triggers extend a clip
+SEEN_KEPT = 300  # seconds of Norn's boxes kept for the time a clip includes from before its trigger
 
 # Video arguments: copy the stream; or, for MJPEG (which browsers can't play from an MP4),
 # encode to H.264 as cheaply as possible.
@@ -309,6 +311,8 @@ class Clip:
     by: dict[str, set[str]] = field(default_factory=dict)  # per trigger: the camera, Norn
     checked: bool = False  # Norn's AI looked at stills while it ran
     norn_saw: set[str] = field(default_factory=set)  # and found these
+    # What Norn's AI found on each still during the clip (time.time(), boxes), for its player.
+    seen: list[tuple[float, list[dict[str, Any]]]] = field(default_factory=list)
     closing: bool = False  # its end is fixed: a trigger now starts a new clip
     process: asyncio.subprocess.Process | None = None
     task: asyncio.Task[None] | None = field(default=None, repr=False)
@@ -339,6 +343,7 @@ class Recorder:
         self._pictures: dict[str, tuple[int, asyncio.Task[None]]] = {}
         self.transcode: set[str] = set()
         self.clips: dict[str, Clip] = {}  # the current clip of each camera
+        self._seen: dict[str, deque[tuple[float, list[dict[str, Any]]]]] = {}  # see note_objects
         self._clip_tasks: set[asyncio.Task[None]] = set()  # with clips that are still closing
         self._housekeeping: asyncio.Task[None] | None = None
         self._evict_paused_until = 0.0
@@ -516,12 +521,25 @@ class Recorder:
             by={trigger: set(by)},
         )
         self.clips[camera] = clip
+        clip.seen = [s for s in self._seen.get(camera, ()) if s[0] >= start.timestamp()]
         runner = self._run_buffered_clip(clip, buffer) if buffer and before else self._run_clip(clip)
         clip.task = asyncio.create_task(runner, name=f"clip-{camera}")
         self._clip_tasks.add(clip.task)
         clip.task.add_done_callback(self._clip_tasks.discard)
         self.bus.publish("recording.started", clip.to_json())
         return clip
+
+    def note_objects(self, camera: str, objects: list[dict[str, Any]]) -> None:
+        """What Norn's AI found on a still just now (the boxes the camera page gets). A clip keeps
+        those of its time, from before its trigger too, so its player can draw them."""
+        now = time.time()
+        seen = self._seen.setdefault(camera, deque())
+        seen.append((now, objects))
+        while seen and now - seen[0][0] > SEEN_KEPT:
+            seen.popleft()
+        clip = self.clips.get(camera)
+        if clip and now <= clip.end:
+            clip.seen.append((now, objects))
 
     async def stop_clip(self, camera: str) -> bool:
         clip = self.clips.get(camera)
@@ -686,6 +704,10 @@ class Recorder:
         moved = None
         if clip.path.exists():
             clip.path.with_suffix(".json").write_text(json.dumps(meta, indent=2) + "\n")
+            if any(objects for _, objects in clip.seen):
+                start = clip.start.timestamp()
+                seen = [{"at": round(t - start, 1), "objects": objects} for t, objects in clip.seen]
+                clip.path.with_suffix(OBJECTS).write_text(json.dumps(seen, separators=(",", ":")))
             moved = await self._to_library(clip.camera, clip.path)
         else:
             clip.path.with_suffix(".jpg").unlink(missing_ok=True)
@@ -784,7 +806,7 @@ class Recorder:
         def move() -> Path:
             target = _unused(self.library.path(camera, path.parent.name, path.name))
             target.parent.mkdir(parents=True, exist_ok=True)
-            for suffix in (path.suffix, ".jpg", ".json"):
+            for suffix in (path.suffix, ".jpg", ".json", OBJECTS):
                 source = path.with_suffix(suffix)
                 if source.exists():
                     _move(source, target.with_suffix(suffix))
@@ -965,7 +987,7 @@ def _append(piece: Path, joined: Path) -> None:
 def _unused(target: Path) -> Path:
     """`target`, else the same name a second later (and so on), so a move never overwrites a
     recording: in the hour after the clocks go back, names repeat."""
-    while any(target.with_suffix(s).exists() for s in (".mp4", ".jpg", ".json")):
+    while any(target.with_suffix(s).exists() for s in SUFFIXES):
         when, _, rest = target.name.partition("_")
         later = datetime.strptime(when, "%H-%M-%S") + timedelta(seconds=1)
         target = target.with_name(f"{later:%H-%M-%S}_{rest}")

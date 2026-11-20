@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import time
 from datetime import datetime, timedelta
@@ -133,3 +134,21 @@ async def test_a_clip_notes_who_saw_it(recorder: Recorder) -> None:
         finished = await asyncio.wait_for(queue.get(), 1)
     assert meta["by"] == {"person": ["camera", "norn"]} and meta["norn_saw"] == ["animal"]
     assert finished["data"]["by"] == {"person": ["camera", "norn"]}
+
+
+async def test_a_clip_keeps_norns_boxes(recorder: Recorder) -> None:
+    """What Norn's AI found on the stills of a clip's time, from before its trigger too, goes
+    next to the video (`.objects.json`) and moves into the recordings with it; the API serves it."""
+    person = [{"kind": "person", "score": 0.8, "box": [0.1, 0.2, 0.3, 0.6], "status": "counts"}]
+    recorder.note_objects("c", [])  # longer ago than the clip's start: not in it
+    recorder._seen["c"][0] = (time.time() - 60, [])
+    recorder.note_objects("c", person)  # before the trigger, within the pre-recording
+    clip = await recorder.record_clip("c", "person", 10)
+    clip.start -= timedelta(seconds=5)
+    recorder.note_objects("c", [])
+    touch(clip.path)
+    await recorder._finish_clip(clip, {}, asyncio.create_task(asyncio.sleep(0)))
+    [video] = [p for p in recorder.library.root.rglob("*.mp4")]
+    seen = json.loads(video.with_suffix(".objects.json").read_text())
+    assert [s["objects"] for s in seen] == [person, []]
+    assert 4 <= seen[0]["at"] <= 6 and seen[0]["at"] <= seen[1]["at"]
