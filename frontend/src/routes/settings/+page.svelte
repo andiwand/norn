@@ -272,8 +272,8 @@
 				/>
 			</SettingsSection>
 			<p class="px-1 text-xs text-muted">
-				The defaults come from the <code class="font-mono">NORN_MQTT</code> environment variables; config.yaml
-				keeps what differs from them. Norn connects again when you save.
+				Kept in config.yaml's <code class="font-mono">mqtt</code> section. Norn connects again when you
+				save.
 			</p>
 		{:else if tab === 'notifications'}
 			<NotificationSettings bind:rules={form.notifications} defaults={defaults.notifications} />

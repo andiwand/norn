@@ -276,9 +276,9 @@ HOST = r"^[^\s/@]*$"  # a host name or address, nothing else (no mqtt://, no use
 
 
 class MqttSettings(BaseModel):
-    """MQTT, for Home Assistant and other home automation (mqtt.py). The defaults come from the
-    NORN_MQTT* environment variables (`mqtt.defaults`); config.yaml has what differs from them
-    (`MqttOverride`)."""
+    """The `mqtt` section of config.yaml: MQTT, for Home Assistant and other home automation
+    (mqtt.py). The NORN_MQTT* environment variables only fill it in when the file has none
+    (`mqtt.from_env`, on start); after that, the file alone counts."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -292,26 +292,6 @@ class MqttSettings(BaseModel):
     discovery: bool = True  # Home Assistant's MQTT discovery
     discovery_prefix: str = Field("homeassistant", pattern=TOPIC_LEVEL)
     stills_seconds: int = Field(0, ge=0, le=86400)  # each camera's still this often; 0: none
-
-
-class MqttOverride(BaseModel):
-    """The `mqtt` section of config.yaml: what differs from the environment's defaults."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    enabled: bool | None = None
-    host: str | None = Field(None, pattern=HOST)
-    port: int | None = Field(None, ge=0, le=65535)
-    tls: bool | None = None
-    username: str | None = None
-    password: str | None = None
-    prefix: str | None = Field(None, pattern=TOPIC_LEVEL)
-    discovery: bool | None = None
-    discovery_prefix: str | None = Field(None, pattern=TOPIC_LEVEL)
-    stills_seconds: int | None = Field(None, ge=0, le=86400)
-
-    def over(self, defaults: MqttSettings) -> MqttSettings:
-        return defaults.model_copy(update=self.model_dump(exclude_none=True))
 
 
 class CameraConfig(BaseModel):
@@ -416,7 +396,7 @@ class Config(BaseModel):
     firmware: FirmwareSettings = Field(default_factory=FirmwareSettings)
     away: AwaySettings = Field(default_factory=AwaySettings)
     detection: DetectionSettings = Field(default_factory=DetectionSettings)
-    mqtt: MqttOverride = Field(default_factory=MqttOverride)
+    mqtt: MqttSettings = Field(default_factory=MqttSettings)
     notifications: NotificationSettings = Field(default_factory=NotificationSettings)
     circles: dict[str, CircleConfig] = Field(default_factory=dict)
     cameras: dict[str, CameraConfig] = Field(default_factory=dict)
@@ -829,6 +809,14 @@ class ConfigStore:
         if tail:
             _put_tail_comment(self._doc, tail)
         return self._commit()
+
+    def seed_section(self, name: str, values: BaseModel) -> bool:
+        """Write a settings section only if the file has none (initial values from the
+        environment). True if it wrote one."""
+        if name in self._doc or values == type(values)():
+            return False
+        self.put_section(name, values)
+        return True
 
     def remove_camera(self, camera_id: str) -> Config:
         return self._remove_entry("cameras", camera_id)

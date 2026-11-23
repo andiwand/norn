@@ -139,29 +139,36 @@ def test_settings_round_trip(client: TestClient, settings: Settings) -> None:
 
 
 def test_mqtt_settings(settings: Settings) -> None:
-    # The environment's broker is the default; config.yaml keeps only what differs from it.
+    # The environment's broker goes into config.yaml on the first start; from then on, only the
+    # file counts.
     env = dataclasses.replace(settings, mqtt_url="mqtt://norn:hunter2@127.0.0.1:1", mqtt_prefix="home")
     with TestClient(create_app(env)) as client:
         hub = client.app.state.hub  # type: ignore[attr-defined]
+        text = settings.config_path.read_text()
+        assert "mqtt:\n  enabled: true\n  host: 127.0.0.1\n  port: 1\n" in text and "prefix: home" in text
         data = client.get("/api/settings").json()
-        assert data["defaults"]["mqtt"]["host"] == "127.0.0.1" and data["values"]["mqtt"]["enabled"]
+        assert data["defaults"]["mqtt"]["host"] == "" and data["values"]["mqtt"]["host"] == "127.0.0.1"
         assert "hunter2" not in str(data) and data["secrets"] == {"mqtt": ["password"]}
         assert hub.mqtt.broker.password == "hunter2"
 
         response = client.put("/api/settings", json={"mqtt": {"prefix": "norn", "stills_seconds": 10}})
         assert response.status_code == 200, response.text
         text = settings.config_path.read_text()
-        assert "mqtt:\n  prefix: norn\n  stills_seconds: 10\n" in text and "hunter2" not in text
+        assert "prefix:" not in text and "stills_seconds: 10" in text  # at its default: out of the file
         assert hub.mqtt.prefix == "norn" and hub.mqtt.stills == 10  # connected again, with them
         assert hub.mqtt.broker.password == "hunter2"  # an empty password keeps the one there is
 
         assert client.put("/api/settings", json={"mqtt": {"enabled": False}}).status_code == 200
         assert hub.mqtt.broker is None and client.get("/api/info").json()["mqtt"] == {"enabled": False}
-        # Back at the defaults: out of the file.
-        client.put("/api/settings", json={"mqtt": {"enabled": True, "prefix": "home", "stills_seconds": 0}})
-        assert "mqtt" not in settings.config_path.read_text()
 
+    # Started again with the same environment: the file has an `mqtt` section, so it stays off.
+    with TestClient(create_app(env)) as client:
+        assert client.app.state.hub.mqtt.broker is None  # type: ignore[attr-defined]
+        assert "enabled" not in settings.config_path.read_text()
+
+    settings.config_path.write_text("cameras: {}\n")
     with TestClient(create_app(settings)) as client:  # no broker in the environment
+        assert "mqtt" not in settings.config_path.read_text()
         assert client.put("/api/settings", json={"mqtt": {"enabled": True}}).status_code == 422
         assert client.put("/api/settings", json={"mqtt": {"host": "mqtt://x"}}).status_code == 422
         body = {"mqtt": {"enabled": True, "host": "127.0.0.1", "port": 1, "password": "pw"}}

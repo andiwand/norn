@@ -49,7 +49,7 @@ from .go2rtc import Go2rtc, Go2rtcUnavailableError
 from .gop import GopCache
 from .labels import LABELS
 from .mqtt import Mqtt
-from .mqtt import defaults as mqtt_defaults
+from .mqtt import from_env as mqtt_from_env
 from .notify import Notifier
 from .pilot import Pilot
 from .probe import StreamProbe, probe_all, probeable
@@ -222,16 +222,15 @@ class Hub:
         # Frames of recordings for the timeline: a few at a time, the latest kept.
         self._frames: OrderedDict[tuple[Path, float], bytes] = OrderedDict()
         self._frame_slots = asyncio.Semaphore(2)
-        # Home Assistant and other home automation: config.yaml's `mqtt`, over the environment's.
-        self.mqtt_defaults = mqtt_defaults(settings)
-        self.mqtt = Mqtt(self.mqtt_defaults, self)
+        # Home Assistant and other home automation: config.yaml's `mqtt`.
+        self.mqtt = Mqtt(MqttSettings(), self)
 
     @property
     def config(self) -> Config:
         return self.store.config
 
     def mqtt_settings(self) -> MqttSettings:
-        return self.config.mqtt.over(self.mqtt_defaults)
+        return self.config.mqtt
 
     async def _apply_mqtt(self) -> None:
         """Connect again if the MQTT settings changed."""
@@ -244,9 +243,16 @@ class Hub:
         log.info("MQTT %s", f"to {self.mqtt.broker.host}" if self.mqtt.broker else "off")
         self.bus.publish("mqtt.changed", {"connected": False})
 
+    def _seed_from_env(self) -> None:
+        """Settings the environment gives (NORN_MQTT, ...) go into config.yaml once, as its
+        initial values; from then on the file alone counts."""
+        if self.store.seed_section("mqtt", mqtt_from_env(self.settings)):
+            log.info("MQTT settings from the environment written into %s", self.store.path)
+
     async def start(self) -> None:
         try:
             self.store.load()
+            self._seed_from_env()
         except ConfigError as e:
             # Start anyway, so the UI can show what's wrong instead of a dead page.
             self.config_error = str(e)

@@ -103,7 +103,8 @@ image or the PyPI package `norn-hub`. The name may change later.
     browser needs only port 8000 plus 8555 for WebRTC media), `/api/events`, and the web app with
     an index.html fallback.
   - `mqtt.py`: Home Assistant over MQTT discovery. Its settings are config.yaml's `mqtt`
-    (`MqttOverride`) over defaults from the `NORN_MQTT*` variables (`mqtt.defaults`); the hub
+    (`MqttSettings`); the `NORN_MQTT*` variables (`mqtt.from_env`) are only initial values,
+    written into the file on start when it has no `mqtt` section (`Hub._seed_from_env`). The hub
     makes a new `Mqtt` when they change. The API never returns the password.
   - `auth.py` / `auth_api.py`: sign-in. Off until `users:` in config.yaml has someone; then
     `AuthMiddleware` lets nobody into /api (WebSockets too) without a session cookie
@@ -121,8 +122,10 @@ image or the PyPI package `norn-hub`. The name may change later.
     that expires after an hour (a push message holds ~4 KB; the phone fetches the picture
     without a session). The web app's service worker (`frontend/src/service-worker/`) shows
     them and opens the camera on a tap; it caches nothing.
-  - `settings.py`: process settings from `NORN_*` environment variables. Camera and recording
-    settings belong in config.yaml, not here.
+  - `settings.py`: process settings from `NORN_*` environment variables (paths, ports,
+    binaries, logs). Anything a user changes belongs in config.yaml, not here; an environment
+    variable for such a setting only seeds the file (`ConfigStore.seed_section`), never
+    overrides it.
 - `frontend/`: SvelteKit 3 + Svelte 5 runes + Tailwind 4, built as a static single-page app
   (`adapter-static`, `ssr = false`). `src/lib/state.svelte.ts` holds the shared state and the
   event WebSocket; `src/lib/api.ts` the typed API. The live player is go2rtc's `video-rtc.js`

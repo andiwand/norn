@@ -336,7 +336,7 @@ export interface Info {
 	rtsp: { port: number; shared: boolean };
 	recording_available: boolean;
 	recording: RecordingSettings;
-	/** MQTT, for Home Assistant: Settings → MQTT (by default from NORN_MQTT). */
+	/** MQTT, for Home Assistant: Settings → MQTT (config.yaml's `mqtt`). */
 	mqtt: MqttStatus;
 	/** Away mode: `now` is whether it is on at the moment (switched on, or planned). */
 	away: AwaySettings & { now: boolean };
@@ -394,7 +394,7 @@ export interface RecordingSettings {
 	schedule: Window[];
 }
 
-/** MQTT, for Home Assistant. The defaults come from the NORN_MQTT* environment variables. */
+/** MQTT, for Home Assistant: config.yaml's `mqtt` section. */
 export interface MqttSettings {
 	enabled: boolean;
 	host: string;

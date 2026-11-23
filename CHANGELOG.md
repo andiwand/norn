@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- MQTT: `NORN_MQTT` and the other `NORN_MQTT_*` variables now only give the initial values. On
+  start, Norn writes them into config.yaml's `mqtt` section if it has none; from then on the
+  file alone counts, and the variables no longer change anything. An existing setup keeps
+  working: its broker moves into the file on the next start.
+
 - Recordings: the boxes keep time with the video. A clip from the pre-recording buffer begins
   with a piece from a few seconds before its start, and the boxes ran that much late. With
   Norn looking only every 10 seconds or more, they no longer blink out between stills.

@@ -172,8 +172,8 @@ The process itself is set with environment variables:
 | `NORN_GO2RTC`         | `managed`                      | `managed` (Norn runs go2rtc), `external`, or `off`.        |
 | `NORN_GO2RTC_API`     | `http://127.0.0.1:1984`        | go2rtc's API, for an `external` one.                       |
 | `NORN_GO2RTC_BIN`, `NORN_FFMPEG` | `go2rtc`, `ffmpeg`  | The binaries.                                              |
-| `NORN_MQTT`           |                                | Default broker, `mqtt://user:password@host:1883` (`mqtts://` for TLS). |
-| `NORN_MQTT_PREFIX`, `NORN_MQTT_DISCOVERY`, `NORN_MQTT_STILLS` | `norn`, `homeassistant`, `0` | Defaults for the MQTT settings below. |
+| `NORN_MQTT`           |                                | Initial broker, `mqtt://user:password@host:1883` (`mqtts://` for TLS). |
+| `NORN_MQTT_PREFIX`, `NORN_MQTT_DISCOVERY`, `NORN_MQTT_STILLS` | `norn`, `homeassistant`, `0` | Initial values of the MQTT settings below. |
 | `TZ`                  |                                | The time zone of file names, schedules and away times.     |
 
 ### Recordings
@@ -218,8 +218,9 @@ mqtt:
   stills_seconds: 0 # each camera's still this often (at least 5), as a camera entity; 0: none
 ```
 
-The defaults come from `NORN_MQTT` and the other `NORN_MQTT_*` variables, so a broker set there
-works with no `mqtt` section. Norn connects again when the settings change.
+`NORN_MQTT` and the other `NORN_MQTT_*` variables only give the initial values: when config.yaml
+has no `mqtt` section, Norn writes them into it on start. From then on the file alone counts, so
+change the settings there or in Settings → MQTT. Norn connects again when they change.
 
 Home Assistant then shows a **Norn** device (**Away mode** switch, a record button per circle,
 **Last error**) and one device per camera with a sensor per kind of detection, **Recording** and

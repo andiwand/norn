@@ -1,10 +1,10 @@
 """MQTT, for Home Assistant and other home automation.
 
-Norn connects to a broker (the `mqtt` section of config.yaml, whose defaults come from NORN_MQTT
-and the other NORN_MQTT_* variables) and publishes what the hub knows: each camera's detections,
-whether it records, whether it is online, its controls and its Norn presets, and away mode. It
-listens for commands on `.../set` topics: record a clip, go to a preset, set a control, turn away
-mode on or off.
+Norn connects to a broker (the `mqtt` section of config.yaml; NORN_MQTT and the other NORN_MQTT_*
+variables only fill it in on a start when the file has none) and publishes what the hub knows:
+each camera's detections, whether it records, whether it is online, its controls and its Norn
+presets, and away mode. It listens for commands on `.../set` topics: record a clip, go to a
+preset, set a control, turn away mode on or off.
 
 With Home Assistant's MQTT discovery, every camera appears in Home Assistant as a device with its
 entities, with nothing to copy. The entities come from what the drivers declare, like the web app:
@@ -122,9 +122,9 @@ class Broker:
         )
 
 
-def defaults(settings: Settings) -> MqttSettings:
-    """The MQTT settings from the environment (NORN_MQTT, ...): config.yaml's `mqtt` section
-    changes them."""
+def from_env(settings: Settings) -> MqttSettings:
+    """The MQTT settings the environment gives (NORN_MQTT, ...): the initial values of
+    config.yaml's `mqtt` section, written there when the file has none."""
     broker = Broker.parse(settings.mqtt_url) if settings.mqtt_url else None
     discovery = settings.mqtt_discovery.lower() != "off"
     return MqttSettings(
