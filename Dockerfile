@@ -47,6 +47,7 @@ ENV PATH=/app/.venv/bin:$PATH \
 VOLUME ["/config", "/recordings", "/temp"]
 # 8000: web UI and API. 8555: WebRTC media (TCP and UDP).
 EXPOSE 8000 8555/tcp 8555/udp
+# Asks where Norn listens: NORN_PORT, and NORN_HOST unless that is every address.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4)"
+  CMD python -c "import os, urllib.request; h = os.environ.get('NORN_HOST', '').strip(); h = '127.0.0.1' if h in ('', '0.0.0.0', '::') else (f'[{h}]' if ':' in h else h); p = os.environ.get('NORN_PORT', '').strip() or '8000'; urllib.request.urlopen(f'http://{h}:{p}/api/health', timeout=4)"
 CMD ["norn"]

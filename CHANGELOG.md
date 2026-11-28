@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Docker: the image's health check asks the port in `NORN_PORT` (and the address in
+  `NORN_HOST`, when that is a single one). It always asked port 8000, so a container on another
+  port showed as unhealthy although Norn ran fine.
+
 - MQTT: `NORN_MQTT` and the other `NORN_MQTT_*` variables now only give the initial values. On
   start, Norn writes them into config.yaml's `mqtt` section if it has none; from then on the
   file alone counts, and the variables no longer change anything. An existing setup keeps
