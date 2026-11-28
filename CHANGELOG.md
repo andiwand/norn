@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.11.0 — 2026-11-28
 
 - Docker: the image's health check asks the port in `NORN_PORT` (and the address in
   `NORN_HOST`, when that is a single one). It always asked port 8000, so a container on another
